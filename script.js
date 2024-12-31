@@ -40,6 +40,7 @@ export class BasicApp extends MDElement {
   }
   onhashchange() {
     let key = decodeURIComponent(location.hash.slice(1));
+    this.shadow$('.screen-label').textContent = key;
     this.screens.forEach(screen => screen.style.display = (screen.title === key) ? '' : 'none');
     this.shadow$('menu-tabs').activateKey(key);
   }
@@ -62,7 +63,7 @@ export class BasicApp extends MDElement {
     <menu-button id="navigation">
       <md-icon-button><md-icon class="material-icons">menu</md-icon></md-icon-button>
     </menu-button>
-    ${this.title}
+    <span>${this.title}<span class="screen-label"></span></span>
     <menu-tabs></menu-tabs>
     <menu-button id="user">
       <md-icon-button><md-icon class="material-icons">account_circle</md-icon></md-icon-button>
@@ -92,6 +93,9 @@ export class BasicApp extends MDElement {
   header, header md-icon, header menu-tabs::part(tab) {
     color: var(--md-sys-color-on-primary-container);
   }
+  .screen-label::before { content: ": "; }
+  @media (max-width:700px) { header > menu-tabs { display: none; } }
+  @media (min-width:700px) { header .screen-label { display: none; } }
 `;
   }
 }
