@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script type="importmap">
+      { "comment": "Tells browser where to find each package, so that we do not need a build step.",
+      	"imports": {
+	  "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
+	  "@kilroy-code/ruled-components": "/@kilroy-code/ruled-components/index.mjs",
+          "@material/web/": "https://esm.run/@material/web/"
+	}
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+    <script type="module" src="script.js"></script>
+    <style>
+      first-use, create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
+      *:not(:defined) { opacity: 0; }
+      basic-app:defined { transition: opacity 0.5s ease-out; }
+      :root {
+      }
+    </style>
+  </head>
+  <body>
+    <basic-app>
+
+      <app-firstuse slot="first-use">
+	<h1>Welcome!</h1>
+	<p>...blah, blah, blah...</p>
+	<create-user></create-user>
+      </app-firstuse>
+
+      <user-profile title="User profile" slot="user-menu"></user-profile>
+      <switch-users title="Switch users" slot="user-menu"></switch-users>
+      <add-user title="Add user" slot="user-menu"></add-user>
+      <create-user title="Create user" slot="user-menu"></create-user>
+
+      <!-- All the rest are navigable sections -->
+      <list-items title="Groups" item="fairshare-group" fixmeondata="getGroups()"></list-items>
+      <fairshare-pay></fairshare-pay>
+      <fairshare-invest></fairshare-invest>
+      <fairshare-payme></fairshare-payme>
+      <div title="About">
+	<p>Here are things...</p>
+      </div>
+    </basic-app>
+  </body>
+</html>
