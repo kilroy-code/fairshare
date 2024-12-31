@@ -69,9 +69,9 @@ export class BasicApp extends MDElement {
     </menu-button>
   </header>
   <main>
-    <slot name="user-menu"></slot>
-    <slot name="first-use"></slot>
-    <slot>Add content as children.</slot>
+    <slot name="first-use">Add content to appear on first use.</slot>
+    <slot name="user-menu">Add content to appear in user menu.</slot>
+    <slot>Add contentto appear as tabs.</slot>
   </main>
 `;
   }

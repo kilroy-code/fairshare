@@ -44,7 +44,11 @@ export class AttachedView extends ModelView {
   static createViews(modelList, key, viewParent) {
     viewParent.innerHTML = '';
     for (let model of modelList) {
-      this.create(model, key, viewParent);
+      if (model.getAttribute('role') === 'separator') {
+	viewParent.append(model.cloneNode(true));
+      } else {
+	this.create(model, key, viewParent);
+      }
     }
     return modelList;
   }
