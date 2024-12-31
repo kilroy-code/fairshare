@@ -49,7 +49,7 @@ export class BasicApp extends MDElement {
     this.shadow$('#navigation').models = this.screens;
     const tabs = this.shadow$('menu-tabs');
     tabs.models = this.screens;
-    tabs.visibleModels = this.shadow$('slot:not([name])').assignedElements();
+    tabs.visibleModels = this.shadow$('slot:not([name]').assignedElements().filter(e => e.getAttribute('role') !== 'separator');
     this.addEventListener('close-menu', event => location.hash = event.detail.initiator.dataset.key);
     if (location.hash) setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
     else location.hash = this.screens[0].title;
