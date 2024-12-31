@@ -1,16 +1,6 @@
 import { RuledElement } from '/@kilroy-code/ruled-components/index.mjs';
 const {customElements, CustomEvent} = window; // Defined by browser.
 
-// TODO:
-// - MenuButton:
-//   - current tiem should be marked (bold? pseudo-disabled?)
-// - menuTabs:
-//   - app must set active from onhashchange (and startup), and component must set the active tab from that.
-//   - color
-//   - display: none for some tabs
-// - AttachedView
-//   - let attachedView be a non-displaying child of model, (distinguished by some attribute being set?,) rather than model[key] = instance;
-
 export class MDElement extends RuledElement {
   get title() {
     return this.toCapitalCase(this.tagName.split('-').slice(1).join(' '));
@@ -67,7 +57,6 @@ AttachedView.register();
 export class MenuItem extends AttachedView {
   get titleEffect() { // If model.title changes, update ourself in place (wherever we may appear).
     const headline = this.child$('[slot="headline"]');
-    //console.log('MenuItem titleEffect', this.model, this.model?.title, 'headline:', headline);
     return headline.textContent = this.view.dataset.key = this.model?.title || '';
   }
   get template() {
@@ -91,9 +80,7 @@ export class MenuButton extends MDElement {
     return slot;
   }
   get menu() {
-    const menu = this.shadowRoot.querySelector('md-menu'); //this.shadow$('md-menu');
-    //console.log('MenuButton.menu', this.fixme, this.id, menu);
-    return menu;
+    return this.shadowRoot.querySelector('md-menu'); //this.shadow$('md-menu');
   }
   get template() {
     return `
@@ -102,7 +89,6 @@ export class MenuButton extends MDElement {
       `;
   }
   get modelsEffect() {
-    //console.log('MenuButton.modelsEffect', this.fixme, this.id, 'models:', this.models, 'menu:', this.menu);
     MenuItem.createViews(this.models, 'user-menu', this.menu);    
     return true;
   }
@@ -120,7 +106,7 @@ export class TabItem extends AttachedView {
       return primary.textContent = primary.dataset.key = this.model?.title || '';
   }
   get template() {
-    return `<md-primary-tab></md-primary-tab>`;
+    return `<md-primary-tab part="tab"></md-primary-tab>`;
   }
 }
 TabItem.register();
@@ -131,6 +117,9 @@ export class MenuTabs extends MDElement {
   // In addition, one can call activateKey();
   get models() {
     return [];
+  }
+  get visibleModels() {
+    return this.models;
   }
   activateKey(key) {
     // It is possible to call this before the md-primary-tab[data-key] is set by TabItem.titleEffect.
@@ -145,10 +134,20 @@ export class MenuTabs extends MDElement {
     return this.shadow$('md-tabs');
   }
   get template() {
-    return `<md-tabs></md-tabs>`;
+    return `<md-tabs part="tabs"></md-tabs>`;
   }
   get modelsEffect() {
     TabItem.createViews(this.models, 'tab-item', this.tabs);
+    // We don't have tabs children yet (wait for next tick, but collect the required values now in this dynamic extent.
+    const {models, visibleModels, tabs} = this;
+    setTimeout(() => {
+      let index = 0;
+      for (const tab of tabs.tabs) {
+	const model = models[index++],
+	      isVisible = visibleModels.includes(model);
+	tab.style.display = isVisible ? '' : 'none';
+      }
+    });
     return true;
   }
   afterInitialize() {
