@@ -46,10 +46,12 @@ export class BasicApp extends MDElement {
   afterInitialize() {
     window.addEventListener('hashchange', () => this.onhashchange());
     this.shadow$('#user').models = this.shadow$('slot[name="user-menu"]').assignedElements();
-    //this.shadow$('#navigation').models = this.screens;
-    this.shadow$('menu-tabs').models = this.screens;
+    this.shadow$('#navigation').models = this.screens;
+    const tabs = this.shadow$('menu-tabs');
+    tabs.models = this.screens;
+    tabs.visibleModels = this.shadow$('slot:not([name])').assignedElements();
     this.addEventListener('close-menu', event => location.hash = event.detail.initiator.dataset.key);
-    if (location.hash) setTimeout(() => this.onhashchange()); // fixme: cannot depend on timing.
+    if (location.hash) setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
     else location.hash = this.screens[0].title;
   }
   get template() {
@@ -57,9 +59,9 @@ export class BasicApp extends MDElement {
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <link href="style.css" rel="stylesheet">
   <header>
-    <!--<menu-button id="navigation">
+    <menu-button id="navigation">
       <md-icon-button><md-icon class="material-icons">menu</md-icon></md-icon-button>
-    </menu-button>-->
+    </menu-button>
     ${this.title}
     <menu-tabs></menu-tabs>
     <menu-button id="user">
@@ -82,13 +84,13 @@ export class BasicApp extends MDElement {
     align-items: center;
     gap: 10px;
   }
-  header, header md-icon, md-primary-tab {
-    color: var(--md-sys-color-on-primary-container);
-     --_active-indicator-color: var(--md-sys-color-on-primary-container);
+  header > menu-tabs {
+    --md-primary-tab-container-color: var(--md-sys-color-primary-container);
+    --md-primary-tab-active-indicator-color: var(--md-sys-color-on-primary-container);
+    --md-primary-tab-icon-color: var(--md-sys-color-on-primary-container);
   }
-  md-primary-tab::part(elevation) {
-    background-color: var(--md-sys-color-primary-container);
-    z-index: -1;
+  header, header md-icon, header menu-tabs::part(tab) {
+    color: var(--md-sys-color-on-primary-container);
   }
 `;
   }
