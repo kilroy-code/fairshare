@@ -25,18 +25,6 @@
   <body>
     <basic-app>
 
-      <app-firstuse slot="first-use">
-	<h1>Welcome!</h1>
-	<p>...blah, blah, blah...</p>
-	<create-user></create-user>
-      </app-firstuse>
-
-      <user-profile title="User profile" slot="user-menu"></user-profile>
-      <switch-users title="Switch users" slot="user-menu"></switch-users>
-      <add-user title="Add user" slot="user-menu"></add-user>
-      <create-user title="Create user" slot="user-menu"></create-user>
-
-      <!-- All the rest are navigable sections -->
       <list-items title="Groups" item="fairshare-group" fixmeondata="getGroups()"></list-items>
       <fairshare-pay></fairshare-pay>
       <fairshare-invest></fairshare-invest>
@@ -44,6 +32,18 @@
       <div title="About">
 	<p>Here are things...</p>
       </div>
+
+      <user-profile title="User profile" slot="user-menu"></user-profile>
+      <switch-users title="Switch users" slot="user-menu"></switch-users>
+      <add-user title="Add user" slot="user-menu"></add-user>
+      <create-user title="Create user" slot="user-menu"></create-user>
+
+      <app-firstuse slot="first-use">
+	<h1>Welcome!</h1>
+	<p>...blah, blah, blah...</p>
+	<create-user></create-user>
+      </app-firstuse>
+
     </basic-app>
   </body>
 </html>
