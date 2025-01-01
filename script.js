@@ -1,128 +1,70 @@
-import { MenuButton, MenuItem, TabItem, MDElement } from './components.js';
+import { BasicApp, MenuButton, MenuItem, TabItem, ModelView, MDElement } from './components.js';
+import { Rule } from '@kilroy-code/rules';
 
-export class BasicApp extends MDElement {
-  get htmlElement() {
-    return this.doc$('html');
+// Bug: groups.setKey([]) causes it to dissappear from tabs.
+
+export class ListItem extends MDElement { // TODO: Unify this with AttachedView
+  // A component that doesn't display anything - it creates and populates a view rule from a model,
+  // and keeps the view consistent with the model.
+  get model() {
+    return null;
   }
-  get headElement() {
-    return this.doc$('html > head');
+  get view() {
+    return document.createElement('md-list-item');
   }
-  get langEffect() { // If html[lang] is not set, set it from this.lang rule, and return whatever value is used.
-    // Note: does not change html[lang] once set, even if code assigns this.lang.
-    const key = 'lang';
-    if (this.htmlElement.hasAttribute(key)) return this.htmlElement.getAttribute(key);
-    this.htmlElement.setAttribute(key, this.lang);
-    return this.lang;
-  }
-  get title() { // Priority is overriding rule, the element's attribute, the head title content, or hostname.
-    return this.doc$('html > head > title')?.textContent || location.hostname;
-  }
-  get titleEffect() { // Ensure there is a head title element.
-    // Note: does not change html>head>title once it exists, even if code assigns this.title.
-    return this.headElement.querySelector('title') || this.maybeAppend('title', this.headElement);
-  }
-  get viewportEffect() { // Ensure there is a mobile-ready head vieport element.
-    let viewport = this.doc$('html > head > meta[name="viewport"]');
-    if (!viewport) {
-      viewport = document.createElement('meta');
-      viewport.setAttribute('name', 'viewport');
-      viewport.setAttribute('content', 'initial-scale=1, width=device-width');
-      this.headElement.append(viewport);
-    }
-    return viewport;
-  }
-  get screens() {
-    return Array.from(this.children);
-  }
-  get screensEffect() {
-    this.screens.forEach(screen => screen.dataset.key = screen.title);
-    return true;
-  }
-  onhashchange() {
-    let key = decodeURIComponent(location.hash.slice(1));
-    this.shadow$('.screen-label').textContent = key;
-    this.screens.forEach(screen => screen.style.display = (screen.title === key) ? '' : 'none');
-    this.shadow$('menu-tabs').activateKey(key);
-  }
-  afterInitialize() {
-    window.addEventListener('hashchange', () => this.onhashchange());
-    this.shadow$('#user').models = this.shadow$('slot[name="user-menu"]').assignedElements();
-    this.shadow$('#navigation').models = this.screens;
-    const tabs = this.shadow$('menu-tabs');
-    tabs.models = this.screens;
-    tabs.visibleModels = this.shadow$('slot:not([name]').assignedElements().filter(e => e.getAttribute('role') !== 'separator');
-    this.addEventListener('close-menu', event => location.hash = event.detail.initiator.dataset.key);
-    if (location.hash) setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
-    else location.hash = this.screens[0].title;
-  }
-  get template() {
-    return `
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-  <link href="style.css" rel="stylesheet">
-  <header>
-    <menu-button id="navigation">
-      <md-icon-button><md-icon class="material-icons">menu</md-icon></md-icon-button>
-    </menu-button>
-    <span>${this.title}<span class="screen-label"></span></span>
-    <menu-tabs></menu-tabs>
-    <menu-button id="user">
-      <md-icon-button><md-icon class="material-icons">account_circle</md-icon></md-icon-button>
-    </menu-button>
-  </header>
-  <main>
-    <slot name="first-use">Add content to appear on first use.</slot>
-    <slot name="user-menu">Add content to appear in user menu.</slot>
-    <slot>Add contentto appear as tabs.</slot>
-  </main>
-`;
-  }
-  get styles() {
-    return `
-  header {
-    background-color: var(--md-sys-color-primary-container);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-  }
-  header > menu-tabs {
-    --md-primary-tab-container-color: var(--md-sys-color-primary-container);
-    --md-primary-tab-active-indicator-color: var(--md-sys-color-on-primary-container);
-    --md-primary-tab-icon-color: var(--md-sys-color-on-primary-container);
-  }
-  header, header md-icon, header menu-tabs::part(tab) {
-    color: var(--md-sys-color-on-primary-container);
-  }
-  .screen-label::before { content: ": "; }
-  @media (max-width:700px) { header > menu-tabs { display: none; } }
-  @media (min-width:700px) { header .screen-label { display: none; } }
-`;
+  get titleEffect() {
+    return this.view.textContent = this.view.dataset.key = this.model?.title;
   }
 }
-BasicApp.register();
-window.BasicApp = BasicApp;
+ListItem.register();
 
 export class ListItems extends MDElement {
+  // A list of items built from keys:
+  // setKeys(array-of-keys) builds and maintains a set of ListItem children, where each child's model is getModel(key).
+  // Our shadowTree is an md-list, with each child being and view of each ListItem.
   get template() {
-    return `<ul><slot></slot></ul>`;
+    return `<md-list></md-list>`;
   }
-  // get handler() {
-  //   return new Function('return ' + (this.ondata || '[]'));
-  // }
-  get models() {
-    return []; //this.handler();
+  get view() {
+    return this.shadow$('md-list');
   }
-  keys = [];
-  getKey = (modelOrKey) => modelOrKey.key || modelOrKey;
-  get itemEffect() {
-    this.innerHTML = '';
-    this.models.forEach(modelOrKey =>
-      this.maybeAppend('li', this, modelOrKey).dataset.key = this.getKey(modelOrKey)
-    );
-    return this.children;
+  getModel(key) {
+    return {title: key};
+  }
+  setKeys(keys) { // Assumes that keys are ordered.
+    let items = Array.from(this.children),
+	  toRemove = items.filter(item => !keys.includes(item.dataset.key));
+    toRemove.forEach(item => {
+      item.view?.remove();
+      item.remove();
+    });
+    items = Array.from(this.children);
+    for (let keysIndex = 0, itemsIndex = 0; keysIndex < keys.length; keysIndex++) {
+      const key = keys[keysIndex],
+	    item = items[itemsIndex];
+      if (item?.dataset.key === key) {
+	itemsIndex++;
+      } else {
+	const insert = document.createElement('list-item');
+	insert.model = this.getModel(key);
+	insert.dataset.key = insert.view.dataset.key = key;
+	if (item) {
+	  item.before(insert);
+	  this.view.children[itemsIndex].before(insert.view);
+	} else {
+	  this.append(insert);
+	  this.view.append(insert.view);
+	}
+      }
+    }
   }
 }
 ListItems.register();
+
+export class SwitchUsers extends ListItems {
+}
+SwitchUsers.register();
+
 
 export class ToDo extends MDElement {
   get tagEffect() {
@@ -140,9 +82,6 @@ export class UserProfile extends ToDo {
 }
 UserProfile.register();
 
-export class SwitchUsers extends ToDo {
-}
-SwitchUsers.register();
 
 export class AddUser extends ToDo {
 }
@@ -163,8 +102,18 @@ AboutApp.register();
 
 ////////////////
 
-document.querySelector('list-items').models = ['apples', 'bananas', 'coconuts'];
-//window.getGroups = () => ['apples', 'bananas', 'coconuts'];
+class User {
+  constructor(properties) { Object.assign(this, properties); }
+  get title() { return 'x'; }
+  get picture() { return this.title.toLowerCase() + '.jpeg'; }
+}
+Rule.rulify(User.prototype);
+const users = window.users = {Alice: new User({title: 'Alice'}), Bob: new User({title: 'Bob'}), Carol: new User({title: 'Carol'})};
+
+document.querySelector('list-items').setKeys(['Apples', 'Bananas', 'Coconuts']);
+document.querySelector('switch-users').getModel = key => users[key];
+document.querySelector('switch-users').setKeys(Object.keys(users));
+
 
 export class FairsharePay extends ToDo {
 }
