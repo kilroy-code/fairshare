@@ -8,93 +8,143 @@ export class MDElement extends RuledElement {
 }
 MDElement.register();
 
-export class ModelView extends MDElement {
-  get modelId() {
-    return '';
-  }
+export class ViewTransform extends MDElement { // TODO: Unify this with AttachedView
+  // A component that doesn't display anything - it creates and populates a view rule from a model,
+  // and keeps the view consistent with the model.
   get model() {
-    return !this.modelId ? null : document.getElmentById(this.modelId);
+    return null;
   }
-}
-ModelView.register();
-
-export class AttachedView extends ModelView {
-  // A web component object that lives in a property or rule of a another web component, but does not itself
-  // appear on the DOM (either directly or in a shadow dom). It's purpose is to generate an MD web component
-  // because something (e.g., an md-menu) is looking specifically for a particular component (eg., an md-menu-item),
-  // and there's no opportunity for us to supply our own directly. But this object controls the generated component
-  // based on changes to the model.
   get content() { // Instead of a shadow dom tree, just answer a template element
     return this.fromHTML('template', this.template);
   }
   get view() {
     return this.content.content.firstElementChild; // First content is rule to get template, second gets dock fragment. No need to clone.
   }
-  static create(model, key, viewParent) {
-    const tag = customElements.getName(this),
-	  instance = document.createElement(tag);
-    // Appending to model serves two purposes:
-    // 1) createElement() isn't enough to trigger all the machinery. The component needs to be connected to a dom.
-    // 2) Being in the dom (even if no elements to display), keeps the instance from being garbage-collected.
-    instance.setAttribute('slot', key); // key is meant to be unique among all the places that might use model children.
-    model.append(instance);
-    instance.model = model;
-    viewParent.append(instance.view); // instance.view is not our child (under model), but rather a child of the viewParent.
+}
+ViewTransform.register();
+
+export class ListTransform extends MDElement {
+  get view() {
+    return this.content.firstElementChild;
   }
-  static createViews(modelList, key, viewParent) {
-    viewParent.innerHTML = '';
-    for (let model of modelList) {
-      if (model.getAttribute('role') === 'separator') {
-	viewParent.append(model.cloneNode(true));
+  get models() { // Alternatively to supplying getModel and calling setModel, one can set the models
+    return [];
+  }
+  get modelsEffect() {
+    if (!this.models.length) return false;
+    let keys = this.models.map(model => model.title);
+    this.setKeys(keys);
+    return true;
+  }
+  getModel(key) {
+    return this.models.find(model => model.dataset.key === key) || {title: key};
+  }
+  get viewTag() {
+    console.warn(`Please specifify a viewTag for ${this.title}.`);
+    return '';
+  }
+  getViewTagChildren() { // Fresh list each time.
+    return Array.from(this.children).filter(child => child.dataset.hasOwnProperty('key'));
+  }
+  setKeys(keys) { // Adds or removes viewTag elements to maintain ordered correspondence with keys.
+    let items = this.getViewTagChildren(),
+	toRemove = items.filter(item => !keys.includes(item.dataset.key));
+    toRemove.slice().forEach(item => {
+      item.view?.remove();
+      item.remove();
+    });
+    items = this.getViewTagChildren();
+    for (let keysIndex = 0, itemsIndex = 0; keysIndex < keys.length; keysIndex++) {
+      const key = keys[keysIndex],
+	    item = items[itemsIndex];
+      if (item?.dataset.key === key) {
+	itemsIndex++;
       } else {
-	this.create(model, key, viewParent);
+	const insert = document.createElement(this.viewTag);
+	insert.model = this.getModel(key);
+	insert.dataset.key = insert.view.dataset.key = key;
+	if (item) {
+	  item.before(insert);
+	  this.view.children[itemsIndex].before(insert.view);
+	} else {
+	  this.append(insert);
+	  this.view.append(insert.view);
+	}
       }
     }
-    return modelList;
-  }
-  child$(query) {
-    return this.view.querySelector(query);
   }
 }
-AttachedView.register();
+ListTransform.register();
 
-export class MenuItem extends AttachedView {
-  get titleEffect() { // If model.title changes, update ourself in place (wherever we may appear).
-    const headline = this.child$('[slot="headline"]');
-    return headline.textContent = this.view.dataset.key = this.model?.title || '';
-  }
+
+export class ListDivider extends MDElement {
   get template() {
-    return `<md-menu-item><div slot="headline"></div></md-menu-item>`;
+    return `<md-divider role="separator" tabindex="-1"></md-divider>`;
+  }
+  get title() {
+    return `divider-${Array.from(this.parentElement.children).indexOf(this)}`;
+  }
+}
+ListDivider.register();
+
+export class ListItem extends ViewTransform {
+  get template() {
+    return `<md-list-item></md-list-item>`;
+  }
+  get titleEffect() {
+    return this.view.textContent = this.view.dataset.key = this.model?.title;
+  }
+}
+ListItem.register();
+
+export class ListItems extends ListTransform {
+  // A list of items built from keys:
+  // setKeys(array-of-keys) builds and maintains a set of ListItem children, where each child's model is getModel(key).
+  // Our shadowTree is an md-list, with each child being and view of each ListItem.
+  get template() {
+    return `<md-list></md-list>`;
+  }
+  get viewTag() {
+    return 'list-item';
+  }
+}
+ListItems.register();
+
+
+export class MenuItem extends ViewTransform {
+  get template() {
+    return (this.model instanceof ListDivider) ? this.model.content.innerHTML : `<md-menu-item><div slot="headline"></div></md-menu-item>`;
+  }
+  get titleEffect() { // If model.title changes, update ourself in place (wherever we may appear).
+    const headline = this.view.querySelector('[slot="headline"]'),
+	  title = this.model?.title || '';
+    this.view.dataset.key = title;
+    if (!headline) return title;
+    return headline.textContent = title;
   }
 }
 MenuItem.register();
 
-export class MenuButton extends MDElement {
-  // Clicking the child element brings up a menu made from the models list.
-  // Dispatches 'close-menu' event per https://material-web.dev/components/menu/#api
-  get models() { // Menu is rebuilt if models changes, and items update when the the individual elements in models change properties.
-    return [];
-  }
-  get anchor() { // Can be overridden or assigned.
-    return this.slot.assignedElements()[0];
-  }
+export class MenuButton extends ListTransform {
   get slot() {
     const slot = this.shadow$('slot');
     slot.onslotchange = () => this.anchor = undefined;
     return slot;
   }
+  get anchor() { // Can be overridden or assigned.
+    return this.slot.assignedElements()[0];
+  }
   get menu() {
-    return this.shadowRoot.querySelector('md-menu'); //this.shadow$('md-menu');
+    return this.view;
+  }
+  get viewTag() {
+    return 'menu-item';
   }
   get template() {
     return `
-      <slot></slot>
       <md-menu></md-menu>
+      <slot></slot>
       `;
-  }
-  get modelsEffect() {
-    MenuItem.createViews(this.models, 'menu-item', this.menu);
-    return true;
   }
   afterInitialize() {
     this.menu.anchorElement = this.anchor;
@@ -103,45 +153,47 @@ export class MenuButton extends MDElement {
 }
 MenuButton.register();
 
-export class TabItem extends AttachedView {
+export class TabItem extends ViewTransform {
+  get template() {
+    return `<md-primary-tab part="tab"></md-primary-tab>`;
+  }
   get titleEffect() {
     const primary = this.view;
     // if (this.view.active) location.hash = this.model.title; // Not of much use without persistence.
       return primary.textContent = primary.dataset.key = this.model?.title || '';
   }
-  get template() {
-    return `<md-primary-tab part="tab"></md-primary-tab>`;
-  }
 }
 TabItem.register();
 
-export class MenuTabs extends MDElement {
-  // Works just like MenuButton but displays as an md-tabs.
-  // As for MenuButton, the 'close-menu' event is fired when a new tab is selected.
-  // In addition, one can call activateKey();
-  get models() {
-    return [];
-  }
-  get visibleModels() {
-    return this.models;
-  }
-  activateKey(key) {
-    // It is possible to call this before the md-primary-tab[data-key] is set by TabItem.titleEffect.
-    // So we get the dataset.key from the corresponding model. Alternatively, we could go next tick,
-    // but that would be awkward to debug.
-    let index = 0;
-    for (const tab of this.tabs.tabs) {
-      tab.active = key === this.models[index++].dataset.key;
-    }
-  }
-  get tabs() {
-    return this.shadow$('md-tabs');
+export class MenuTabs extends ListTransform {
+  get viewTag() {
+    return 'tab-item';
   }
   get template() {
     return `<md-tabs part="tabs"></md-tabs>`;
   }
+  get tabs() {
+    return this.shadow$('md-tabs');
+  }
+  activateKey(key) {
+    let index = 0;
+    for (const tab of this.tabs.tabs) {
+      // It is possible to call this before the md-primary-tab[data-key] is set by TabItem.titleEffect.
+      // So we get the dataset.key from the corresponding model.
+      // Alternatively, we could go next tick, but that would be awkward to debug.
+      tab.active = key === this.models[index++].dataset.key;
+    }
+  }
+  afterInitialize() {
+    this.tabs.addEventListener('change', event => {
+      this.dispatchEvent(new CustomEvent('close-menu', {detail: {initiator: event.target.activeTab}, bubbles: true, composed: true}));
+    });
+  }
+  get visibleModels() {
+    return this.models;
+  }
   get modelsEffect() {
-    TabItem.createViews(this.models, 'tab-item', this.tabs);
+    super.__modelsEffect();
     // We don't have tabs children yet (wait for next tick, but collect the required values now in this dynamic extent.
     const {models, visibleModels, tabs} = this;
     setTimeout(() => {
@@ -153,11 +205,6 @@ export class MenuTabs extends MDElement {
       }
     });
     return true;
-  }
-  afterInitialize() {
-    this.tabs.addEventListener('change', event => {
-      this.dispatchEvent(new CustomEvent('close-menu', {detail: {initiator: event.target.activeTab}, bubbles: true, composed: true}));
-    });
   }
 }
 MenuTabs.register();
@@ -212,7 +259,7 @@ export class BasicApp extends MDElement {
     this.shadow$('#navigation').models = this.screens;
     const tabs = this.shadow$('menu-tabs');
     tabs.models = this.screens;
-    tabs.visibleModels = this.shadow$('slot:not([name]').assignedElements().filter(e => e.getAttribute('role') !== 'separator');
+    tabs.visibleModels = this.shadow$('slot:not([name]').assignedElements().filter(e => !(e instanceof ListDivider));
     this.addEventListener('close-menu', event => location.hash = event.detail.initiator.dataset.key);
     if (location.hash) setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
     else location.hash = this.screens[0].title;
