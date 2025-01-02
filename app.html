@@ -18,8 +18,7 @@
       first-use, create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
       *:not(:defined) { opacity: 0; }
       basic-app:defined { transition: opacity 0.5s ease-out; }
-      :root {
-      }
+      section { margin: 10pt; }
     </style>
   </head>
   <body>
@@ -29,9 +28,28 @@
       <fairshare-pay></fairshare-pay>
       <fairshare-invest></fairshare-invest>
       <fairshare-payme></fairshare-payme>
-      <div title="About">
-	<p>Here are things...</p>
-      </div>
+      <section title="About">
+	<p>
+	  <i><b>This is a functionality demo with dummy data. For more information, see see <a href="https://howard-stearns.github.io/FairShare/" target="fairshare">README.md</a>.</b></i>
+	</p>
+	<p>FairShare is payment program in which you set your own fees, which are then distributed to members.</p>
+	<p>In this demo you can switch between three users that are wired into a combination of existing groups. Each group has its own currency. The members of the group vote on:
+	  <ol>
+	    <li>allowing a candidate member, or ejecting an existing member</li>
+	    <li>the transaction fee for the group</li>
+	    <li>the amount of new money to mint and give to members as a basic daily income</li>
+	  </ol>
+	</p>
+	<p>
+	  You can pay people in your group directly, with the group's currency, and you will be charged the current average of the member's proposals for a transaction fee. The collected fee is taken out of circulation. Most groups will want to vote to make the fees offset the daily stipend.
+	</p>
+	<p>
+	  You can pay people in other groups, too.
+	</p>
+	<p>
+	  There is a video and a very brief whitepaper at <a href="https://fairshare.social" target="fairshare">fairshare.social</a>.
+	</p>
+      </section>
 
       <list-divider></list-divider>
 
