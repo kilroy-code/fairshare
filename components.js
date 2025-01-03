@@ -8,6 +8,15 @@ export class MDElement extends RuledElement {
 }
 MDElement.register();
 
+export class MaterialIcon extends MDElement {
+  get template() {
+    return `
+      <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+      <md-icon class="material-icons"><slot></slot></md-icon>`;
+  }
+}
+MaterialIcon.register();
+
 export class ViewTransform extends MDElement { // TODO: Unify this with AttachedView
   // A component that doesn't display anything - it creates and populates a view rule from a model,
   // and keeps the view consistent with the model.
@@ -24,7 +33,7 @@ export class ViewTransform extends MDElement { // TODO: Unify this with Attached
 ViewTransform.register();
 
 export class ListTransform extends MDElement {
-  get view() {
+  get itemParent() {
     return this.content.firstElementChild;
   }
   get models() { // Alternatively to supplying getModel and calling setModel, one can set the models
@@ -65,10 +74,10 @@ export class ListTransform extends MDElement {
 	insert.dataset.key = insert.view.dataset.key = key;
 	if (item) {
 	  item.before(insert);
-	  this.view.children[itemsIndex].before(insert.view);
+	  this.itemParent.children[itemsIndex].before(insert.view);
 	} else {
 	  this.append(insert);
-	  this.view.append(insert.view);
+	  this.itemParent.append(insert.view);
 	}
       }
     }
@@ -78,6 +87,9 @@ ListTransform.register();
 
 
 export class ListDivider extends MDElement {
+  get copyContent() {
+    return this.content.innerHTML;
+  }
   get template() {
     return `<md-divider role="separator" tabindex="-1"></md-divider>`;
   }
@@ -113,7 +125,7 @@ ListItems.register();
 
 export class MenuItem extends ViewTransform {
   get template() {
-    return (this.model instanceof ListDivider) ? this.model.content.innerHTML : `<md-menu-item><div slot="headline"></div></md-menu-item>`;
+    return this.model.copyContent || `<md-menu-item><div slot="headline"></div></md-menu-item>`;
   }
   get titleEffect() { // If model.title changes, update ourself in place (wherever we may appear).
     const headline = this.view.querySelector('[slot="headline"]'),
@@ -135,14 +147,17 @@ export class MenuButton extends ListTransform {
     return this.slot.assignedElements()[0];
   }
   get menu() {
-    return this.view;
+    return this.itemParent;
   }
   get viewTag() {
     return 'menu-item';
   }
+  get hasOverflow() {
+    return false;
+  }
   get template() {
     return `
-      <md-menu></md-menu>
+      <md-menu${this.hasOverflow === '' ? ' has-overflow' : ''}></md-menu>
       <slot></slot>
       `;
   }
@@ -255,12 +270,22 @@ export class BasicApp extends MDElement {
   }
   afterInitialize() {
     window.addEventListener('hashchange', () => this.onhashchange());
-    this.shadow$('#user').models = this.shadow$('slot[name="user-menu"]').assignedElements();
-    this.shadow$('#navigation').models = this.screens;
+    const userMenuItems = this.shadow$('slot[name="user-menu"]').assignedElements();
+    this.shadow$('#user').models = userMenuItems;
+    this.shadow$('#navigation').models = this.screens.filter(s => !userMenuItems.includes(s));
     const tabs = this.shadow$('menu-tabs');
     tabs.models = this.screens;
     tabs.visibleModels = this.shadow$('slot:not([name]').assignedElements().filter(e => !(e instanceof ListDivider));
-    this.addEventListener('close-menu', event => location.hash = event.detail.initiator.dataset.key);
+    const screenKeys = this.screens.map(s => s.dataset.key);
+    this.addEventListener('close-menu', event => {
+      const key = event.detail.initiator.dataset.key,
+	    isScreen = screenKeys.includes(key);
+      if (isScreen) return location.hash = key;
+      const url = new URL(location.href);
+      url.searchParams.set('user', key);
+      location.href = url;
+      return true;
+    });
     if (location.hash) setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
     else location.hash = this.screens[0].title;
   }
@@ -274,8 +299,10 @@ export class BasicApp extends MDElement {
     </menu-button>
     <span>${this.title}<span class="screen-label"></span></span>
     <menu-tabs></menu-tabs>
-    <menu-button id="user">
-      <md-icon-button><md-icon class="material-icons">account_circle</md-icon></md-icon-button>
+    <menu-button id="user" has-overflow>
+      <md-icon-button>
+         <material-icon>account_circle</material-icon>
+      </md-icon-button>
     </menu-button>
   </header>
   <main>
@@ -299,7 +326,7 @@ export class BasicApp extends MDElement {
     --md-primary-tab-active-indicator-color: var(--md-sys-color-on-primary-container);
     --md-primary-tab-icon-color: var(--md-sys-color-on-primary-container);
   }
-  header, header md-icon, header menu-tabs::part(tab) {
+  header, header md-icon, header material-icon, header menu-tabs::part(tab) {
     color: var(--md-sys-color-on-primary-container);
   }
   .screen-label::before { content: ": "; }

@@ -1,9 +1,32 @@
-import { BasicApp, MDElement, ListItems } from './components.js';
+import { BasicApp, MDElement, ListTransform } from './components.js';
 import { Rule } from '@kilroy-code/rules';
 
 // Bug: groups.setKey([]) causes it to dissappear from tabs.
 
-export class SwitchUsers extends ListItems {
+export class SwitchUsers extends ListTransform { // A submenu populated from setKeys/getModel.
+  get viewTag() {
+    return 'menu-item';
+  }
+  get titleEffect() {
+    return this.shadow$('md-sub-menu > md-menu-item[slot="item"] > div[slot="headline"]').textContent = this.title;
+  }
+  get template() {
+    return `
+      <md-sub-menu>
+        <md-menu-item slot="item">
+          <div slot="headline"></div>
+          <material-icon slot="start">arrow_left</material-icon>
+        </md-menu-item>
+        <md-menu slot="menu"></md-menu>
+      </md-sub-menu>
+    `;
+  }
+  get itemParent() {
+    return this.shadow$('md-menu');
+  }
+  get copyContent() {
+    return this.content.innerHTML;
+  }
 }
 SwitchUsers.register();
 
@@ -51,10 +74,11 @@ class User {
 }
 Rule.rulify(User.prototype);
 const users = window.users = {Alice: new User({title: 'Alice'}), Bob: new User({title: 'Bob'}), Carol: new User({title: 'Carol'})};
+const personas = Object.keys(users);
 
 document.querySelector('list-items').setKeys(['Apples', 'Bananas', 'Coconuts']);
 document.querySelector('switch-users').getModel = key => users[key];
-document.querySelector('switch-users').setKeys(Object.keys(users));
+document.querySelector('switch-users').setKeys(personas);
 
 
 export class FairsharePay extends ToDo {
