@@ -1,5 +1,8 @@
 import { RuledElement } from '/@kilroy-code/ruled-components/index.mjs';
-const {customElements, CustomEvent} = window; // Defined by browser.
+import { Rule } from '@kilroy-code/rules';
+const {customElements, CustomEvent, URL, localStorage, getComputedStyle} = window; // Defined by browser.
+
+export let App;
 
 export class MDElement extends RuledElement {
   get title() {
@@ -12,10 +15,131 @@ export class MaterialIcon extends MDElement {
   get template() {
     return `
       <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-      <md-icon class="material-icons"><slot></slot></md-icon>`;
+      <md-icon class="material-icons"><slot></slot></md-icon>
+    `;
   }
 }
 MaterialIcon.register();
+
+export class AppQrcode extends MDElement {
+  get data() { return App?.url.href; }
+  get image() { return ''; }
+  get size() { return 300; }
+  get color() { return getComputedStyle(this).getPropertyValue("--md-sys-color-on-secondary-container"); }
+  get background() { return getComputedStyle(this).getPropertyValue("--md-sys-color-secondary-container"); }
+  get dotsOptions() {
+    return {
+      color: this.color,
+      type: "rounded"
+    };
+  }
+  get backgroundOptions() {
+    return {
+      color: this.background
+    };
+  }
+  get imageOptions() {
+    return {
+      imageSize: 0.3,
+      margin: 6
+    };
+  }
+  get options() {
+    return {
+      width: this.size,
+      height: this.size,
+      type: 'svg',
+      data: this.data,
+      image: this.image,
+      dotsOptions: this.dotsOptions,
+      backgroundOptions: this.backgroundOptions,
+      imageOptions: this.imageOptions
+    };
+  }
+  get qrcodeModule() {
+    return App.ensureScript({
+      src: 'https://unpkg.com/qr-code-styling@1.5.0/lib/qr-code-styling.js',
+      async: 'async'
+    });
+  }
+  get generator() {
+    return this.qrcodeModule.loaded ? new window.QRCodeStyling(this.options) : null;
+  }
+  get effect() {
+    const container = this.content.firstElementChild;
+    container.innerHTML = '';
+    this.generator?.append(container); // Note that this is backwards to what you might think.
+    return true;
+  }
+  get template() {
+    return `<div></div>`;
+  }
+}
+AppQrcode.register();
+
+export class AvatarJdenticon extends MDElement {
+  // Clients can assign username or model.
+  get model() { return null; }
+  get username() { return this.model?.username || ''; }
+  get size() { return 80; }
+  get usernameEffect() {
+    return this.jdenticonModule?.updateSvg(this.jdenticonElement, this.username) || false;
+  }
+  get jdenticonElement() {
+    return this.shadow$('svg');
+  }
+  get jdenticonModule() {
+    const script = App.ensureScript({
+      src: 'https://cdn.jsdelivr.net/npm/jdenticon@3.3.0/dist/jdenticon.min.js',
+      async: 'async',
+      integrity: 'sha384-LfouGM03m83ArVtne1JPk926e3SGD0Tz8XHtW2OKGsgeBU/UfR0Fa8eX+UlwSSAZ',
+      crossorigin: 'anonymous'
+    });
+    if (!script.loaded) return null;
+    return window.jdenticon;
+  }
+  get template() {
+    return `<svg width="${this.size}" height="${this.size}"></svg>`;
+  }
+}
+AvatarJdenticon.register();
+
+export class AppShare extends MDElement {
+  get url() {
+    return App?.url;
+  }
+  afterInitialize() {
+    this.shadow$('md-filled-button').onclick = () => navigator.share({url: this.url, title: App.title});
+  }
+  get template() {
+    return `
+       <section>
+          <slot name="qr"></slot>
+          <app-qrcode></app-qrcode>
+
+          <slot name="social"></slot>
+          <div>
+            <md-filled-button>
+              <material-icon slot="icon">share</material-icon>
+              share
+            </md-filled-button>
+          </div>
+       </section>
+    `;
+  }
+  get styles() {
+    return `
+      app-qrcode, div:has(md-filled-button) {
+        margin-left: auto;
+        margin-right: auto;
+        display: block;
+        width: fit-content;
+      }
+      section {margin: 10px; }
+    `;
+  }
+}
+AppShare.register();
 
 export class ViewTransform extends MDElement { // TODO: Unify this with AttachedView
   // A component that doesn't display anything - it creates and populates a view rule from a model,
@@ -42,8 +166,7 @@ export class ListTransform extends MDElement {
   get modelsEffect() {
     if (!this.models.length) return false;
     let keys = this.models.map(model => model.title);
-    this.setKeys(keys);
-    return true;
+    return this.setKeys(keys);
   }
   getModel(key) {
     return this.models.find(model => model.dataset.key === key) || {title: key};
@@ -81,6 +204,7 @@ export class ListTransform extends MDElement {
 	}
       }
     }
+    return keys;
   }
 }
 ListTransform.register();
@@ -162,6 +286,7 @@ export class MenuButton extends ListTransform {
       `;
   }
   afterInitialize() {
+    super.afterInitialize();
     this.menu.anchorElement = this.anchor;
     this.anchor.addEventListener('click', () => this.menu.open = !this.menu.open);
   }
@@ -191,15 +316,16 @@ export class MenuTabs extends ListTransform {
     return this.shadow$('md-tabs');
   }
   activateKey(key) {
-    let index = 0;
+    let index = 0, models = this.models;
     for (const tab of this.tabs.tabs) {
       // It is possible to call this before the md-primary-tab[data-key] is set by TabItem.titleEffect.
       // So we get the dataset.key from the corresponding model.
       // Alternatively, we could go next tick, but that would be awkward to debug.
-      tab.active = key === this.models[index++].dataset.key;
+      tab.active = key === models[index++].dataset.key;
     }
   }
   afterInitialize() {
+    super.afterInitialize();
     this.tabs.addEventListener('change', event => {
       this.dispatchEvent(new CustomEvent('close-menu', {detail: {initiator: event.target.activeTab}, bubbles: true, composed: true}));
     });
@@ -225,6 +351,10 @@ export class MenuTabs extends ListTransform {
 MenuTabs.register();
 
 export class BasicApp extends MDElement {
+  constructor() {
+    super();
+    App = window.App = this;
+  }
   get htmlElement() {
     return this.doc$('html');
   }
@@ -262,13 +392,64 @@ export class BasicApp extends MDElement {
     this.screens.forEach(screen => screen.dataset.key = screen.title);
     return true;
   }
-  onhashchange() {
-    let key = decodeURIComponent(location.hash.slice(1));
-    this.shadow$('.screen-label').textContent = key;
-    this.screens.forEach(screen => screen.style.display = (screen.title === key) ? '' : 'none');
-    this.shadow$('menu-tabs').activateKey(key);
+  findScreen(indicator) {
+    return this.screens.find(screen => screen[indicator]);
+  }
+  get switchUserScreen() {
+    return this.findScreen('isSwitchUser');
+  }
+  get addUserScreen() {
+    return this.findScreen('isAddUser');
+  }
+  get createUserScreen() {
+    return this.findScreen('isCreateUser');
+  }
+  get firstUseScreen() {
+    return this.findScreen('isFirstUse');
+  }
+  get url() { // location.href, as a URL -- but you must call resetURL if you bash parts of the URL.
+    return new URL(location.href);
+  }
+  resetUrl(...ignoredIffects) { // Conveience to reset url and dependencies, returning URL.
+    if (location.href === this.url.href) return this.url;
+    return this.url = new URL(this.url);
+  }
+  get urlEffect() { // Will cause reload if param changes, but not for hash change.
+    if (location.href === this.url.href) return this.url;
+    return location.href = this.url;
+  }
+  get screen() { // The currently displayed screen.
+    return decodeURIComponent(this.url.hash.slice(1));
+  }
+  get screenEffect() { // Recononicalize url and screen.
+    this.url.hash = this.screen;
+    this.screen = undefined; // Allow it to be recomputed.
+    this.resetUrl();
+    this.shadow$('.screen-label').textContent = this.screen;
+    this.shadow$('menu-tabs').activateKey(this.screen);
+    // In this implementation, we make only the active screen visible.
+    // Alternatives might, e.g., scroll down or across.
+    this.screens.forEach(screen => screen.style.display = (screen.title === this.screen) ? '' : 'none');
+    return true;
+  }
+  ensureScript(urlOrAttributes) { // Returns the specified script element, creating it if necessary.
+    // Argument can be the url, or a dictionary of attributeName => value.
+    // The returned script element will have a rule attached called 'loaded', that will reflect the actual loaded state.
+    const attributes = urlOrAttributes.src ? urlOrAttributes : {src: urlOrAttributes};
+    let script = this.headElement.querySelector(`[src="${attributes.src}"]`);
+    if (script) return script;
+    script = document.createElement('script');
+    for (let name in attributes) script.setAttribute(name, attributes[name]);
+    Rule.attach(script, 'loaded', () => false);
+    script.onload = () => script.loaded = true;
+    this.headElement.append(script);
+    return script;
+  }
+  onhashchange() { // Set current screen to that defined by the hash.
+    this.resetUrl(this.url.hash = location.hash);
   }
   afterInitialize() {
+    super.afterInitialize();
     window.addEventListener('hashchange', () => this.onhashchange());
     const userMenuItems = this.shadow$('slot[name="user-menu"]').assignedElements();
     this.shadow$('#user').models = userMenuItems;
@@ -276,18 +457,22 @@ export class BasicApp extends MDElement {
     const tabs = this.shadow$('menu-tabs');
     tabs.models = this.screens;
     tabs.visibleModels = this.shadow$('slot:not([name]').assignedElements().filter(e => !(e instanceof ListDivider));
+
     const screenKeys = this.screens.map(s => s.dataset.key);
     this.addEventListener('close-menu', event => {
       const key = event.detail.initiator.dataset.key,
 	    isScreen = screenKeys.includes(key);
-      if (isScreen) return location.hash = key;
-      const url = new URL(location.href);
-      url.searchParams.set('user', key);
-      location.href = url;
-      return true;
+      if (key === 'Firstuse') this.firstUseScreen?.set('seen', !this.firstUseScreen?.seen);
+      if (isScreen) this.resetUrl(this.url.hash = key);
+      // Unfortunately, I have not figured out how to intercept this at the submenu, so we need to trampoline.
+      else this.switchUserScreen?.set('user', key);
     });
-    if (location.hash) setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
-    else location.hash = this.screens[0].title;
+
+    // Initial state.
+    if (location.hash) return setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
+    const title = (this.firstUseScreen?.seen ? this.screens[0] : this.firstUseScreen).title;
+    this.resetUrl(this.url.hash = title);
+    return true;
   }
   get template() {
     return `
@@ -306,9 +491,9 @@ export class BasicApp extends MDElement {
     </menu-button>
   </header>
   <main>
-    <slot name="first-use">Add content to appear on first use.</slot>
-    <slot name="user-menu">Add content to appear in user menu.</slot>
-    <slot>Add contentto appear as tabs.</slot>
+    <slot name="first-use"><i>Add content to appear on first use.</i></slot>
+    <slot name="user-menu"><i>Add content to appear in user menu.</i></slot>
+    <slot><i>Add contentto appear as tabs.</i></slot>
   </main>
 `;
   }

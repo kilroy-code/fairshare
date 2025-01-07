@@ -52,16 +52,23 @@
       </section>
 
       <user-profile title="User profile" slot="user-menu"></user-profile>
-      <switch-users title="Switch users" slot="user-menu"></switch-users>
+      <switch-user title="Switch users" slot="user-menu"></switch-user>
       <add-user title="Add user" slot="user-menu"></add-user>
       <create-user title="Create user" slot="user-menu"></create-user>
+      <app-share slot="user-menu">
+	<p slot="qr">Sign up another user to this group by having them scan this code with their phone. (They will still have to be voted in by a majority of the group's members.)</p>
+	<p slot="social">Or share the group's signup URL directly or on social media:</p>
+      </app-share>
 
       <list-divider></list-divider>
 
       <app-firstuse slot="first-use">
-	<h1>Welcome!</h1>
-	<p>...blah, blah, blah...</p>
-	<create-user></create-user>
+	<section>
+	  <h1>Welcome!</h1>
+	  <p>Creating a new account is free and no personal information is needed.</p>
+	  <p>Each new account is automatically added to the FairShare group. Other groups must vote you in.</p>
+	  <create-user></create-user>
+	</section>
       </app-firstuse>
 
     </basic-app>
