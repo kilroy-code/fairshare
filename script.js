@@ -1,4 +1,4 @@
-import { App, MDElement, ListTransform } from './components.js';
+import { App, MDElement, ListTransform, ListItems } from './components.js';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage } = window;
@@ -170,6 +170,34 @@ class User {
 Rule.rulify(User.prototype);
 
 
+class Group {
+  constructor(properties) { Object.assign(this, properties); }
+  get title() { return 'unknown'; }
+  get picture() { return this.title.toLowerCase() + '.jpeg'; }
+}
+Rule.rulify(Group.prototype);
+
+export class FairshareGroups extends ListItems {
+  get group() {
+    return App?.url.searchParams.get('group') || this.myGroups[0] || '';
+  }
+  get groupEffect() {
+    App.resetUrl(App.url.searchParams.set('group', this.group));
+    document.body.querySelector('app-share').url = App.urlWith({screen: 'Groups', user: ''});
+    return true;
+  }
+  get myGroups() {
+    let found = JSON.parse(localStorage.getItem('myGroups') || '["Apples", "Bananas", "FairShare"]'); //fixme? []
+    return found;
+  }
+  get myGroupsEffect() {
+    localStorage.setItem('myGroups', JSON.stringify(this.myGroups));
+    return this.setKeys(this.myGroups);
+  }
+}
+FairshareGroups.register();
+
+
 export class ToDo extends MDElement {
   get tagEffect() {
     this.prepend(this.tagName + '...');
@@ -192,8 +220,8 @@ FairsharePayme.register();
 
 
 const users = window.users = {Alice: new User({title: 'Alice'}), Azalia: new User({title: "Azelia"}),  Bob: new User({title: 'Bob'}), Carol: new User({title: 'Carol'})};
+const groups = window.groups = {Apples: new Group({title: 'Apples'}), Bananas: new Group({title: "Bananas"}), Coconuts: new Group({title: "Coconuts"}), FairShare: new Group({title: "FairShare", picture: "fairshare.webp"})};
 document.querySelector('switch-user').getModel = key => users[key];
-
-document.querySelector('list-items').setKeys(['Apples', 'Bananas', 'Coconuts']);
+document.querySelector('fairshare-groups').getModel = key => groups[key];
 
 

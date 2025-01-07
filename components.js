@@ -22,7 +22,7 @@ export class MaterialIcon extends MDElement {
 MaterialIcon.register();
 
 export class AppQrcode extends MDElement {
-  get data() { return App?.url.href; }
+  get data() { return (this.getRootNode().host.url || App?.url).href; }
   get image() { return ''; }
   get size() { return 300; }
   get color() { return getComputedStyle(this).getPropertyValue("--md-sys-color-on-secondary-container"); }
@@ -409,6 +409,15 @@ export class BasicApp extends MDElement {
   }
   get url() { // location.href, as a URL -- but you must call resetURL if you bash parts of the URL.
     return new URL(location.href);
+  }
+  urlWith(parameters) { // Answer a copy of url with parameters set.
+    const url = new URL(this.url.href);
+    for (const key in parameters) {
+      const value = parameters[key];
+      if (key === 'screen') url.hash = value;
+      else url.searchParams.set(key, value);
+    }
+    return url;
   }
   resetUrl(...ignoredIffects) { // Conveience to reset url and dependencies, returning URL.
     if (location.href === this.url.href) return this.url;
