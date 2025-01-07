@@ -411,11 +411,17 @@ export class BasicApp extends MDElement {
   get firstUseScreen() {
     return this.findScreen('isFirstUse');
   }
-  get url() { // location.href, as a URL -- but you must call resetURL if you bash parts of the URL.
+  get url() { // location.href, as a URL. Instead of assigning this, call resetUrl.
     return new URL(location.href);
   }
-  urlWith(parameters) { // Answer a copy of url with parameters set.
+  urlWith(parameters) { // Answer a copy of url with parameters set appropriately. (E.g. screen => hash, and everything else in query params.)
+    // As a special case, passing null clears all query parameters.
     const url = new URL(this.url.href);
+    if (parameters === null) { // special case, to clear the parameters
+      url.search = '';
+      url.hash = '';
+      return url;
+    }
     for (const key in parameters) {
       const value = parameters[key];
       if (key === 'screen') url.hash = value;
@@ -423,21 +429,28 @@ export class BasicApp extends MDElement {
     }
     return url;
   }
-  resetUrl(...ignoredIffects) { // Conveience to reset url and dependencies, returning URL.
-    if (location.href === this.url.href) return this.url;
-    return this.url = new URL(this.url);
-  }
-  get urlEffect() { // Will cause reload if param changes, but not for hash change.
-    if (location.href === this.url.href) return this.url;
-    return location.href = this.url;
+  resetUrl(parameters, updateHistory = true) { // After updating url as by urlWith(), this:
+    // 1. resets url if there are any changes, so that anthing dependent on it can be recomputed.
+    // 2. optionally adds to history if updateHistory and there are any changes.
+    // Answers true if there is a change.
+    const previous = this.url.href, // Before this change.
+	  next = this.urlWith(parameters);
+    console.log('resetUrl from:', previous, 'to:', next.href, parameters);
+    if (previous === next.href) return false;
+    this.url = new URL(next);
+    if (!updateHistory) return true;
+    const params = Object.fromEntries(next.searchParams.entries());
+    params.screen = next.hash.slice(1);
+    console.log('pushState', params);
+    history.pushState(params, this.title, next.href);
+    return true;
   }
   get screen() { // The currently displayed screen.
     return decodeURIComponent(this.url.hash.slice(1));
   }
   get screenEffect() { // Recononicalize url and screen.
-    this.url.hash = this.screen;
+    this.resetUrl({screen: this.screen});
     this.screen = undefined; // Allow it to be recomputed.
-    this.resetUrl();
     this.shadow$('.screen-label').textContent = this.screen;
     this.shadow$('menu-tabs').activateKey(this.screen);
     // In this implementation, we make only the active screen visible.
@@ -459,11 +472,17 @@ export class BasicApp extends MDElement {
     return script;
   }
   onhashchange() { // Set current screen to that defined by the hash.
-    this.resetUrl(this.url.hash = location.hash);
+    console.log('onhashchange', location.hash);
+    this.resetUrl({screen: location.hash.slice(1)}, false);
+  }
+  onpopstate(event) {
+    console.log('onpopstate', location.href, event.state);
+    if (event.state) this.resetUrl(event.state, false);
   }
   afterInitialize() {
     super.afterInitialize();
-    window.addEventListener('hashchange', () => this.onhashchange());
+    window.addEventListener('hashchange', event => this.onhashchange(event));
+    window.addEventListener('popstate', event => this.onpopstate(event));
     const userMenuItems = this.shadow$('slot[name="user-menu"]').assignedElements();
     this.shadow$('#user').models = userMenuItems;
     this.shadow$('#navigation').models = this.screens.filter(s => !userMenuItems.includes(s));
@@ -476,7 +495,7 @@ export class BasicApp extends MDElement {
       const key = event.detail.initiator.dataset.key,
 	    isScreen = screenKeys.includes(key);
       if (key === 'Firstuse') this.firstUseScreen?.set('seen', !this.firstUseScreen?.seen);
-      if (isScreen) this.resetUrl(this.url.hash = key);
+      if (isScreen) this.resetUrl({screen: key});
       // Unfortunately, I have not figured out how to intercept this at the submenu, so we need to trampoline.
       else this.switchUserScreen?.set('user', key);
     });
@@ -484,7 +503,7 @@ export class BasicApp extends MDElement {
     // Initial state.
     if (location.hash) return setTimeout(() => this.onhashchange()); // Next tick, after things instantiate.
     const title = (this.firstUseScreen?.seen ? this.screens[0] : this.firstUseScreen).title;
-    this.resetUrl(this.url.hash = title);
+    this.resetUrl({screen: title});
     return true;
   }
   get template() {

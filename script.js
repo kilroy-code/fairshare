@@ -1,7 +1,7 @@
 import { App, MDElement, ListTransform, ListItems, MenuButton } from './components.js';
 import { Rule } from '@kilroy-code/rules';
 
-const { localStorage } = window;
+const { localStorage, URL } = window;
 
 // Bug: groups.setKey([]) causes it to dissappear from tabs.
 
@@ -33,8 +33,8 @@ export class SwitchUser extends ListTransform { // A submenu populated from setK
     return App?.url.searchParams.get('user') || this.myUsers[0] || '';
   }
   get userEffect() {
-    console.log(`user set to ${this.user} among ${this.myUsers}. FIXME: Set user button image; distinguish in our menu.`);
-    App.resetUrl(App.url.searchParams.set('user', this.user));
+    //console.log(`user set to ${this.user} among ${this.myUsers}. FIXME: Set user button image; distinguish in our menu.`);
+    App.resetUrl({user: this.user});
     return true;
   }
   get myUsers() {
@@ -72,8 +72,7 @@ export class AppFirstuse extends MDElement {
     if (this.seen === this.wasSeen()) return true;
     if (this.seen) return this.setSeen();
     localStorage.clear();
-    App.url.hash = this.title;
-    App.resetUrl(App.url.search = '');
+    App.resetUrl(Object.fromEntries(App.url.searchParams.entries())); // Leaving hash.
     return true;
   }
 }
@@ -178,13 +177,16 @@ Rule.rulify(Group.prototype);
 
 export class FairshareGroups extends ListItems {
   get group() {
+    //console.log('group url:', App?.url.href);
     return App?.url.searchParams.get('group') || this.myGroups[0] || '';
   }
   get shareElement() {
     return document.body.querySelector('app-share');
   }
   get groupEffect() {
-    App.resetUrl(App.url.searchParams.set('group', this.group));
+    //console.log('groupEffect:', this.group, App?.url.href);
+    App.resetUrl({group: this.group});
+    this.group = undefined; // Allow it to pick up new dependencies.
     this.shareElement.url = App.urlWith({screen: 'Groups', user: ''});
     this.shareElement.picture = `images/${this.getModel(this.group).picture}`;
     return true;
@@ -207,10 +209,17 @@ export class FairshareGroupChooser extends MenuButton {
   get groupsEffect() {
     return this.setKeys(this.groups.myGroups);
   }
+  get button() {
+    return null;
+  }
+  get groupEffect() {
+    if (!this.button) return null;
+    return this.button.textContent = this.groups.group;
+  }
   afterInitialize() {
-    const button = document.createElement('md-filled-button');
+    const button = document.createElement('md-outlined-button');
+    this.button = button;
     this.append(button);
-    button.textContent = this.groups.group;
     this.addEventListener('close-menu', event => {
       event.stopPropagation();
       this.groups.group = event.detail.initiator.dataset.key;
