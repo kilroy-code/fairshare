@@ -23,7 +23,7 @@ MaterialIcon.register();
 
 export class AppQrcode extends MDElement {
   get data() { return (this.getRootNode().host.url || App?.url).href; }
-  get image() { return ''; }
+  get picture() { return this.getRootNode().host.picture || ''; }
   get size() { return 300; }
   get color() { return getComputedStyle(this).getPropertyValue("--md-sys-color-on-secondary-container"); }
   get background() { return getComputedStyle(this).getPropertyValue("--md-sys-color-secondary-container"); }
@@ -50,7 +50,7 @@ export class AppQrcode extends MDElement {
       height: this.size,
       type: 'svg',
       data: this.data,
-      image: this.image,
+      image: this.picture,
       dotsOptions: this.dotsOptions,
       backgroundOptions: this.backgroundOptions,
       imageOptions: this.imageOptions
@@ -107,6 +107,9 @@ AvatarJdenticon.register();
 export class AppShare extends MDElement {
   get url() {
     return App?.url;
+  }
+  get picture() {
+    return '';
   }
   afterInitialize() {
     this.shadow$('md-filled-button').onclick = () => navigator.share({url: this.url, title: App.title});
@@ -193,6 +196,7 @@ export class ListTransform extends MDElement {
 	itemsIndex++;
       } else {
 	const insert = document.createElement(this.viewTag);
+	insert.setAttribute('slot', 'transformer');
 	insert.model = this.getModel(key);
 	insert.dataset.key = insert.view.dataset.key = key;
 	if (item) {

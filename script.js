@@ -1,4 +1,4 @@
-import { App, MDElement, ListTransform, ListItems } from './components.js';
+import { App, MDElement, ListTransform, ListItems, MenuButton } from './components.js';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage } = window;
@@ -18,7 +18,6 @@ export class SwitchUser extends ListTransform { // A submenu populated from setK
       <md-sub-menu>
         <md-menu-item slot="item">
           <div slot="headline"></div>
-          <material-icon slot="start">arrow_left</material-icon>
         </md-menu-item>
         <md-menu slot="menu"></md-menu>
       </md-sub-menu>
@@ -181,9 +180,13 @@ export class FairshareGroups extends ListItems {
   get group() {
     return App?.url.searchParams.get('group') || this.myGroups[0] || '';
   }
+  get shareElement() {
+    return document.body.querySelector('app-share');
+  }
   get groupEffect() {
     App.resetUrl(App.url.searchParams.set('group', this.group));
-    document.body.querySelector('app-share').url = App.urlWith({screen: 'Groups', user: ''});
+    this.shareElement.url = App.urlWith({screen: 'Groups', user: ''});
+    this.shareElement.picture = `images/${this.getModel(this.group).picture}`;
     return true;
   }
   get myGroups() {
@@ -197,6 +200,29 @@ export class FairshareGroups extends ListItems {
 }
 FairshareGroups.register();
 
+export class FairshareGroupChooser extends MenuButton {
+  get groups() {
+    return this.doc$('fairshare-groups');
+  }
+  get groupsEffect() {
+    return this.setKeys(this.groups.myGroups);
+  }
+  afterInitialize() {
+    const button = document.createElement('md-filled-button');
+    this.append(button);
+    button.textContent = this.groups.group;
+    this.addEventListener('close-menu', event => {
+      event.stopPropagation();
+      this.groups.group = event.detail.initiator.dataset.key;
+    });
+    super.afterInitialize();
+  }
+  get styles() {
+    return `:host { position: relative; }`;
+  }
+}
+FairshareGroupChooser.register();
+  
 
 export class ToDo extends MDElement {
   get tagEffect() {

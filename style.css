@@ -2,6 +2,9 @@ body {
     margin: 0;
     font-family: roboto;
 }
+p fairshare-group-chooser {
+    vertical-align: bottom;
+}
 :root {
   --md-sys-color-primary: rgb(0 9 53);
   --md-sys-color-surface-tint: rgb(73 90 162);
