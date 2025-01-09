@@ -21,18 +21,27 @@ Rule.rulify(Group.prototype);
 
 export class FairshareGroups extends ListItems {
   get group() {
-    //console.log('group url:', App?.url.href);
     return App?.url.searchParams.get('group') || this.myGroups[0] || '';
+  }
+  get groupElement() {
+    return this.transformers.find(item => item.dataset.key === this.group) || null;
+  }
+  get groupModel() {
+    return this.groupElement?.model || null;
+  }
+  get groupModelEffect() {
+    if (!this.groupModel) return false;
+    this.shareElement.picture = `images/${this.groupModel.picture}`;
+    return true;
   }
   get shareElement() {
     return document.body.querySelector('app-share');
   }
   get groupEffect() {
-    //console.log('groupEffect:', this.group, App?.url.href);
-    App.resetUrl({group: this.group});
-    this.group = undefined; // Allow it to pick up new dependencies.
-    this.shareElement.url = App.urlWith({screen: 'Groups', user: ''});
-    this.shareElement.picture = `images/${this.getModel(this.group).picture}`;
+    if (App.resetUrl({group: this.group})) {
+      this.group = undefined; // Allow it to pick up new dependencies.
+      this.shareElement.url = App.urlWith({screen: 'Groups', user: ''});
+    }    
     return true;
   }
   get myGroups() {
@@ -41,6 +50,10 @@ export class FairshareGroups extends ListItems {
   }
   get myGroupsEffect() {
     localStorage.setItem('myGroups', JSON.stringify(this.myGroups));
+    // Next tick after connectedCallback, initialize is called, which calls update.
+    // Update evaluates all ***Effect rules in turn, including this one and groupModelEffect.
+    // As each is computed, their references are noted and then added as dependencies at the end of the rule's computation.
+    // If setKeys unwinds anything, it will not unwind those that have not yet been added.
     return this.setKeys(this.myGroups);
   }
 }
@@ -124,6 +137,6 @@ document.querySelector('switch-user').getModel = async key => {
   return model;
 };  //users[key];
 */
-document.querySelector('fairshare-groups').getModel = key => groups[key];
+document.querySelector('fairshare-groups').getModel = key => new Promise(resolve => setTimeout(() => resolve(groups[key]), 1000)); //Promise.resolve(groups[key]);
 
 
