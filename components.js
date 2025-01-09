@@ -415,13 +415,7 @@ export class BasicApp extends MDElement {
     return new URL(location.href);
   }
   urlWith(parameters) { // Answer a copy of url with parameters set appropriately. (E.g. screen => hash, and everything else in query params.)
-    // As a special case, passing null clears all query parameters.
     const url = new URL(this.url.href);
-    if (parameters === null) { // special case, to clear the parameters
-      url.search = '';
-      url.hash = '';
-      return url;
-    }
     for (const key in parameters) {
       const value = parameters[key];
       if (key === 'screen') url.hash = value;
@@ -435,13 +429,13 @@ export class BasicApp extends MDElement {
     // Answers true if there is a change.
     const previous = this.url.href, // Before this change.
 	  next = this.urlWith(parameters);
-    console.log('resetUrl from:', previous, 'to:', next.href, parameters);
+    //console.log('resetUrl from:', previous, 'to:', next.href, parameters);
     if (previous === next.href) return false;
     this.url = new URL(next);
     if (!updateHistory) return true;
     const params = Object.fromEntries(next.searchParams.entries());
     params.screen = next.hash.slice(1);
-    console.log('pushState', params);
+    //console.log('pushState', params);
     history.pushState(params, this.title, next.href);
     return true;
   }
@@ -472,11 +466,11 @@ export class BasicApp extends MDElement {
     return script;
   }
   onhashchange() { // Set current screen to that defined by the hash.
-    console.log('onhashchange', location.hash);
+    //console.log('onhashchange', location.hash);
     this.resetUrl({screen: location.hash.slice(1)}, false);
   }
   onpopstate(event) {
-    console.log('onpopstate', location.href, event.state);
+    //console.log('onpopstate', location.href, event.state);
     if (event.state) this.resetUrl(event.state, false);
   }
   afterInitialize() {
@@ -553,3 +547,217 @@ export class BasicApp extends MDElement {
   }
 }
 BasicApp.register();
+
+// Bug: groups.setKey([]) causes it to dissappear from tabs.
+export class SwitchUser extends ListTransform { // A submenu populated from setKeys/getModel.
+  isSwitchUser = true;
+  get viewTag() {
+    return 'menu-item';
+  }
+  get titleEffect() {
+    return this.shadow$('md-sub-menu > md-menu-item[slot="item"] > div[slot="headline"]').textContent = this.title;
+  }
+  get template() {
+    return `
+      <md-sub-menu>
+        <md-menu-item slot="item">
+          <div slot="headline"></div>
+        </md-menu-item>
+        <md-menu slot="menu"></md-menu>
+      </md-sub-menu>
+    `;
+  }
+  get itemParent() { // Overrides the default (which is the first content child.
+    return this.shadow$('md-menu');
+  }
+  get copyContent() {
+    return this.content.innerHTML;
+  }
+  get user() {
+    return App?.url.searchParams.get('user') || this.myUsers[0] || '';
+  }
+  get userEffect() {
+    //console.log(`user set to ${this.user} among ${this.myUsers}. FIXME: Set user button image; distinguish in our menu.`);
+    App.resetUrl({user: this.user});
+    return true;
+  }
+  get myUsers() {
+    let found = JSON.parse(localStorage.getItem('myUsers') || '[]'); //fixme? "Alice", "Bob", "Carol"]');
+    return found;
+  }
+  get myUsersEffect() {
+    localStorage.setItem('myUsers', JSON.stringify(this.myUsers));
+    return this.setKeys(this.myUsers);
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    if (!App) console.warn("No App has been set for use by SwitchUser.");
+    if (!this.user) {
+      if (!this.myUsers.length) console.warn("No user has been set."); // Could be first time.
+      return;
+    }
+    if (!this.myUsers.includes(this.user)) {
+      if (!App.addUserScreen) console.warn("No AddUser facility.");
+      return;
+    }
+  }
+}
+SwitchUser.register();
+
+export class AppFirstuse extends MDElement {
+  isFirstUse = true;
+  storageKey = 'seenFirstUse';
+  wasSeen() { return !!localStorage.getItem(this.storageKey); }
+  setSeen() { localStorage.setItem(this.storageKey, true); return true; }
+  get seen() {
+    return this.wasSeen();
+  }
+  get seenEffect() {
+    if (this.seen === this.wasSeen()) return true;
+    if (this.seen) return this.setSeen();
+    localStorage.clear();
+    App.resetUrl(Object.fromEntries(App.url.searchParams.entries())); // Leaving hash.
+    return true;
+  }
+}
+AppFirstuse.register();
+
+export class SecurityQuestionSelection extends MDElement {
+  static get formAssociated() { return true; } // Mark as form-associated
+  get label() {
+    return 'security question';
+  }
+  get index() {
+    return Array.from(this.parentElement.querySelectorAll(`security-question-selection`)).indexOf(this);
+  }
+  get indexEffect() {
+    this.shadow$(`md-select-option:nth-of-type(${this.index + 1})`).setAttribute('selected', 'selected');
+    return true;
+  }
+  get name() {
+    const name = 'q' + this.index;
+    this.setAttribute('name', name);
+    return name;
+  }
+  get template() {
+    return `
+      <md-outlined-select required label="${this.label}" name="${this.name}">
+         <md-select-option value="0"><div slot="headline">What is your quest?</div></md-select-option>
+         <md-select-option value="1"><div slot="headline">What is your favorite color?</div></md-select-option>
+         <md-select-option value="2"><div slot="headline">What is the capital of Assyria?</div></md-select-option>
+         <md-select-option value="3"><div slot="headline">What is the airspeed velocity of an unladen swallow?</div></md-select-option>
+         <md-select-option value="4"><div slot="headline">How do you feel about these questions?</div></md-select-option>
+      </md-outlined-select>
+     `;
+  }
+  get styles() {
+    return `md-outlined-select { width: 100%; }`;
+  }
+}
+SecurityQuestionSelection.register();
+
+export class UserProfile extends MDElement {
+  isUserProfile = true;
+  get usernameElement() {
+    return this.shadow$('[label="user name"]');
+  }
+  get username() {
+    return this.usernameElement.value;
+  }
+  get profile() {
+    return null;
+  }
+  get profileEffect() {
+    if (!this.profile) return false;
+    const dialog = this.shadow$('dialog'),
+	  anyQuestionSet = this.shadow$('security-question-selection');
+    console.log({dialog, anyQuestionSet, profile:this.profile});
+    ['q0', 'q1', 'q2'].forEach(name => {
+      const textField = dialog.querySelector('md-outlined-text-field'),
+	    selectedValue = this.profile[name],
+	    selectedQuestion = anyQuestionSet.querySelector(`md-select-options[value="${selectedValue}"]`);
+      console.log(name, selectedValue, selectedQuestion, textField);
+      // textField.setAttribute('label',
+    });
+    return true;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.shadow$('avatar-jdenticon').model = this;
+    this.usernameElement.addEventListener('input', () => this.username = undefined);
+    this.shadow$('md-outlined-button').onclick = () => this.shadow$('[type="file"]').click();
+    this.shadow$('form').addEventListener('submit', event => {
+      this.profile = Object.fromEntries(new FormData(event.target));
+    });
+  }
+  get template() {
+    return `
+	  <section>
+	    <slot name="headline" slot="headline"></slot>
+	    <form method="dialog" slot="content" id="form">
+              <slot></slot>
+              <md-outlined-text-field required
+                   autocapitalize="words"
+                   autocomplete="username"
+                   minlength="1" maxlength="60"
+                   label="user name" name="username"
+                   placeholder="visible to others"></md-outlined-text-field>
+              <div class="avatar">
+		<div>
+		  Avatar
+		  <md-outlined-button disabled>Use photo <i>not implemented</i></md-outlined-button>
+		  <input type="file" capture="user" accept="image/*" name="picture"></input>
+		</div>
+		<avatar-jdenticon></avatar-jdenticon>
+              </div>
+
+	      <md-outlined-text-field label="description" name="description" maxlength="60"placeholder="displayed during membership voting"></md-outlined-text-field>
+
+              <p>Select three security questions. These are used to add your account to a new device, or to recover after wiping a device.
+                 (You will be prompted for the answers separately.) <b><i>Not implemented yet</i></b></p>
+             <!--
+             <security-question-selection></security-question-selection>
+             <security-question-selection></security-question-selection>
+             <security-question-selection></security-question-selection>-->
+	    </form>
+	    <div slot="actions">
+              <md-filled-button type="submit" form="form"> <!-- cannot be a fab -->
+                 Go
+                 <material-icon slot="icon">login</material-icon>
+              </md-filled-button>
+	    </div>
+	  </section>
+          <dialog>
+            <div slot="content">
+              <md-outlined-text-field>
+              <md-outlined-text-field>
+            </div>
+          </dialog>
+     `;
+  }
+  get styles() {
+    return `
+      section { margin: 10px; }
+      [type="file"] { display: none; }
+      form, div {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 10px;
+      }
+      .avatar, [slot="actions"] {
+         flex-direction: row;
+         justify-content: center;
+      }
+      .avatar > div { align-items: center; }
+     [slot="actions"] { margin-top: 20px; }
+    `;
+  }
+}
+UserProfile.register();
+
+export class AddUser extends MDElement {
+  isAddUser = true;
+}
+AddUser.register();
