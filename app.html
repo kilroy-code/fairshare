@@ -22,7 +22,7 @@
     </style>
   </head>
   <body>
-    <basic-app>
+    <fairshare-app>
 
       <fairshare-groups><p><i>Group functionality is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a></i></p></fairshare-groups>
       <fairshare-pay></fairshare-pay>
@@ -56,18 +56,18 @@
 	</p>
       </section>
 
-      <user-profile title="User profile" slot="user-menu"></user-profile>
+      <!-- <user-profile title="User profile" slot="user-menu"></user-profile> -->
       <switch-user title="Switch user" slot="user-menu"></switch-user>
-      <create-user title="Create user" slot="user-menu">
-	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p>
-	<p>This screen will create an additional account for you to use.</p>
-      </create-user>
-      <app-share slot="user-menu">
+      <!-- <create-user title="Create user" slot="user-menu"> -->
+      <!-- 	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p> -->
+      <!-- 	<p>This screen will create an additional account for you to use.</p> -->
+      <!-- </create-user> -->
+      <fairshare-share slot="user-menu">
 	<p slot="qr">Sign up another user to
 	  <fairshare-group-chooser></fairshare-group-chooser>
 	  by having them scan this code with their phone. (They will still have to be voted in by a majority of the group's members.)</p>
 	<p slot="social">Or share the group's signup URL directly or on social media:</p>
-      </app-share>
+      </fairshare-share>
 
       <list-divider></list-divider>
 
@@ -79,6 +79,6 @@
 	</user-profile>
       </app-firstuse>
 
-    </basic-app>
+    </fairshare-app>
   </body>
 </html>

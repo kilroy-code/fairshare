@@ -20,6 +20,31 @@ class Group {
 Rule.rulify(Group.prototype);
 
 class FairshareApp extends BasicApp {
+  get title() {
+    return 'FairShare';
+  }
+  get group() {
+    return this.getParameter('group');
+  }
+  get payee() {
+    return this.getParameter('payee');
+  }
+  get amount() {
+    return parseFloat(this.getParameter('amount') || '0');
+  }
+  get groupScreen() {
+    return this.doc$('fairshare-groups');
+  }
+  getGroupModel(key = this.group) {
+    return this.groupScreen?.getCachedModel(key);
+  }
+  getPictureURL(name) {
+    if (!name) return '';
+    return `images/${name}`;
+  }
+  getGroupPictureURL(name = this.group) {
+    return this.getPictureURL(App.getGroupModel()?.picture);
+  }
 }
 FairshareApp.register();
 
@@ -32,14 +57,6 @@ class FairshareGroups extends ListItems {
   }
   get groupModel() {
     return this.groupElement?.model || null;
-  }
-  get groupModelEffect() {
-    if (!this.groupModel) return false;
-    if (this.groupModel.picture) {
-      console.log('setting', this.group, this.groupModel.picture);
-      this.shareElement.picture = `images/${this.groupModel.picture}`;
-    }
-    return true;
   }
   get shareElement() {
     return document.body.querySelector('app-share');
@@ -66,6 +83,10 @@ class FairshareGroupChooser  extends ChooserButton {
   get choice() {
     return App?.url.searchParams.get('group');
   }
+  get choiceEffect() {
+    super.__choiceEffect();
+    return App.resetUrl({group: this.choice});
+  }
   // TODO: unify this with ChooserButton.
   get groups() {
     return this.doc$('fairshare-groups');
@@ -76,7 +97,28 @@ class FairshareGroupChooser  extends ChooserButton {
 }
 FairshareGroupChooser.register();
   
+class FairshareShare extends AppShare {
+  get url() {
+    return App.urlWith({user: '', payee: '', amount: ''});
+  }
+  get description() {
+    return `Come join ${App.user} in ${App.group}!`;
+  }
+  // get picture() {
+  //   return App.getGroupPictureURL();
+  // }
+}
+FairshareShare.register();
+
 class FairsharePayme extends AppShare {
+  get url() {
+    return App.urlWith({user: '', payee: App.user, amount: App.amount});
+  }
+  get description() {
+    return App.amount ?
+      `Please pay ${App.amount} ${App.group} to ${App.user}.` :
+      `Please pay ${App.group} to ${App.user}.`;
+  }
 }
 FairsharePayme.register();
 
