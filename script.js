@@ -1,4 +1,4 @@
-import { App, MDElement, ListItems, MenuButton } from '@kilroy-code/ui-components';
+import { App, MDElement, ListItems, MenuButton, BasicApp, ChooserButton, AppShare } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -19,7 +19,11 @@ class Group {
 }
 Rule.rulify(Group.prototype);
 
-export class FairshareGroups extends ListItems {
+class FairshareApp extends BasicApp {
+}
+FairshareApp.register();
+
+class FairshareGroups extends ListItems {
   get group() {
     return App?.url.searchParams.get('group') || this.myGroups[0] || '';
   }
@@ -58,7 +62,10 @@ export class FairshareGroups extends ListItems {
 }
 FairshareGroups.register();
 
-export class FairshareGroupChooser extends MenuButton {
+class FairshareGroupChooser  extends ChooserButton {
+  get choice() {
+    return App?.url.searchParams.get('group');
+  }
   // TODO: unify this with ChooserButton.
   get groups() {
     return this.doc$('fairshare-groups');
@@ -66,50 +73,27 @@ export class FairshareGroupChooser extends MenuButton {
   get groupsEffect() {
     return this.setKeys(this.groups.myGroups);
   }
-  get button() {
-    return null;
-  }
-  get groupEffect() {
-    if (!this.button) return null;
-    return this.button.textContent = this.groups.group;
-  }
-  afterInitialize() {
-    const button = document.createElement('md-outlined-button');
-    this.button = button;
-    this.append(button);
-    this.addEventListener('close-menu', event => {
-      event.stopPropagation();
-      this.groups.group = event.detail.initiator.dataset.key;
-    });
-    super.afterInitialize();
-  }
-  get styles() {
-    return `:host { position: relative; }`;
-  }
 }
 FairshareGroupChooser.register();
   
+class FairsharePayme extends AppShare {
+}
+FairsharePayme.register();
 
-export class FairsharePay extends MDElement {
+class FairsharePay extends MDElement {
   get template() {
     return `<p><i>Paying another user is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#pay" target="fairshare-poc">proof of concept</a></i></p>`;
   }
 }
 FairsharePay.register();
 
-export class FairshareInvest extends MDElement {
+class FairshareInvest extends MDElement {
   get template() {
     return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a></i></p>`;
   }
 }
 FairshareInvest.register();
 
-export class FairsharePayme extends MDElement {
-  get template() {
-    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#payme" target="fairshare-poc">proof of concept</a> and similar behavior already implemented <a href="#Share">in this app</a></i></p>`;
-  }
-}
-FairsharePayme.register();
 
 /*
 const users = window.users = {

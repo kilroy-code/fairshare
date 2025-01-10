@@ -22,18 +22,23 @@
     </style>
   </head>
   <body>
-    <basic-app title="FairShare">
+    <basic-app>
 
       <fairshare-groups><p><i>Group functionality is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a></i></p></fairshare-groups>
       <fairshare-pay></fairshare-pay>
       <fairshare-invest></fairshare-invest>
-      <fairshare-payme></fairshare-payme>
+      <fairshare-payme>
+	<p slot="qr">Invite someone to pay you 
+	  <fairshare-group-chooser></fairshare-group-chooser>
+	  by having them scan this code with their phone.</p>
+	<p slot="social">Or share this URL directly:</p>
+      </fairshare-payme>
       <section title="About">
 	<p>
 	  <i><b>Under construction. For more information, see see <a href="https://howard-stearns.github.io/FairShare/" target="fairshare-poc">README.md</a>.</b></i>
 	</p>
 	<p>FairShare is payment program in which you set your own fees, which are then distributed to members.</p>
-	<p>In this demo you can switch between three users that are wired into a combination of existing groups. Each group has its own currency. The members of the group vote on:
+	<p>You can join any number of groups, which each have their own currency. The members of the group vote on:
 	  <ol>
 	    <li>allowing a candidate member, or ejecting an existing member</li>
 	    <li>the transaction fee for the group</li>
@@ -51,13 +56,12 @@
 	</p>
       </section>
 
-      <!-- <user-profile title="User profile" slot="user-menu"></user-profile> -->
-      <switch-user title="Switch users" slot="user-menu"></switch-user>
-      <add-user title="Add user" slot="user-menu"></add-user>
-      <!-- <create-user title="Create user" slot="user-menu"> -->
-      <!-- 	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p> -->
-      <!-- 	<p>This screen will create an additional account for you to use.</p> -->
-      <!-- </create-user> -->
+      <user-profile title="User profile" slot="user-menu"></user-profile>
+      <switch-user title="Switch user" slot="user-menu"></switch-user>
+      <create-user title="Create user" slot="user-menu">
+	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p>
+	<p>This screen will create an additional account for you to use.</p>
+      </create-user>
       <app-share slot="user-menu">
 	<p slot="qr">Sign up another user to
 	  <fairshare-group-chooser></fairshare-group-chooser>
@@ -68,7 +72,7 @@
       <list-divider></list-divider>
 
       <app-firstuse slot="first-use">
-	<user-profile>
+	<user-profile title="welcome">
 	  <h2 slot="headline">Welcome!</h2>
 	  <div>Creating a new account is free and no personal information is needed.</div>
 	  <div>Each new account is automatically added to the FairShare group. Other groups must vote you in.</div>
