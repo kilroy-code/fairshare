@@ -31,7 +31,10 @@ export class FairshareGroups extends ListItems {
   }
   get groupModelEffect() {
     if (!this.groupModel) return false;
-    this.shareElement.picture = `images/${this.groupModel.picture}`;
+    if (this.groupModel.picture) {
+      console.log('setting', this.group, this.groupModel.picture);
+      this.shareElement.picture = `images/${this.groupModel.picture}`;
+    }
     return true;
   }
   get shareElement() {
@@ -50,10 +53,6 @@ export class FairshareGroups extends ListItems {
   }
   get myGroupsEffect() {
     localStorage.setItem('myGroups', JSON.stringify(this.myGroups));
-    // Next tick after connectedCallback, initialize is called, which calls update.
-    // Update evaluates all ***Effect rules in turn, including this one and groupModelEffect.
-    // As each is computed, their references are noted and then added as dependencies at the end of the rule's computation.
-    // If setKeys unwinds anything, it will not unwind those that have not yet been added.
     return this.setKeys(this.myGroups);
   }
 }
@@ -112,13 +111,15 @@ export class FairsharePayme extends MDElement {
 }
 FairsharePayme.register();
 
-
+/*
 const users = window.users = {
   Alice: new User({title: 'Alice'}),
   Azalia: new User({title: "Azelia"}),
   Bob: new User({title: 'Bob'}),
   Carol: new User({title: 'Carol'})
-};
+  };
+*/
+const users = {H: {title: 'H'}, 'howard.stearns': {title: 'howard.stearns'}};
 
 const groups = window.groups = {
   Apples: new Group({title: 'Apples'}),
@@ -127,7 +128,8 @@ const groups = window.groups = {
   FairShare: new Group({title: "FairShare", picture: "fairshare.webp"})
 };
 
-document.querySelector('switch-user').getModel = key => users[key];
+//document.querySelector('switch-user').getModel = key => users[key];
+document.querySelector('switch-user').getModel = key => Promise.resolve(users[key]);
 /*
 document.querySelector('switch-user').getModel = async key => {
   const pathname = `/persist/user/${key}.json`;
