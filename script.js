@@ -38,12 +38,12 @@ class FairshareApp extends BasicApp {
   getGroupModel(key = this.group) {
     return this.groupScreen?.getCachedModel(key);
   }
-  getPictureURL(name) {
-    if (!name) return '';
-    return `images/${name}`;
+  getPictureURL(filename) {
+    if (!filename) return '';
+    return `images/${filename}`;
   }
   getGroupPictureURL(name = this.group) {
-    return this.getPictureURL(App.getGroupModel()?.picture);
+    return this.getPictureURL(this.getGroupModel()?.picture);
   }
 }
 FairshareApp.register();
@@ -104,15 +104,15 @@ class FairshareShare extends AppShare {
   get description() {
     return `Come join ${App.user} in ${App.group}!`;
   }
-  // get picture() {
-  //   return App.getGroupPictureURL();
-  // }
+  get picture() {
+    return App.getGroupPictureURL();
+  }
 }
 FairshareShare.register();
 
 class FairsharePayme extends AppShare {
   get url() {
-    return App.urlWith({user: '', payee: App.user, amount: App.amount});
+    return App.urlWith({user: '', payee: App.user, amount: App.amount || ''});
   }
   get description() {
     return App.amount ?
