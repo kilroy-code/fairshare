@@ -1,4 +1,4 @@
-import { App, MDElement, ListItems, MenuButton, BasicApp, ChooserButton, AppShare } from '@kilroy-code/ui-components';
+import { App, MDElement, ListItems, MenuButton, BasicApp, ChooserButton, AppShare, ChoiceAmongLocallyStoredOptions } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -57,36 +57,9 @@ class FairshareAmount extends MDElement {
 }
 FairshareAmount.register();
 
-class FairshareGroups extends ListItems {
-  get group() {
-    return App?.url.searchParams.get('group') || this.myGroups[0] || '';
-  }
+class FairshareGroups extends ChoiceAmongLocallyStoredOptions {
   get urlKey() {
     return 'group';
-  }
-  get groupElement() {
-    return this.transformers.find(item => item.dataset.key === this.group) || null;
-  }
-  get groupModel() {
-    return this.groupElement?.model || null;
-  }
-  get shareElement() {
-    return document.body.querySelector('app-share');
-  }
-  get groupEffect() {
-    if (App.resetUrl({group: this.group})) {
-      this.group = undefined; // Allow it to pick up new dependencies.
-      this.shareElement.url = App.urlWith({screen: 'Groups', user: ''});
-    }    
-    return true;
-  }
-  get myGroups() {
-    let found = JSON.parse(localStorage.getItem('myGroups') || '["Apples", "Bananas", "FairShare"]'); //fixme? []
-    return found;
-  }
-  get myGroupsEffect() {
-    localStorage.setItem('myGroups', JSON.stringify(this.myGroups));
-    return this.setKeys(this.myGroups);
   }
 }
 FairshareGroups.register();
@@ -98,13 +71,6 @@ class FairshareGroupChooser  extends ChooserButton {
   get choiceEffect() {
     super.__choiceEffect();
     return App.resetUrl({group: this.choice});
-  }
-  // TODO: unify this with ChooserButton.
-  get groups() {
-    return this.doc$('fairshare-groups');
-  }
-  get groupsEffect() {
-    return this.setKeys(this.groups.myGroups);
   }
 }
 FairshareGroupChooser.register();
