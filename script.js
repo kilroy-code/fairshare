@@ -46,7 +46,7 @@ FairshareApp.register();
 
 class FairshareAmount extends MDElement {
   get template() {
-    return `<md-outlined-text-field label="Amount" type="number" min="0" step="0.01" placeholder="unspecified"></md-outlined-text-field>`;
+    return `<md-outlined-text-field label="Amount" name="amount" type="number" min="0" step="0.01" placeholder="unspecified"></md-outlined-text-field>`;
   }
   afterInitialize() {
     super.afterInitialize();
