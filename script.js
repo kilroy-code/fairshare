@@ -48,11 +48,17 @@ class FairshareAmount extends MDElement {
   get template() {
     return `<md-outlined-text-field label="Amount" name="amount" type="number" min="0" step="0.01" placeholder="unspecified"></md-outlined-text-field>`;
   }
+  get element() {
+    return this.shadow$('md-outlined-text-field');
+  }
+  get amountEffect() {
+    if (App.amount) this.element.value = App.amount;
+    return true;
+  }
   afterInitialize() {
     super.afterInitialize();
-    const element = this.shadow$('md-outlined-text-field');
-    element.addEventListener('change', event => event.target.reportValidity());
-    element.addEventListener('input', event => event.target.checkValidity() && App.resetUrl({amount: event.target.value}));
+    this.element.addEventListener('change', event => event.target.reportValidity());
+    this.element.addEventListener('input', event => event.target.checkValidity() && App.resetUrl({amount: event.target.value}));
   }
 }
 FairshareAmount.register();
