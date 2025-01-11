@@ -123,15 +123,14 @@ class FairshareInvest extends MDElement {
 }
 FairshareInvest.register();
 
-
+// Some data for populating the db, local or remote.
 const users = window.users = {
   Alice: new User({title: 'Alice'}),
-  Azalia: new User({title: "Azelia"}),
+  //Azalia: new User({title: "Azelia"}),
   Bob: new User({title: 'Bob', picture: 'bob.png'}),
   Carol: new User({title: 'Carol'})
   };
 //const users = {H: {title: 'H'}, 'howard.stearns': {title: 'howard.stearns'}};
-
 const groups = window.groups = {
   Apples: new Group({title: 'Apples'}),
   Bananas: new Group({title: "Bananas"}),
@@ -139,17 +138,73 @@ const groups = window.groups = {
   FairShare: new Group({title: "FairShare", picture: "fairshare.webp"})
 };
 
-//document.querySelector('switch-user').getModel = key => users[key];
-document.querySelector('switch-user').getModel = key => Promise.resolve(users[key]);
 /*
-document.querySelector('switch-user').getModel = async key => {
-  const pathname = `/persist/user/${key}.json`;
-  const response = await fetch(pathname);
-  const model = await response.json();
-  console.warn({key, pathname, response, model});
-  return model;
-};  //users[key];
+// Local definitions
+function getUserModel(key) { return Promise.resolve(users[key]); }
+function getGroupModel(key) { return new Promise(resolve => setTimeout(() => resolve(groups[key]), 1000)); }
+
 */
-document.querySelector('fairshare-groups').getModel = key => new Promise(resolve => setTimeout(() => resolve(groups[key]), 1000)); //Promise.resolve(groups[key]);
+// Networked definitions
+function dataPath(collection, key) {
+  return `/persist/${collection}/${key}.json`;
+}
+async function getData(collection, key) {
+  const pathname = dataPath(collection, key);
+  const response = await fetch(pathname);
+  const data = await response.json();
+  return data;
+}
+async function setData(collection, key, data) {
+  const path = dataPath(collection, key),
+	response = await fetch(path, {
+	  body: JSON.stringify(data),
+	  method: 'POST',
+	  headers: {"Content-Type": "application/json"}
+	}),
+	result = await response.json();
+  return result;
+}
+
+async function getUserModel(key) {
+  const data = await getData('user', key),
+	model = new User(data);
+  return model;
+}
+async function getGroupModel(key) {
+  const data = await getData('group', key),
+	model = new Group(data);
+  return model;
+}
+
+function setUserData(key, data) {
+  return setData('user', key, data);
+}
+function setGroupData(key, data) {
+  return setData('group', key, data);
+}
+function getUserList() {
+  return getData('user', 'list');
+}
+function getGroupList() {
+  return getData('group', 'list');
+}
+
+function getModelData(model) {
+  let {title, picture} = model;
+  return {title, picture};
+}
+function populateDb() {
+  for (const key in users) {
+    setUserData(key, getModelData(users[key]));
+  }
+  for (const key in groups) {
+    setGroupData(key, getModelData(groups[key]));
+  }
+}
+Object.assign(window, {getData, setData, setUserData, setGroupData, getUserModel, getGroupModel, getModelData, populateDb, getUserList, getGroupList});
+
+//*/
+document.querySelector('switch-user').getModel = getUserModel;
+document.querySelector('fairshare-groups').getModel = getGroupModel;
 
 
