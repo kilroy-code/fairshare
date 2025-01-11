@@ -61,6 +61,9 @@ class FairshareGroups extends ListItems {
   get group() {
     return App?.url.searchParams.get('group') || this.myGroups[0] || '';
   }
+  get urlKey() {
+    return 'group';
+  }
   get groupElement() {
     return this.transformers.find(item => item.dataset.key === this.group) || null;
   }
