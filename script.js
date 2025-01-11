@@ -38,15 +38,24 @@ class FairshareApp extends BasicApp {
   getGroupModel(key = this.group) {
     return this.groupScreen?.getCachedModel(key);
   }
-  getPictureURL(filename) {
-    if (!filename) return '';
-    return `images/${filename}`;
-  }
-  getGroupPictureURL(name = this.group) {
-    return this.getPictureURL(this.getGroupModel()?.picture);
+  getGroupPictureURL(key = this.group) {
+    return this.getPictureURL(this.getGroupModel(key)?.picture);
   }
 }
 FairshareApp.register();
+
+class FairshareAmount extends MDElement {
+  get template() {
+    return `<md-outlined-text-field label="Amount" type="number" min="0" step="0.01" placeholder="unspecified"></md-outlined-text-field>`;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    const element = this.shadow$('md-outlined-text-field');
+    element.addEventListener('change', event => event.target.reportValidity());
+    element.addEventListener('input', event => event.target.checkValidity() && App.resetUrl({amount: event.target.value}));
+  }
+}
+FairshareAmount.register();
 
 class FairshareGroups extends ListItems {
   get group() {
@@ -119,6 +128,9 @@ class FairsharePayme extends AppShare {
       `Please pay ${App.amount} ${App.group} to ${App.user}.` :
       `Please pay ${App.group} to ${App.user}.`;
   }
+  get picture() {
+    return App.getUserPictureURL();
+  }
 }
 FairsharePayme.register();
 
@@ -137,15 +149,13 @@ class FairshareInvest extends MDElement {
 FairshareInvest.register();
 
 
-/*
 const users = window.users = {
   Alice: new User({title: 'Alice'}),
   Azalia: new User({title: "Azelia"}),
-  Bob: new User({title: 'Bob'}),
+  Bob: new User({title: 'Bob', picture: 'bob.png'}),
   Carol: new User({title: 'Carol'})
   };
-*/
-const users = {H: {title: 'H'}, 'howard.stearns': {title: 'howard.stearns'}};
+//const users = {H: {title: 'H'}, 'howard.stearns': {title: 'howard.stearns'}};
 
 const groups = window.groups = {
   Apples: new Group({title: 'Apples'}),

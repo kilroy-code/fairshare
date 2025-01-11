@@ -5,6 +5,13 @@ body {
 p fairshare-group-chooser {
     vertical-align: bottom;
 }
+.row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+@media (max-width:700px) { .row { justify-content: space-between; } }
+@media (min-width:700px) { .row { justify-content: start; } }
 :root {
   --md-sys-color-primary: rgb(0 9 53);
   --md-sys-color-surface-tint: rgb(73 90 162);
