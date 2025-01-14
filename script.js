@@ -1,4 +1,4 @@
-import { App, MDElement, ListItems, BasicApp, /*ChooserButton,*/ AppShare, ChoiceAmongLocallyStoredOptions, MutableCollection, LiveRecord, CollectionTransform, MenuButton } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, ChoiceAmongLocallyStoredOptions, MutableCollection, MenuButton } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -114,22 +114,6 @@ class FairshareGroups extends ChoiceAmongLocallyStoredOptions {
   }
 }
 FairshareGroups.register();
-/*
-class FairshareGroupChooser  extends ChooserButton {
-  get choice() {
-    return App?.url.searchParams.get('group');
-  }
-  get choiceEffect() {
-    super.__choiceEffect();
-    return App.resetUrl({group: this.choice});
-  }
-  afterInitialize() {
-    super.afterInitialize();
-    getGroupList().then(keys => this.setKeys(keys));
-  }
-}
-FairshareGroupChooser.register();
-*/
   
 class FairshareShare extends AppShare {
   get url() {
