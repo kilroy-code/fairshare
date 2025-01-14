@@ -37,10 +37,37 @@ class FairshareApp extends BasicApp {
   }
 
   get userCollection() {
-    return new MutableCollection();
+    return new MutableCollection({getRecord: getUserData, getLiveRecord: getUserModel});
   }
   get groupCollection() {
-    return new MutableCollection();
+    return new MutableCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
+  }
+  get liveGroupsEffect() {
+    return this.setLocalLive('groupCollection');
+  }
+  get liveUsersEffect() {
+    return this.setLocalLive('userCollection');
+  }
+  setLocalLive(collectionName) {
+    const currentData = this[collectionName].liveTags;
+    return this.setLocal(collectionName, currentData);
+  }
+  getLocalLive(collectionName, ensureTag) {
+    const tags = this.getLocal(collectionName, []);
+    if (ensureTag && !tags.includes(ensureTag)) tags.push(ensureTag);
+    return tags;
+  }
+  updateLiveFromLocal(collectionName, ensureTag) {
+    let stored = this.getLocalLive(collectionName, ensureTag);
+    return this[collectionName].updateLiveTags(stored);
+  }
+  setLocal(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+    return value;
+  }
+  getLocal(key, defaultValue = null) {
+    const local = localStorage.getItem(key);
+    return (local === null) ? defaultValue : JSON.parse(local);
   }
  
   // FIXME trash these? (In favor of above.)
@@ -52,6 +79,24 @@ class FairshareApp extends BasicApp {
   }
   getGroupPictureURL(key = this.group) {
     return this.getPictureURL(this.getGroupModel(key)?.picture);
+  }
+  get content() {
+    // SUBTLY FRAGILE:
+    // We want to read locally stored collection lists and allow them to be set from that, BEFORE
+    // the default liveMumbleEffect rules fire during update (which fire on the initial empty values if not already set).
+    // So we're doing that here, and relying on content not dependening on anything that would cause us to re-fire.
+
+    // We will know the locally stored tags right away, which set initial liveTags and knownTags.
+    this.updateLiveFromLocal('userCollection', this.user);
+    this.updateLiveFromLocal('groupCollection', this.group);
+    return super.__content();
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    // When we get the list from the network, it will contain those initial knownTags members from above
+    // (unless deleted on server!), and when it comes in, that will (re-)define the total knownTags order.
+    getUserList().then(knownTags => this.userCollection.updateKnownTags(knownTags));
+    getGroupList().then(knownTags => this.groupCollection.updateKnownTags(knownTags));
   }
 }
 FairshareApp.register();
@@ -216,6 +261,12 @@ function setUserData(key, data) {
 function setGroupData(key, data) {
   return setData('group', key, data);
 }
+function getUserData(key) {
+  return getData('user', key);
+}
+function getGroupData(key) {
+  return getData('group', key);
+}
 function getUserList() {
   return getData('user', 'list');
 }
@@ -237,10 +288,6 @@ function populateDb() {
 }
 Object.assign(window, {getData, setData, setUserData, setGroupData, getUserModel, getGroupModel, getModelData, populateDb, getUserList, getGroupList});
 //*/
-
-getUserList().then(knownTags => App.userCollection.updateKnownTags(knownTags, tag => getData('user', tag)));
-getGroupList().then(knownTags => App.groupCollection.updateKnownTags(knownTags, tag => getData('group', tag)));
-App.groupCollection.updateLiveTags(JSON.parse(localStorage.getItem('group-choices') || '[]'), getGroupModel);
 		   
 
 // fixme: remove in favor of above
