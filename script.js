@@ -1,4 +1,4 @@
-import { App, MDElement, ListItems, MenuButton, BasicApp, ChooserButton, AppShare, ChoiceAmongLocallyStoredOptions } from '@kilroy-code/ui-components';
+import { App, MDElement, ListItems, BasicApp, ChooserButton, AppShare, ChoiceAmongLocallyStoredOptions, MutableCollection, LiveRecord, CollectionTransform } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -19,6 +19,8 @@ class Group {
 }
 Rule.rulify(Group.prototype);
 
+
+
 class FairshareApp extends BasicApp {
   get title() {
     return 'FairShare';
@@ -32,6 +34,15 @@ class FairshareApp extends BasicApp {
   get amount() {
     return parseFloat(this.getParameter('amount') || '0');
   }
+
+  get userCollection() {
+    return new MutableCollection();
+  }
+  get groupCollection() {
+    return new MutableCollection();
+  }
+ 
+  // FIXME trash these? (In favor of above.)
   get groupScreen() {
     return this.doc$('fairshare-groups');
   }
@@ -43,6 +54,79 @@ class FairshareApp extends BasicApp {
   }
 }
 FairshareApp.register();
+
+
+export class BaseTransformer extends MDElement {
+  get content() { 
+    return this.fromHTML('template', this.template);
+  }
+  get view() {
+    return this.content.content.firstElementChild; // First content is rule to get template, second gets dock fragment. No need to clone.
+  }
+  get sideEffects() {
+    const tag = this.dataset.key;
+    this.view.querySelector('[slot="headline"]').textContent = this.model?.title || tag;
+
+    return this.view.dataset.key = tag;
+  }
+}
+BaseTransformer.register();
+
+export class MenuTransformer extends BaseTransformer {
+  get template() {
+    return `<md-menu-item><div slot="headline"></div></md-menu-item>`;
+  }
+}
+MenuTransformer.register();
+
+export class MenuButton extends MDElement {
+  get tagsEffect() {
+    return this.transform.transformers;
+  }
+  get transform() {
+    return new CollectionTransform({source: this, transformerTag: 'menu-transformer'});
+  }
+  get viewParent() {
+    return this.shadow$('md-menu');
+  }
+  get anchor() { // Can be overridden or assigned.
+    return this.shadow$('md-outlined-button');
+  }
+  get template() {
+    return `
+      <md-menu></md-menu>
+      <md-outlined-button>Add existing to this browser</md-outlined-button>
+      `;
+  }
+  get styles() {
+    return `:host { position: relative; }`;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.viewParent.anchorElement = this.anchor;
+    this.anchor.addEventListener('click', () => this.viewParent.open = !this.viewParent.open);
+  }
+}
+MenuButton.register();
+
+export class AllUsersMenuButton extends MenuButton {
+  get collection() {
+    return App.userCollection;
+  }
+  get tags() {
+    return this.collection.knownTags;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.addEventListener('close-menu', event => {
+      event.stopPropagation();
+      console.log('selected:', event.detail.initiator.dataset.key);
+      //this.choice = event.detail.initiator.dataset.key;
+    });
+  }
+}
+AllUsersMenuButton.register();
+
 
 class FairshareAmount extends MDElement {
   get template() {
@@ -77,6 +161,10 @@ class FairshareGroupChooser  extends ChooserButton {
   get choiceEffect() {
     super.__choiceEffect();
     return App.resetUrl({group: this.choice});
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    getGroupList().then(keys => this.setKeys(keys));
   }
 }
 FairshareGroupChooser.register();
@@ -202,8 +290,13 @@ function populateDb() {
   }
 }
 Object.assign(window, {getData, setData, setUserData, setGroupData, getUserModel, getGroupModel, getModelData, populateDb, getUserList, getGroupList});
-
 //*/
+
+getUserList().then(knownTags => App.userCollection.updateKnownTags(knownTags, tag => getData('user', tag)));
+getGroupList().then(knownTags => App.groupCollection.updateKnownTags(knownTags, tag => getData('group', tag)));
+		   
+
+// fixme: remove in favor of above
 document.querySelector('switch-user').getModel = getUserModel;
 document.querySelector('fairshare-groups').getModel = getGroupModel;
 
