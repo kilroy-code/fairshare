@@ -1,4 +1,4 @@
-import { App, MDElement, ListItems, BasicApp, ChooserButton, AppShare, ChoiceAmongLocallyStoredOptions, MutableCollection, LiveRecord, CollectionTransform } from '@kilroy-code/ui-components';
+import { App, MDElement, ListItems, BasicApp, /*ChooserButton,*/ AppShare, ChoiceAmongLocallyStoredOptions, MutableCollection, LiveRecord, CollectionTransform, MenuButton } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -56,63 +56,6 @@ class FairshareApp extends BasicApp {
 }
 FairshareApp.register();
 
-
-export class BaseTransformer extends MDElement {
-  get content() { 
-    return this.fromHTML('template', this.template);
-  }
-  get model() {
-    return this.collection?.[this.dataset.key] || null;
-  }
-  get view() {
-    return this.content.content.firstElementChild; // First content is rule to get template, second gets dock fragment. No need to clone.
-  }
-  get sideEffects() {
-    const tag = this.dataset.key;
-    this.view.querySelector('[slot="headline"]').textContent = this.model?.title || tag;
-    // TODO: picture?
-    return this.view.dataset.key = tag;
-  }
-}
-BaseTransformer.register();
-
-export class MenuTransformer extends BaseTransformer {
-  get template() {
-    return `<md-menu-item><div slot="headline"></div></md-menu-item>`;
-  }
-}
-MenuTransformer.register();
-
-export class MenuButton extends MDElement {
-  get tagsEffect() {
-    return this.transform.transformers;
-  }
-  get transform() {
-    return new CollectionTransform({source: this, transformerTag: 'menu-transformer'});
-  }
-  get viewParent() {
-    return this.shadow$('md-menu');
-  }
-  get anchor() { // Can be overridden or assigned.
-    return this.shadow$('md-outlined-button');
-  }
-  get template() {
-    return `
-      <md-menu></md-menu>
-      <md-outlined-button><slot>Choose one</slot></md-outlined-button>
-      `;
-  }
-  get styles() {
-    return `:host { position: relative; }`;
-  }
-  afterInitialize() {
-    super.afterInitialize();
-    this.viewParent.anchorElement = this.anchor;
-    this.anchor.addEventListener('click', () => this.viewParent.open = !this.viewParent.open);
-  }
-}
-MenuButton.register();
-
 export class AllUsersMenuButton extends MenuButton {
   get collection() {
     return App.userCollection;
@@ -120,13 +63,8 @@ export class AllUsersMenuButton extends MenuButton {
   get tags() {
     return this.collection.knownTags;
   }
-  afterInitialize() {
-    super.afterInitialize();
-    this.addEventListener('close-menu', event => {
-      event.stopPropagation();
-      console.log('selected:', event.detail.initiator.dataset.key);
-      //this.choice = event.detail.initiator.dataset.key;
-    });
+  select(tag) {
+    console.log(`Selected ${tag}.`);
   }
 }
 AllUsersMenuButton.register();
@@ -142,15 +80,10 @@ export class FairshareGroupsMenuButton  extends MenuButton {
     const group = App.group,
 	  model = this.collection[group],
 	  title = model?.title || 'wtf?';
-    console.log({group, model, title});
-    return this.anchor.textContent = title;
+    return this.button.textContent = title;
   }
-  afterInitialize() {
-    super.afterInitialize();
-    this.addEventListener('close-menu', event => {
-      event.stopPropagation();
-      App.resetUrl({group: event.detail.initiator.dataset.key});
-    });
+  select(tag) {
+    App.resetUrl({group: tag});
   }
 }
 FairshareGroupsMenuButton.register();
@@ -181,7 +114,7 @@ class FairshareGroups extends ChoiceAmongLocallyStoredOptions {
   }
 }
 FairshareGroups.register();
-
+/*
 class FairshareGroupChooser  extends ChooserButton {
   get choice() {
     return App?.url.searchParams.get('group');
@@ -196,6 +129,7 @@ class FairshareGroupChooser  extends ChooserButton {
   }
 }
 FairshareGroupChooser.register();
+*/
   
 class FairshareShare extends AppShare {
   get url() {
