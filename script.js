@@ -14,6 +14,7 @@ Rule.rulify(User.prototype);
 
 class Group {
   constructor(properties) { Object.assign(this, properties); }
+  isLiveRecord = true;
   get title() { return 'unknown'; }
   get picture() { return this.title.toLowerCase() + '.jpeg'; }
 }
@@ -60,13 +61,16 @@ export class BaseTransformer extends MDElement {
   get content() { 
     return this.fromHTML('template', this.template);
   }
+  get model() {
+    return this.collection?.[this.dataset.key] || null;
+  }
   get view() {
     return this.content.content.firstElementChild; // First content is rule to get template, second gets dock fragment. No need to clone.
   }
   get sideEffects() {
     const tag = this.dataset.key;
     this.view.querySelector('[slot="headline"]').textContent = this.model?.title || tag;
-
+    // TODO: picture?
     return this.view.dataset.key = tag;
   }
 }
@@ -95,7 +99,7 @@ export class MenuButton extends MDElement {
   get template() {
     return `
       <md-menu></md-menu>
-      <md-outlined-button>Add existing to this browser</md-outlined-button>
+      <md-outlined-button><slot>Choose one</slot></md-outlined-button>
       `;
   }
   get styles() {
@@ -126,6 +130,30 @@ export class AllUsersMenuButton extends MenuButton {
   }
 }
 AllUsersMenuButton.register();
+
+export class FairshareGroupsMenuButton  extends MenuButton {
+  get collection() {
+    return App.groupCollection;
+  }
+  get tags() {
+    return this.collection.liveTags;
+  }
+  get groupEffect() {
+    const group = App.group,
+	  model = this.collection[group],
+	  title = model?.title || 'wtf?';
+    console.log({group, model, title});
+    return this.anchor.textContent = title;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.addEventListener('close-menu', event => {
+      event.stopPropagation();
+      App.resetUrl({group: event.detail.initiator.dataset.key});
+    });
+  }
+}
+FairshareGroupsMenuButton.register();
 
 
 class FairshareAmount extends MDElement {
@@ -294,6 +322,7 @@ Object.assign(window, {getData, setData, setUserData, setGroupData, getUserModel
 
 getUserList().then(knownTags => App.userCollection.updateKnownTags(knownTags, tag => getData('user', tag)));
 getGroupList().then(knownTags => App.groupCollection.updateKnownTags(knownTags, tag => getData('group', tag)));
+App.groupCollection.updateLiveTags(JSON.parse(localStorage.getItem('group-choices') || '[]'), getGroupModel);
 		   
 
 // fixme: remove in favor of above

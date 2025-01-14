@@ -2,7 +2,8 @@ body {
     margin: 0;
     font-family: roboto;
 }
-p fairshare-group-chooser {
+p fairshare-group-chooser,
+p fairshare-groups-menu-button {
     vertical-align: bottom;
 }
 .row {
