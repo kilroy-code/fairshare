@@ -80,16 +80,18 @@ class FairshareApp extends BasicApp {
   getGroupPictureURL(key = this.group) {
     return this.getPictureURL(this.getGroupModel(key)?.picture);
   }
-  get content() {
-    // SUBTLY FRAGILE:
+  constructor(...rest) {
+    super(...rest);
+    // SUBTLE
     // We want to read locally stored collection lists and allow them to be set from that, BEFORE
     // the default liveMumbleEffect rules fire during update (which fire on the initial empty values if not already set).
     // So we're doing that here, and relying on content not dependening on anything that would cause us to re-fire.
-
-    // We will know the locally stored tags right away, which set initial liveTags and knownTags.
-    this.updateLiveFromLocal('userCollection', this.user);
-    this.updateLiveFromLocal('groupCollection', this.group);
-    return super.__content();
+    setTimeout(() => { // I don't think it matters whether we do this in the constructor or next tick.
+      // (It is important, thought, to not be in a rule that would fire whenever the dependencies change.)
+      // We will know the locally stored tags right away, which set initial liveTags and knownTags.
+      this.updateLiveFromLocal('userCollection', this.user);
+      this.updateLiveFromLocal('groupCollection', this.group);
+    });
   }
   afterInitialize() {
     super.afterInitialize();
