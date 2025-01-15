@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, ChoiceAmongLocallyStoredOptions, MutableCollection, MenuButton } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, MutableCollection, MenuButton, LiveList } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -70,15 +70,8 @@ class FairshareApp extends BasicApp {
     return (local === null) ? defaultValue : JSON.parse(local);
   }
  
-  // FIXME trash these? (In favor of above.)
-  get groupScreen() {
-    return this.doc$('fairshare-groups');
-  }
-  getGroupModel(key = this.group) {
-    return this.groupScreen?.getCachedModel(key);
-  }
   getGroupPictureURL(key = this.group) {
-    return this.getPictureURL(this.getGroupModel(key)?.picture);
+    return this.getPictureURL(this.groupCollection[key]?.picture);
   }
   constructor(...rest) {
     super(...rest);
@@ -155,10 +148,16 @@ class FairshareAmount extends MDElement {
 }
 FairshareAmount.register();
 
-class FairshareGroups extends ChoiceAmongLocallyStoredOptions {
-  get urlKey() {
-    return 'group';
+class FairshareGroups extends LiveList {
+  get collection() {
+    return App.groupCollection;
   }
+  get active() {
+    return App.group;
+  }
+  select(tag) {
+    App.resetUrl({group: tag});
+  }  
 }
 FairshareGroups.register();
   
@@ -293,7 +292,7 @@ Object.assign(window, {getData, setData, setUserData, setGroupData, getUserModel
 		   
 
 // fixme: remove in favor of above
-document.querySelector('switch-user').getModel = getUserModel;
-document.querySelector('fairshare-groups').getModel = getGroupModel;
+//document.querySelector('switch-user').getModel = getUserModel;
+//document.querySelector('fairshare-groups').getModel = getGroupModel;
 
 
