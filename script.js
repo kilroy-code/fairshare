@@ -101,7 +101,8 @@ export class AllUsersMenuButton extends MenuButton {
     return App.userCollection;
   }
   get tags() {
-    return this.collection.knownTags;
+    let live = new Set(this.collection.liveTags);
+    return this.collection.knownTags.filter(tag => !live.has(tag));
   }
   select(tag) {
     console.log(`Selected ${tag}.`);
