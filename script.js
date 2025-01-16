@@ -99,20 +99,6 @@ class FairshareApp extends BasicApp {
 }
 FairshareApp.register();
 
-export class AllUsersMenuButton extends MenuButton {
-  get collection() {
-    return App.userCollection;
-  }
-  get tags() {
-    let live = new Set(this.collection.liveTags);
-    return this.collection.knownTags.filter(tag => !live.has(tag));
-  }
-  select(tag) {
-    console.log(`Selected ${tag}.`);
-  }
-}
-AllUsersMenuButton.register();
-
 export class FairshareGroupsMenuButton  extends MenuButton {
   get collection() {
     return App.groupCollection;
