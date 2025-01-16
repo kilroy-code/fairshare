@@ -7,7 +7,7 @@ const { localStorage, URL } = window;
 class User {
   constructor(properties) { Object.assign(this, properties); }
   get title() { return 'unknown'; }
-  get picture() { return this.title.toLowerCase() + '.jpeg'; }
+  get picture() { return ''; }
 }
 Rule.rulify(User.prototype);
 

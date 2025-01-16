@@ -17,7 +17,7 @@
     <style>
       first-use, create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
       *:not(:defined) { opacity: 0; }
-      basic-app:defined { transition: opacity 0.5s ease-out; }
+      *:defined { transition: opacity 0.5s ease-out; }
       section { margin: 10pt; }
     </style>
   </head>
@@ -85,7 +85,6 @@
 	  <div>Each new account is automatically added to the FairShare group. Other groups must vote you in.</div>
 	</user-profile>
       </app-firstuse>
-
     </fairshare-app>
   </body>
 </html>
