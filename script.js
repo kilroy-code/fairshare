@@ -69,10 +69,13 @@ class FairshareApp extends BasicApp {
     const local = localStorage.getItem(key);
     return (local === null) ? defaultValue : JSON.parse(local);
   }
- 
-  getGroupPictureURL(key = this.group) {
-    return this.getPictureURL(this.groupCollection[key]?.picture);
+  get setUser() {
+    return setUserData;
   }
+  get setGroup() {
+    return setGroupData;
+  }
+ 
   constructor(...rest) {
     super(...rest);
     // SUBTLE
@@ -170,7 +173,7 @@ class FairshareShare extends AppShare {
     return `Come join ${App.user} in ${App.group}!`;
   }
   get picture() {
-    return App.getGroupPictureURL();
+    return App.getPictureURL(App.groupCollection[App.group]?.picture);
   }
 }
 FairshareShare.register();
@@ -185,7 +188,7 @@ class FairsharePayme extends AppShare {
       `Please pay ${App.group} to ${App.user}.`;
   }
   get picture() {
-    return App.getUserPictureURL();
+    return App.getPictureURL(App.userCollection[App.user]?.picture);
   }
 }
 FairsharePayme.register();
@@ -232,6 +235,7 @@ function dataPath(collection, key) {
 async function getData(collection, key) {
   const pathname = dataPath(collection, key);
   const response = await fetch(pathname);
+  if (!response.ok) return null;
   const data = await response.json();
   return data;
 }
@@ -288,7 +292,7 @@ function populateDb() {
     setGroupData(key, getModelData(groups[key]));
   }
 }
-Object.assign(window, {getData, setData, setUserData, setGroupData, getUserModel, getGroupModel, getModelData, populateDb, getUserList, getGroupList});
+Object.assign(window, {getData, setData, getUserData, getGroupData, setUserData, setGroupData, getUserModel, getGroupModel, getModelData, populateDb, getUserList, getGroupList});
 //*/
 		   
 
