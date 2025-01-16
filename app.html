@@ -24,7 +24,10 @@
   <body>
     <fairshare-app>
 
-      <fairshare-groups><p><i>Group functionality is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a></i></p></fairshare-groups>
+      <fairshare-groups>
+	<p><i>Group functionality is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a></i></p>
+	<p slot="empty">To join a group, you must <a href="#Create new account">create an account</a>.</p>
+      </fairshare-groups>
       <fairshare-pay></fairshare-pay>
       <fairshare-invest></fairshare-invest>
       <fairshare-payme>
@@ -59,16 +62,16 @@
 	</p>
       </section>
 
-      <user-profile title="User profile" slot="user-menu"></user-profile>
-      <switch-user title="Switch user" slot="user-menu">
-	<!-- <all-users-menu-button>Add existing to this browser</all-users-menu-button> -->
+      <user-profile title="Edit account" slot="user-menu"></user-profile>
+      <switch-user title="Switch accounts" slot="user-menu">
+	<p slot="empty">There are no accounts authorized for this browser. You can <a href="#Create new account">create a new account</a>, or <a href="#Add existing account">authorize one of your existing accounts</a> if you have one.</p>
       </switch-user>
-      <authorize-user title="Add user" slot="user-menu"></authorize-user>
-      <create-user title="Create user" slot="user-menu">
+      <authorize-user title="Add existing account" slot="user-menu"></authorize-user>
+      <create-user title="Create new account" slot="user-menu">
 	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p>
 	<p>This screen will create an additional account for you to use.</p>
       </create-user>
-      <fairshare-share slot="user-menu">
+      <fairshare-share slot="user-menu" title="Invite someone">
 	<p slot="qr">Sign up another user to
 	  <fairshare-groups-menu-button></fairshare-groups-menu-button>
 	  <!-- <fairshare-group-chooser></fairshare-group-chooser> -->
