@@ -85,8 +85,8 @@ class FairshareApp extends BasicApp {
     setTimeout(() => { // I don't think it matters whether we do this in the constructor or next tick.
       // (It is important, thought, to not be in a rule that would fire whenever the dependencies change.)
       // We will know the locally stored tags right away, which set initial liveTags and knownTags.
-      this.updateLiveFromLocal('userCollection', this.user);
-      this.updateLiveFromLocal('groupCollection', this.group);
+      this.updateLiveFromLocal('userCollection');
+      this.updateLiveFromLocal('groupCollection');
     });
   }
   afterInitialize() {
