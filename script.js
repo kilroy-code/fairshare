@@ -6,6 +6,7 @@ const { localStorage, URL } = window;
 
 class User {
   constructor(properties) { Object.assign(this, properties); }
+  isLiveRecord = true;
   get title() { return 'unknown'; }
   get picture() { return ''; }
 }
@@ -85,12 +86,10 @@ class FairshareApp extends BasicApp {
     // We want to read locally stored collection lists and allow them to be set from that, BEFORE
     // the default liveMumbleEffect rules fire during update (which fire on the initial empty values if not already set).
     // So we're doing that here, and relying on content not dependening on anything that would cause us to re-fire.
-    setTimeout(() => { // I don't think it matters whether we do this in the constructor or next tick.
-      // (It is important, thought, to not be in a rule that would fire whenever the dependencies change.)
-      // We will know the locally stored tags right away, which set initial liveTags and knownTags.
-      this.updateLiveFromLocal('userCollection');
-      this.updateLiveFromLocal('groupCollection');
-    });
+    // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
+    // a null record rule in the collection that will be updated when the data comes in.
+    this.updateLiveFromLocal('userCollection');
+    this.updateLiveFromLocal('groupCollection');
   }
   afterInitialize() {
     super.afterInitialize();
@@ -234,8 +233,8 @@ async function setData(collection, key, data) {
 	  body: JSON.stringify(data),
 	  method: 'POST',
 	  headers: {"Content-Type": "application/json"}
-	}),
-	result = await response.json();
+	});
+  const result = await response.json();
   return result;
 }
 
