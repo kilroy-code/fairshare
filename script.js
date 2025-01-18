@@ -27,7 +27,7 @@ class FairshareApp extends BasicApp {
     return 'FairShare';
   }
   get group() {
-    return this.getParameter('group');
+    return this.getParameter('group') || this.groupCollection.liveTags[0] || '';
   }
   get payee() {
     return this.getParameter('payee');
@@ -76,6 +76,9 @@ class FairshareApp extends BasicApp {
     return setGroupData;
   }
  
+  get groupEffect() {
+    return this.resetUrl({group: this.group});
+  }
   constructor(...rest) {
     super(...rest);
     // SUBTLE
