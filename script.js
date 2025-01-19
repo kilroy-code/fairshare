@@ -234,6 +234,10 @@ async function setData(collection, key, data) {
 	  method: 'POST',
 	  headers: {"Content-Type": "application/json"}
 	});
+  if (!response.ok) {
+    console.warn(`set ${collection} ${key}: ${response.statusText}`);
+    return null;
+  }
   const result = await response.json();
   return result;
 }
@@ -287,5 +291,4 @@ Object.assign(window, {getData, setData, getUserData, getGroupData, setUserData,
 // fixme: remove in favor of above
 //document.querySelector('switch-user').getModel = getUserModel;
 //document.querySelector('fairshare-groups').getModel = getGroupModel;
-
 
