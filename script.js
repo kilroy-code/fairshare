@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList, AuthorizeUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -153,6 +153,15 @@ class FairshareAmount extends MDElement {
   }
 }
 FairshareAmount.register();
+
+class FairshareAuthorizeUser extends AuthorizeUser {
+  static adopt(tag) {
+    super.adopt(tag);
+    const local = App.groupCollection.liveTags;
+    App.groupCollection.updateLiveTags([...local, "FairShare"]);
+  }
+}
+FairshareAuthorizeUser.register();
 
 class FairshareGroups extends LiveList {
   get collection() {

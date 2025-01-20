@@ -66,7 +66,7 @@
       <switch-user title="Switch accounts" slot="user-menu">
 	<p slot="empty">There are no accounts authorized for this browser. You can <a href="#Create new account">create a new account</a>, or <a href="#Add existing account">authorize one of your existing accounts</a> if you have one.</p>
       </switch-user>
-      <authorize-user title="Add existing account" slot="user-menu"></authorize-user>
+      <fairshare-authorize-user title="Add existing account" slot="user-menu"></fairshare-authorize-user>
       <fairshare-create-user title="Create new account" slot="user-menu">
 	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p>
 	<p>This screen will create an additional account for you to use.</p>
@@ -84,8 +84,9 @@
       <app-firstuse slot="first-use">
 	<fairshare-create-user>
 	  <h2>Welcome!</h2>
-	  <div>Creating a new account is free and no personal information is needed.</div>
-	  <div>Each new account is automatically added to the FairShare group. Other groups must vote you in.</div>
+	  <p>Creating a new account is free and no personal information is needed.</p>
+	  <p>Each new account is automatically added to the FairShare group. Other groups must vote you in.</p>
+	  <p>Or, if you already have an account, you can authorize it for use in this browser <a href="#Add existing account">here</a>.</p>
 	</fairshare-create-user>
       </app-firstuse>
     </fairshare-app>
