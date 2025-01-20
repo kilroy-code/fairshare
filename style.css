@@ -13,9 +13,17 @@ p fairshare-groups-menu-button {
 }
 @media (max-width:700px) { .row { justify-content: space-between; } }
 @media (min-width:700px) { .row { justify-content: start; } }
+@property --margin {
+    syntax: <length>;
+    inherits: true;
+    initial-value: 10px;
+}
+@property --avatar-size {
+    syntax: <length>;
+    inherits: true;
+    initial-value: 40px;
+}
 :root {
-    --margin: 10px;
-    --avatar-size: 40px;
     --md-sys-color-primary: rgb(0 9 53);
     --md-sys-color-surface-tint: rgb(73 90 162);
     --md-sys-color-on-primary: rgb(255 255 255);

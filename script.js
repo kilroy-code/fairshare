@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, MutableCollection, MenuButton, LiveList } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -76,7 +76,13 @@ class FairshareApp extends BasicApp {
   get setGroup() {
     return setGroupData;
   }
- 
+
+  joinGroup(tag) {
+    const local = App.groupCollection.liveTags;
+    App.groupCollection.updateLiveTags([...local, tag]);
+    App.resetUrl({screen: 'Groups', group: tag});
+    return tag;
+  }
   get groupEffect() {
     return this.resetUrl({group: this.group});
   }
@@ -100,6 +106,14 @@ class FairshareApp extends BasicApp {
   }
 }
 FairshareApp.register();
+
+export class FairshareCreateUser extends CreateUser {
+  onaction(form) {
+    super.onaction(form);
+    return App.joinGroup('FairShare');
+  }
+}
+FairshareCreateUser.register();
 
 export class FairshareGroupsMenuButton  extends MenuButton {
   get collection() {
