@@ -201,7 +201,7 @@ FairshareGroups.register();
   
 class FairshareShare extends AppShare {
   get url() {
-    return App.urlWith({user: '', payee: '', amount: ''});
+    return App.urlWith({user: '', payee: '', amount: '', screen: 'Groups'});
   }
   get description() {
     return `Come join ${App.user} in ${App.group}!`;
@@ -214,7 +214,7 @@ FairshareShare.register();
 
 class FairsharePayme extends AppShare {
   get url() {
-    return App.urlWith({user: '', payee: App.user, amount: App.amount || ''});
+    return App.urlWith({user: '', payee: App.user, amount: App.amount || '', screen: 'Pay'});
   }
   get description() {
     return App.amount ?
