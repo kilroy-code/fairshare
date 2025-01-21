@@ -115,17 +115,20 @@ export class FairshareCreateUser extends CreateUser {
 }
 FairshareCreateUser.register();
 
-export class FairshareGroupsMenuButton  extends MenuButton {
+class FairshareGroupsMenuButton  extends MenuButton {
   get collection() {
     return App.groupCollection;
   }
   get tags() {
     return this.collection.liveTags;
   }
+  get choice() {
+    return App.group;
+  }
   get groupEffect() {
-    const group = App.group,
-	  model = this.collection[group],
-	  title = model?.title || 'wtf?';
+    const group = this.choice,
+	  model = group && this.collection[group],
+	  title = model?.title || 'Pick one';
     return this.button.textContent = title;
   }
   select(tag) {
@@ -133,6 +136,17 @@ export class FairshareGroupsMenuButton  extends MenuButton {
   }
 }
 FairshareGroupsMenuButton.register();
+
+class FairshareAllOtherGroupsMenuButton extends FairshareGroupsMenuButton {
+  get choice() {
+    return '';
+  }
+  get tags() {
+    let live = new Set(this.collection.liveTags);
+    return this.collection.knownTags.filter(tag => !live.has(tag));
+  }
+}
+FairshareAllOtherGroupsMenuButton.register();
 
 
 class FairshareAmount extends MDElement {
@@ -157,13 +171,17 @@ FairshareAmount.register();
 class FairshareAuthorizeUser extends AuthorizeUser {
   static adopt(tag) {
     super.adopt(tag);
-    const local = App.groupCollection.liveTags;
-    App.groupCollection.updateLiveTags([...local, "FairShare"]);
+    FairshareGroups.join('FairShare');
   }
 }
 FairshareAuthorizeUser.register();
 
 class FairshareGroups extends LiveList {
+  static join(tag) {
+    const local = App.groupCollection.liveTags;
+    // TODO: ask to join (unless tag === 'FairShare').
+    App.groupCollection.updateLiveTags([...local, tag]);
+  }
   get collection() {
     return App.groupCollection;
   }
@@ -172,7 +190,17 @@ class FairshareGroups extends LiveList {
   }
   select(tag) {
     App.resetUrl({group: tag});
-  }  
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.child$('md-filled-button').addEventListener('click', () => {
+      const menu = this.child$('fairshare-all-other-groups-menu-button');
+      if (!menu.choice) return App.dialog("Please <i>pick one</i> of the groups to join.");
+      FairshareGroups.join(menu.choice);
+      menu.choice = '';
+      return true;
+    });
+  }
 }
 FairshareGroups.register();
   
