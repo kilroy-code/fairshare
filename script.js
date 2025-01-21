@@ -9,6 +9,7 @@ class User {
   isLiveRecord = true;
   get title() { return 'unknown'; }
   get picture() { return ''; }
+  get groups() { return ['FairShare']; }
 }
 Rule.rulify(User.prototype);
 
@@ -43,8 +44,11 @@ class FairshareApp extends BasicApp {
   get groupCollection() {
     return new MutableCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
   }
-  get liveGroupsEffect() {
-    return this.setLocalLive('groupCollection');
+  // get liveGroupsEffect() {
+  //   return this.setLocalLive('groupCollection');
+  // }
+  get userRecordEffect() { // When the record changes, update the live colleciton.
+    return this.groupCollection.updateLiveTags(this.userRecord?.groups || []);
   }
   get liveUsersEffect() {
     return this.setLocalLive('userCollection');
@@ -53,13 +57,11 @@ class FairshareApp extends BasicApp {
     const currentData = this[collectionName].liveTags;
     return this.setLocal(collectionName, currentData);
   }
-  getLocalLive(collectionName, ensureTag) {
-    const tags = this.getLocal(collectionName, []);
-    if (ensureTag && !tags.includes(ensureTag)) tags.push(ensureTag);
-    return tags;
+  getLocalLive(collectionName) {
+    return this.getLocal(collectionName, []);
   }
-  updateLiveFromLocal(collectionName, ensureTag) {
-    let stored = this.getLocalLive(collectionName, ensureTag);
+  updateLiveFromLocal(collectionName) {
+    let stored = this.getLocalLive(collectionName);
     return this[collectionName].updateLiveTags(stored);
   }
   setLocal(key, value) {
@@ -71,18 +73,26 @@ class FairshareApp extends BasicApp {
     return (local === null) ? defaultValue : JSON.parse(local);
   }
   get setUser() {
-    return setUserData;
+    return (tag, newData) => {
+      if (!tag || !newData) return console.error('Please supply tag and newData to setUser');
+      let oldRecord = this.userCollection[tag] || {},
+	  data = {};
+      // Essentially Object.assign({}, oldData, newData), but includes inherited oldData.
+      for (const key in oldRecord) data[key] = oldRecord[key];
+      for (const key in newData) data[key] = newData[key];
+      return setUserData(tag, data);
+    };
   }
   get setGroup() {
     return setGroupData;
   }
 
-  joinGroup(tag) {
-    const local = App.groupCollection.liveTags;
-    App.groupCollection.updateLiveTags([...local, tag]);
-    App.resetUrl({screen: 'Groups', group: tag});
-    return tag;
-  }
+  // joinGroup(tag) {
+  //   const local = App.groupCollection.liveTags;
+  //   App.groupCollection.updateLiveTags([...local, tag]);
+  //   App.resetUrl({screen: 'Groups', group: tag});
+  //   return tag;
+  // }
   get groupEffect() {
     return this.resetUrl({group: this.group});
   }
@@ -95,7 +105,6 @@ class FairshareApp extends BasicApp {
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
     this.updateLiveFromLocal('userCollection');
-    this.updateLiveFromLocal('groupCollection');
   }
   afterInitialize() {
     super.afterInitialize();
@@ -108,10 +117,10 @@ class FairshareApp extends BasicApp {
 FairshareApp.register();
 
 export class FairshareCreateUser extends CreateUser {
-  onaction(form) {
-    super.onaction(form);
-    return App.joinGroup('FairShare');
-  }
+  // onaction(form) {
+  //   super.onaction(form);
+  //   return App.joinGroup('FairShare');
+  // }
 }
 FairshareCreateUser.register();
 
@@ -169,18 +178,18 @@ class FairshareAmount extends MDElement {
 FairshareAmount.register();
 
 class FairshareAuthorizeUser extends AuthorizeUser {
-  static adopt(tag) {
-    super.adopt(tag);
-    FairshareGroups.join('FairShare');
-  }
+  // static adopt(tag) {
+  //   super.adopt(tag);
+  //   FairshareGroups.join('FairShare');
+  // }
 }
 FairshareAuthorizeUser.register();
 
 class FairshareGroups extends LiveList {
-  static join(tag) {
-    const local = App.groupCollection.liveTags;
-    // TODO: ask to join (unless tag === 'FairShare').
-    App.groupCollection.updateLiveTags([...local, tag]);
+  static async join(tag) {
+    const groups = [...App.userRecord.groups, tag];
+    await App.setUser(App.user, {groups});
+    App.userCollection.updateLiveRecord(App.user);
   }
   get collection() {
     return App.groupCollection;
@@ -234,14 +243,14 @@ FairsharePayme.register();
 
 class FairsharePay extends MDElement {
   get template() {
-    return `<p><i>Paying another user is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#pay" target="fairshare-poc">proof of concept</a></i></p>`;
+    return `<p><i>Paying another user is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#pay" target="fairshare-poc">proof of concept</a>.</i></p>`;
   }
 }
 FairsharePay.register();
 
 class FairshareInvest extends MDElement {
   get template() {
-    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a></i></p>`;
+    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a>.</i></p>`;
   }
 }
 FairshareInvest.register();
