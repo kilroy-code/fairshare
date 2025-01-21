@@ -4,9 +4,17 @@
     <script type="importmap">
       { "comment": "Tells browser where to find each package, so that we do not need a build step.",
       	"imports": {
-	  "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
-	  "@kilroy-code/ui-components": "/@kilroy-code/ui-components/index.mjs",
-          "@material/web/": "https://esm.run/@material/web/"
+          "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
+          "@kilroy-code/ui-components": "/@kilroy-code/ui-components/index.mjs",
+          "@material/web/": "/@kilroy-code/ui-components/node_modules/@material/web/",
+          "tslib": "/@kilroy-code/ui-components/node_modules/tslib/tslib.es6.mjs",
+          "lit": "/@kilroy-code/ui-components/node_modules/lit/index.js",
+          "lit-html": "/@kilroy-code/ui-components/node_modules/lit-html/lit-html.js",
+          "lit-html/": "/@kilroy-code/ui-components/node_modules/lit-html/",
+          "lit/": "/@kilroy-code/ui-components/node_modules/lit/",
+          "lit-element/": "/@kilroy-code/ui-components/node_modules/lit-element/",
+          "@lit/reactive-element": "/@kilroy-code/ui-components/node_modules/@lit/reactive-element/reactive-element.js",
+          "@lit/": "/@kilroy-code/ui-components/node_modules/@lit/"
 	}
       }
     </script>
@@ -15,7 +23,7 @@
     <link href="style.css" rel="stylesheet">
     <script type="module" src="script.js"></script>
     <style>
-      first-use, create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
+      app-firstuse, create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
       *:not(:defined) { opacity: 0; }
       *:defined { transition: opacity 0.5s ease-out; }
       section { margin: 10pt; }
@@ -25,21 +33,26 @@
     <fairshare-app>
 
       <fairshare-groups>
-	<p>Or ask to join <fairshare-all-other-groups-menu-button></fairshare-all-other-groups-menu-button>: <md-filled-button>join</md-filled-button>.</p>
-	<p><i>Currently, the only thing happens when you select a group is that it appears in the url for <a href="#Payme">Payme</a> and <a href="#Invite someone">Invite someone</a>. But see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a>.</i></p>
+	<section>
+	  <p>Or <fairshare-all-other-groups-menu-button></fairshare-all-other-groups-menu-button> <md-filled-button>join</md-filled-button></p>
+	  <p><i>Currently, the only thing happens when you select a group is that it appears in the url for <a href="#Payme">Payme</a> and <a href="#Invite someone">Invite someone</a>. But see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a>.</i></p>
+	</section>
 	<p slot="empty">To join a group, you must <a href="#Create new account">create an account</a>.</p>
       </fairshare-groups>
+
       <fairshare-pay></fairshare-pay>
+
       <fairshare-invest></fairshare-invest>
+
       <fairshare-payme>
 	<div slot="qr" class="row">
 	  <fairshare-amount></fairshare-amount>
 	  <fairshare-groups-menu-button></fairshare-groups-menu-button>
-	  <!-- <fairshare-group-chooser></fairshare-group-chooser> -->
 	</div>
 	<p slot="qr">Invite someone to pay you by having them scan this code with their phone.</p>
 	<p slot="social">Or share this URL directly:</p>
       </fairshare-payme>
+
       <section title="About">
 	<p>
 	  <i><b>Under construction. For more information, see see <a href="https://howard-stearns.github.io/FairShare/" target="fairshare-poc">README.md</a>.</b></i>
@@ -59,19 +72,23 @@
 	  You can pay people in other groups, too.
 	</p>
 	<p>
-	  There is a video and a very brief whitepaper at <a href="https://fairshare.social" target="fairshare">fairshare.social</a>.
+	  There is a video and a brief whitepaper at <a href="https://fairshare.social" target="fairshare">fairshare.social</a>.
 	</p>
       </section>
 
       <user-profile title="Edit account" slot="user-menu"></user-profile>
+
       <switch-user title="Switch accounts" slot="user-menu">
 	<p slot="empty">There are no accounts authorized for this browser. You can <a href="#Create new account">create a new account</a>, or <a href="#Add existing account">authorize one of your existing accounts</a> if you have one.</p>
       </switch-user>
+
       <fairshare-authorize-user title="Add existing account" slot="user-menu"></fairshare-authorize-user>
+
       <fairshare-create-user title="Create new account" slot="user-menu">
 	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p>
 	<p>This screen will create an additional account for you to use.</p>
       </fairshare-create-user>
+
       <fairshare-share slot="user-menu" title="Invite someone">
 	<p slot="qr">Sign up another user to
 	  <fairshare-groups-menu-button></fairshare-groups-menu-button>
@@ -82,11 +99,10 @@
 
       <list-divider></list-divider>
 
-      <app-firstuse slot="first-use">
+      <app-firstuse slot="first-use" title="Start fresh for playing">
 	<fairshare-create-user>
 	  <h2>Welcome!</h2>
-	  <p>Creating a new account is free and no personal information is needed.</p>
-	  <p>Each new account is automatically added to the FairShare group. Other groups must vote you in.</p>
+	  <p>Creating a new account is free and no personal information is needed. Each new account is automatically added to the FairShare group.</p>
 	  <p>Or, if you already have an account, you can authorize it for use in this browser <a href="#Add existing account">here</a>.</p>
 	</fairshare-create-user>
       </app-firstuse>
