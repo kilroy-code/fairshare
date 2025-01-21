@@ -44,9 +44,6 @@ class FairshareApp extends BasicApp {
   get groupCollection() {
     return new MutableCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
   }
-  // get liveGroupsEffect() {
-  //   return this.setLocalLive('groupCollection');
-  // }
   get userRecordEffect() { // When the record changes, update the live colleciton.
     return this.groupCollection.updateLiveTags(this.userRecord?.groups || []);
   }
@@ -127,7 +124,7 @@ class FairshareGroupsMenuButton  extends MenuButton {
   get groupEffect() {
     const group = this.choice,
 	  model = group && this.collection[group],
-	  title = model?.title || 'Pick one';
+	  title = model?.title || 'Select a group';
     return this.button.textContent = title;
   }
   select(tag) {
@@ -183,13 +180,22 @@ class FairshareGroups extends LiveList {
   get active() {
     return App.group;
   }
+  get otherGroupsElement() {
+    return this.child$('fairshare-all-other-groups-menu-button');
+  }
+  get joinElement() {
+    return this.child$('md-filled-button');
+  }
+  get choiceEffect() {
+    return this.joinElement.toggleAttribute('disabled', !this.otherGroupsElement.choice);
+  }
   select(tag) {
     App.resetUrl({group: tag});
   }
   afterInitialize() {
     super.afterInitialize();
-    this.child$('md-filled-button').addEventListener('click', () => {
-      const menu = this.child$('fairshare-all-other-groups-menu-button');
+    this.joinElement.addEventListener('click', () => {
+      const menu = this.otherGroupsElement;
       if (!menu.choice) return App.dialog("Please <i>pick one</i> of the groups to join.");
       FairshareGroups.join(menu.choice);
       menu.choice = '';
@@ -201,7 +207,7 @@ FairshareGroups.register();
   
 class FairshareShare extends AppShare {
   get url() {
-    return App.urlWith({user: '', payee: '', amount: '', screen: 'Groups'});
+    return App.urlWith({user: '', payee: '', amount: '', screen: 'My Groups'});
   }
   get description() {
     return `Come join ${App.user} in ${App.group}!`;
