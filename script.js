@@ -87,12 +87,6 @@ class FairshareApp extends BasicApp {
     return setGroupData;
   }
 
-  // joinGroup(tag) {
-  //   const local = App.groupCollection.liveTags;
-  //   App.groupCollection.updateLiveTags([...local, tag]);
-  //   App.resetUrl({screen: 'Groups', group: tag});
-  //   return tag;
-  // }
   get groupEffect() {
     return this.resetUrl({group: this.group});
   }
@@ -117,10 +111,6 @@ class FairshareApp extends BasicApp {
 FairshareApp.register();
 
 export class FairshareCreateUser extends CreateUser {
-  // onaction(form) {
-  //   super.onaction(form);
-  //   return App.joinGroup('FairShare');
-  // }
 }
 FairshareCreateUser.register();
 
@@ -178,10 +168,6 @@ class FairshareAmount extends MDElement {
 FairshareAmount.register();
 
 class FairshareAuthorizeUser extends AuthorizeUser {
-  // static adopt(tag) {
-  //   super.adopt(tag);
-  //   FairshareGroups.join('FairShare');
-  // }
 }
 FairshareAuthorizeUser.register();
 
