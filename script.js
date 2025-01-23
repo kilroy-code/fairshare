@@ -247,8 +247,15 @@ FairshareAuthorizeUser.register();
 class FairshareGroups extends LiveList {
   static async join(tag) {
     const groups = [...App.userRecord.groups, tag];
+    // Add user to group. (Currently, as a full member.)
+    let newGroupRecord = new Group(App.groupCollection[tag]); // A live group object, with defaults and operations.
+    newGroupRecord.getBalance(App.user); // for side-effect of entering an initial balance
+    await App.setGroup(tag, newGroupRecord); // Save with our presence.
+    App.groupCollection.updateLiveTags(groups); // Not previously live.
+    // Add tag to our groups.
     await App.setUser(App.user, {groups});
-    App.userCollection.updateLiveRecord(App.user);
+    await App.userCollection.updateLiveRecord(App.user);
+    App.resetUrl({group: tag});
   }
   get collection() {
     return App.groupCollection;
@@ -272,7 +279,6 @@ class FairshareGroups extends LiveList {
     super.afterInitialize();
     this.joinElement.addEventListener('click', () => {
       const menu = this.otherGroupsElement;
-      if (!menu.choice) return App.dialog("Please <i>pick one</i> of the groups to join.");
       FairshareGroups.join(menu.choice);
       menu.choice = '';
       return true;
