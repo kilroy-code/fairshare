@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList, AuthorizeUser } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 
 const { localStorage, URL } = window;
@@ -164,13 +164,27 @@ class FairshareApp extends BasicApp {
     // (unless deleted on server!), and when it comes in, that will (re-)define the total knownTags order.
     getUserList().then(knownTags => this.userCollection.updateKnownTags(knownTags));
     getGroupList().then(knownTags => this.groupCollection.updateKnownTags(knownTags));
+
+    const groupMenuButton = this.child$('#groupMenuButton');
+    const groupMenuScreens = Array.from(this.querySelectorAll('[slot="additional-screen"]'));
+    groupMenuButton.collection = new MutableCollection({
+      records: groupMenuScreens
+    });
+
   }
 }
 FairshareApp.register();
 
-export class FairshareCreateUser extends CreateUser {
+class FairshareCreateUser extends CreateUser {
 }
 FairshareCreateUser.register();
+
+class GroupImage extends AvatarImage {
+  get model() {
+    return App.groupRecord || null;
+  }
+}
+GroupImage.register();
 
 class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this group's members.
   get collection() {
@@ -212,8 +226,11 @@ class FairshareAllOtherGroupsMenuButton extends MenuButton { // Choose among oth
   get choice() {
     return '';
   }
-  select(tag) { // Set label to choice.
-    this.button.textContent = this.collection[this.choice].title;
+  // select(tag) { // Set label to choice.
+  //   this.button.textContent = this.collection[this.choice].title;
+  // }
+  get choiceEffect() {
+    return this.button.textContent = this.collection[this.choice]?.title || "Select a group";
   }
   get tags() {
     const collection = this.collection;
@@ -268,7 +285,7 @@ class FairshareGroups extends LiveList {
     // Add tag to our groups.
     await App.setUser(App.user, {groups});
     await App.userCollection.updateLiveRecord(App.user);
-    App.resetUrl({group: tag});
+    App.resetUrl({group: tag, screen: App.defaultScreenTitle});
   }
   get collection() {
     return App.groupCollection;
@@ -276,29 +293,48 @@ class FairshareGroups extends LiveList {
   get active() {
     return App.group;
   }
+  select(tag) {
+    App.resetUrl({group: tag});
+  }
+}
+FairshareGroups.register();
+
+class FairshareJoinGroup extends MDElement {
   get otherGroupsElement() {
-    return this.child$('fairshare-all-other-groups-menu-button');
+    return this.shadow$('fairshare-all-other-groups-menu-button');
   }
   get joinElement() {
-    return this.child$('md-filled-button');
+    return this.shadow$('md-filled-button');
   }
   get choiceEffect() {
     return this.joinElement.toggleAttribute('disabled', !this.otherGroupsElement.choice);
   }
-  select(tag) {
-    App.resetUrl({group: tag});
-  }
   afterInitialize() {
     super.afterInitialize();
-    this.joinElement.addEventListener('click', () => {
+    this.joinElement.addEventListener('click', async () => {
       const menu = this.otherGroupsElement;
-      FairshareGroups.join(menu.choice);
+      await FairshareGroups.join(menu.choice);
       menu.choice = '';
       return true;
     });
   }
+  get template() {
+    return `
+      <section>
+        <p>You can join <fairshare-all-other-groups-menu-button></fairshare-all-other-groups-menu-button>.</p>
+        <p><i>Currently, you will be added immediately. Later, you will have to be voted in.</i></p>
+        <md-filled-button disabled>join</md-filled-button>
+     </section>
+    `;
+  }
+  get styles() {
+    return `
+      section { margin: var(--margin, 10px); }
+      p fairshare-all-other-groups-menu-button { vertical-align: bottom; }
+    `;
+  }
 }
-FairshareGroups.register();
+FairshareJoinGroup.register();
   
 class FairshareShare extends AppShare {
   get url() {

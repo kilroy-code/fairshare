@@ -32,19 +32,17 @@
   <body>
     <fairshare-app>
 
-      <fairshare-groups title="My Groups">
-	<section>
-	  <p>Or <fairshare-all-other-groups-menu-button></fairshare-all-other-groups-menu-button> <md-filled-button disabled>join</md-filled-button></p>
-	  <p><i>Currently, the only thing happens when you select a group is that it appears in the url for <a href="#Pay Me">Payme</a> and <a href="#Invite someone">Invite someone</a>. But see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#groups"  target="fairshare-poc">proof of concept</a>.</i></p>
-	</section>
+      <fairshare-pay slot="additional-screen"></fairshare-pay>
+
+      <fairshare-invest slot="additional-screen"></fairshare-invest>
+
+      <fairshare-groups title="Switch Groups" slot="additional-screen">
 	<p slot="empty">To join a group, you must <a href="#Create new account">create an account</a>.</p>
       </fairshare-groups>
 
-      <fairshare-pay></fairshare-pay>
+      <fairshare-join-group title="Join existing group" slot="additional-screen"></fairshare-join-group>
 
-      <fairshare-invest></fairshare-invest>
-
-      <fairshare-payme title="Pay Me">
+      <fairshare-payme title="Pay Me" slot="additional-screen">
 	<div slot="qr" class="row">
 	  <fairshare-amount></fairshare-amount>
 	  <fairshare-groups-menu-button></fairshare-groups-menu-button>
@@ -76,6 +74,10 @@
 	</p>
       </section>
 
+      <menu-button id="groupMenuButton" slot="additional-header">
+	<group-image slot="button"></group-image/>
+      </menu-button>
+
       <user-profile title="Edit account" slot="user-menu"></user-profile>
 
       <switch-user title="Switch accounts" slot="user-menu">
@@ -106,6 +108,19 @@
 	  <p>Or, if you already have an account, you can authorize it for use in this browser <a href="#Add existing account">here</a>.</p>
 	</fairshare-create-user>
       </app-firstuse>
+
+      <section title="TODO">
+	<ul>
+	  <li>Push changes to online users. (Must currently reload to see new data.)</li>
+	  <li>Installable PWA</li>
+	  <li>Notifcations when something interesting happens. (Requires Installable PWA.)</li>
+	  <li>Voting. (Will be more practical after notifications.)</li>
+	  <li>Currency exchanges. (As in <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a>, allowing <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=fairshare&payee=carol&amount=10&investment=-50&currency=apples#pay" target="fairshare-pc">cross-group payment</a>.)</li>
+	  <li>History explorer.</li>
+	  <li>Signed transactions.</li>
+	</ul>
+      </section>
+
     </fairshare-app>
   </body>
 </html>
