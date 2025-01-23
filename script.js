@@ -22,6 +22,9 @@ class Group { // A single group, of which the current user must be a member.
   get rate() { return 0.01; }
   get stipend() { return 1; }
   get divisions() { return 100; }
+  get members() {
+    return Object.keys(this.balances);
+  }
   balances = {};
   static millisecondsPerDay = 1e3 * 60 * 60 * 24;
   // For now, these next two are deliberately adding the user if not already present.
@@ -169,7 +172,17 @@ export class FairshareCreateUser extends CreateUser {
 }
 FairshareCreateUser.register();
 
-class FairshareGroupsMenuButton  extends MenuButton { // Choose among this user's groups.
+class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this group's members.
+  get collection() {
+    return App.userCollection;
+  }
+  get tags() {
+    return App.groupRecord?.members || [];
+  }
+}
+FairshareGroupMembersMenuButton.register();
+
+class FairshareGroupsMenuButton extends MenuButton { // Choose among this user's groups.
   // Appears in share, payme, and pay as an opportunity for the user to change their current group.
   get collection() {
     return App.groupCollection;
@@ -320,7 +333,7 @@ class FairsharePay extends MDElement {
     return this.shadow$('fairshare-mount');
   }
   get payeeElement() {
-    return this.shadow$('all-users-menu-button');
+    return this.shadow$('fairshare-group-members-menu-button');
   }
   get payeeEffect() {
     const payee = this.payeeElement.choice;
@@ -330,6 +343,12 @@ class FairsharePay extends MDElement {
   get appPayeeEffect() {
     const record = App.userCollection[App.payee];
     if (!record) return '';
+    if (!App.groupRecord) return '';
+    if (!App.groupRecord.members.includes(App.payee)) {
+      App.alert(`User ${record.title} is not a member of ${App.groupRecord.title}. We cannot pay to other groups until exchanges are implemented.`);
+      App.resetUrl({payee: ''});
+      return '';
+    }
     return this.payeeElement.button.textContent = record.title;
   }
   get template() {
@@ -339,7 +358,7 @@ class FairsharePay extends MDElement {
           <fairshare-amount></fairshare-amount>
           <fairshare-groups-menu-button></fairshare-groups-menu-button>
           to
-          <all-users-menu-button></all-users-menu-button>
+          <fairshare-group-members-menu-button></fairshare-group-members-menu-button>
         </div>
         <hr>
         <fairshare-transaction></fairshare-transaction>
@@ -399,11 +418,11 @@ class FairshareTransaction extends MDElement {
   }
   afterInitialize() {
     super.afterInitialize();
-    this.shadow$('#pay').addEventListener('click', () => {
+    this.shadow$('#pay').addEventListener('click', async () => { // FIXME: Button belongs in FairsharePay instead.
       this.groupRecord.adjustBalance(App.user, -this.cost);
       if (App.user !== App.payee) this.groupRecord.adjustBalance(App.payee, this.amount);
-      App.setGroup(App.group, this.groupRecord);
-      App.resetUrl({amount:''});
+      await App.setGroup(App.group, this.groupRecord);
+      this.balanceBefore = undefined; // TODO: replace getBalance with a proper rule so that this isn't necessary.
     });
   }
 }
