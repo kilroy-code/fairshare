@@ -36,11 +36,17 @@
 
       <fairshare-invest slot="additional-screen"></fairshare-invest>
 
+      <list-divider slot="additional-screen"></list-divider>
+
+      <fairshare-group-profile title="Group Profile" slot="additional-screen"></fairshare-group-profile>
+
       <fairshare-groups title="Switch Groups" slot="additional-screen">
 	<p slot="empty">To join a group, you must <a href="#Create new account">create an account</a>.</p>
       </fairshare-groups>
 
       <fairshare-join-group title="Join existing group" slot="additional-screen"></fairshare-join-group>
+
+      <fairshare-create-group title="Create new group" slot="additional-screen"></fairshare-create-group>
 
       <fairshare-payme title="Pay Me" slot="additional-screen">
 	<div slot="qr" class="row">
@@ -78,7 +84,7 @@
 	<group-image slot="button"></group-image/>
       </menu-button>
 
-      <user-profile title="Edit account" slot="user-menu"></user-profile>
+      <user-profile title="User profile" slot="user-menu"></user-profile>
 
       <switch-user title="Switch accounts" slot="user-menu">
 	<p slot="empty">There are no accounts authorized for this browser. You can <a href="#Create new account">create a new account</a>, or <a href="#Add existing account">authorize one of your existing accounts</a> if you have one.</p>
@@ -109,7 +115,7 @@
 	</fairshare-create-user>
       </app-firstuse>
 
-      <section title="TODO">
+      <section title="To Do">
 	<ul>
 	  <li>Push changes to online users. (Must currently reload to see new data.)</li>
 	  <li>Installable PWA</li>
