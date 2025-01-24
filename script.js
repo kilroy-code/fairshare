@@ -376,6 +376,12 @@ class FairsharePay extends MDElement {
   get payeeElement() {
     return this.shadow$('fairshare-group-members-menu-button');
   }
+  get payeeEffect() {
+    if (this.payeeElement.choice) return App.resetUrl({payee: this.payeeElement.choice});
+    if (!App.payee || !App.groupRecord) return null;
+    App.alert(`When exchanges are implemented, you will be able to pay across groups. But for now, you cannot pay ${App.payee} because they are not a member of ${App.group}.`).then(() => App.resetUrl({payee: ''}));
+    return null;
+  }
   get validationEffect() {
     this.payElement.toggleAttribute('disabled', !this.transactionElement1.valid);
     return true;
@@ -384,11 +390,7 @@ class FairsharePay extends MDElement {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
     this.payElement.addEventListener('click', async () => {
-      if (!this.payeeElement.choice) {
-	App.alert(`When exchanges are implemented, you will be able to pay across groups. But for now, you cannot pay ${App.payee} because they are not a member of ${App.group}.`).then(() => App.resetUrl({payee: ''}));
-	return;
-      }
-      this.transactionElment1().onAction();
+      this.transactionElement1.onAction();
     });
   }
   get template() {
