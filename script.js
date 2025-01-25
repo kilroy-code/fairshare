@@ -598,7 +598,7 @@ export class EditGroup extends MDElement {
     const data = Object.fromEntries(new FormData(target)); // Must be now, before await.
     if (!await this.checkUsernameAvailable()) return null;
     data.title ||= this.title; // If we have disabled the changing of username, then it won't be included, and yet we need the value.
-    if (!data.picture.size) delete data.picture;
+    if (!data.picture.size) data.picture = '';
     else data.picture = await AvatarImage.fileData(data.picture);
     const tag = this.tag;
     await App.setGroup(tag, data); // Set the data, whether new or not.
