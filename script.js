@@ -299,10 +299,13 @@ class FairshareJoinGroup extends MDElement {
   }
   afterInitialize() {
     super.afterInitialize();
-    this.joinElement.addEventListener('click', async () => {
+    this.joinElement.addEventListener('click', async event => {
+      const button = event.target;
+      button.toggleAttribute('disabled', true);
       const menu = this.otherGroupsElement;
       await FairshareGroups.join(menu.choice);
       menu.choice = '';
+      button.toggleAttribute('disabled', false);
       return true;
     });
   }
@@ -392,8 +395,11 @@ class FairsharePay extends MDElement {
   afterInitialize() {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
-    this.payElement.addEventListener('click', async () => {
-      this.transactionElement1.onAction();
+    this.payElement.addEventListener('click', async event => {
+      const button = event.target;
+      button.toggleAttribute('disabled', true);
+      await this.transactionElement1.onAction();
+      button.toggleAttribute('disabled', false);
     });
   }
   get template() {
@@ -623,7 +629,12 @@ export class EditGroup extends MDElement {
     this.shadow$('input[type="file"]').addEventListener('change', async event => {
       this.picture = event.target.files[0];
     });
-    this.shadow$('[slot="content"]').addEventListener('submit', event => this.onaction(event.currentTarget));
+    this.shadow$('[slot="content"]').addEventListener('submit', async event => {
+      const button = event.target;
+      button.toggleAttribute('disabled', true);
+      await this.onaction(event.target);
+      button.toggleAttribute('disabled', false);
+    });
     this.shadow$('[name="pictureClear"]').addEventListener('click',  event => {
       event.stopPropagation();
       event.preventDefault();
