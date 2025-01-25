@@ -182,6 +182,9 @@ class GroupImage extends AvatarImage {
   get model() {
     return App.groupRecord || null;
   }
+  get radius() {
+    return 10;
+  }
 }
 GroupImage.register();
 
@@ -274,6 +277,9 @@ class FairshareGroups extends LiveList {
     await App.setUser(App.user, {groups});
     await App.userCollection.updateLiveRecord(App.user);
     App.resetUrl({group: tag, screen: App.defaultScreenTitle, payee: '', amount: ''}); // Clear payee,amount when switching.
+  }
+  get imageTagName() {
+    return 'group-image';
   }
   get collection() {
     return App.groupCollection;
@@ -682,7 +688,7 @@ export class EditGroup extends MDElement {
               <div class="avatar">
 		<div>
 		  Your Image
-		  <avatar-image class="avatarImage" size="80"></avatar-image>
+		  <group-image class="avatarImage" size="80"></group-image>
 		</div>
 		<div>
 		  <md-outlined-button name="pictureDriver" id="${this.formId}-pictureDriver">Use photo</md-outlined-button>
