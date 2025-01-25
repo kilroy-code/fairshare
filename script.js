@@ -161,6 +161,11 @@ class FairshareApp extends BasicApp {
   get payeeEffect() {
     return this.resetUrl({payee: this.payee});
   }
+  select(key) {
+    if (key === 'Group actions...') return this.$('#groupMenuButton').button.click();
+    if (key === 'User actions...') return this.$('#user').button.click();
+    super.select(key);
+  }
   afterInitialize() {
     super.afterInitialize();
     // When we get the list from the network, it will contain those initial knownTags members from above
@@ -261,6 +266,10 @@ FairshareAmount.register();
 class FairshareAuthorizeUser extends AuthorizeUser {
 }
 FairshareAuthorizeUser.register();
+
+class FairshareOpener extends MDElement {
+}
+FairshareOpener.register();
 
 class FairshareGroups extends LiveList {
   static async join(tag) {
