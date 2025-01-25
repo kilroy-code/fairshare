@@ -263,9 +263,12 @@ class FairshareGroups extends LiveList {
   static async join(tag) {
     const groups = [...App.userRecord.groups, tag];
     // Add user to group. (Currently, as a full member.)
-    let newGroupRecord = new Group(App.groupCollection[tag]); // A live group object, with defaults and operations.
-    newGroupRecord.getBalance(App.user); // for side-effect of entering an initial balance
-    await App.setGroup(tag, newGroupRecord); // Save with our presence.
+    // See comments in AuthorizeUser.adopt.
+    const fetched = await App.groupCollection.getLiveRecord(tag);
+    const existing = App.groupCollection[tag];
+    App.groupCollection.addRecordRule(tag, fetched);
+    fetched.getBalance(App.user); // for side-effect of entering an initial balance
+    await App.setGroup(tag, fetched); // Save with our presence.
     App.groupCollection.updateLiveTags(groups); // Not previously live.
     // Add tag to our groups.
     await App.setUser(App.user, {groups});
@@ -591,8 +594,8 @@ export class EditGroup extends MDElement {
     data.title ||= this.title; // If we have disabled the changing of username, then it won't be included, and yet we need the value.
     if (!data.picture.size) delete data.picture;
     else data.picture = await AvatarImage.fileData(data.picture);
-    await App.setGroup(this.tag, data); // Set the data, whether new or not.
-    await App.groupCollection.updateLiveTags([...App.groupCollection.liveTags, this.tag]);
+    const tag = this.tag;
+    await App.setGroup(tag, data); // Set the data, whether new or not.
     await this.parentComponent.onaction?.(target);
     return null;
   }
