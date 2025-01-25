@@ -11,7 +11,7 @@ class User { // A single user, which must be one that the human has authorized o
   isLiveRecord = true;
   get title() { return 'unknown'; }
   get picture() { return ''; }
-  get groups() { return ['FairShare']; }
+  get groups() { return []; }
 }
 Rule.rulify(User.prototype);
 
@@ -481,6 +481,12 @@ FairshareInvest.register();
 
 
 class FairshareCreateUser extends CreateUser {
+  async onaction(form) {
+    await super.onaction(form);
+    const component = this.findParentComponent(form),
+	  tag = component?.tag;
+    await FairshareGroups.join('FairShare');
+  }
 }
 FairshareCreateUser.register();
 
@@ -489,6 +495,7 @@ class FairshareCreateGroup extends MDElement {
     return `<edit-group><slot></slot></edit-group>`;
   }
   async onaction(form) {
+    App.resetUrl({payee: ''}); // Any existing payee cannot possibly be a member.
     const component = this.findParentComponent(form),
 	  tag = component?.tag;
     await FairshareGroups.join(tag);
