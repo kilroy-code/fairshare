@@ -94,7 +94,7 @@ class FairshareApp extends BasicApp {
     if (!groups.includes(group)) { // If we're not in the requested group...
       const next = groups[0];
       if (!next) return null; // New user.
-      this.alert(`${this.userRecord.title} is not a member of ${this.getGroupTitle(group)}. Switched to ${this.getGroupTitle(next)}.`);
+      //this.alert(`${this.userRecord.title} is not a member of ${this.getGroupTitle(group)}. Switched to ${this.getGroupTitle(next)}.`);
       group = next;
       this.resetUrl({group});
     }
@@ -258,7 +258,7 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
   }
   afterInitialize() {
     super.afterInitialize();
-    this.element.addEventListener('input', event => event.target.reportValidity() && (App.amount = parseFloat(event.target.value || '0')));
+    this.element.addEventListener('change', event => event.target.reportValidity() && (App.amount = parseFloat(event.target.value || '0')));
   }
 }
 FairshareAmount.register();
@@ -381,7 +381,7 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
     return this.groupRecord?.members || [];
   }
   get choiceEffect() { // Empties choice if not a member, and updates display to match final choice.
-    if (this.choice && this.groupRecord && !this.groupRecord.members.includes(this.choice)) this.choice = '';
+    if (this.choice && this.groupRecord && !this.groupRecord.members?.includes(this.choice)) this.choice = '';
     return this.button.textContent = this.choice || 'Select member';
   }
 }
@@ -411,9 +411,14 @@ class FairsharePay extends MDElement {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
     this.payElement.addEventListener('click', async event => {
+      const amount = App.amount;
+      const payee = App.payee;
       const button = event.target;
       button.toggleAttribute('disabled', true);
       await this.transactionElement1.onAction();
+      this.payeeElement.choice = '';
+      App.resetUrl({payee: '', amount: ''});
+      App.alert(`Paid ${amount} ${App.groupRecord.title} to ${payee}.`);
       button.toggleAttribute('disabled', false);
     });
   }
@@ -498,7 +503,7 @@ FairshareTransaction.register();
 
 class FairshareInvest extends MDElement {
   get template() {
-    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a>.</i></p>`;
+    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a> in another tab.</i></p>`;
   }
 }
 FairshareInvest.register();
