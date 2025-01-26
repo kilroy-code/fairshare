@@ -536,7 +536,7 @@ class FairshareGroupProfile extends MDElement {
   get template() {
     return `
        <edit-group>
-         <p>You can change the group picture, tax rate, and daily stipend. <i>(In future versions, you will also be able to change the group namm. These changes take effect when you click "Go". In future versions, a majority of the group members will have to vote for them.)</i></p>
+         <p>You can change the group picture, tax rate, and daily stipend. <i>(In future versions, you will also be able to change the group name. These changes take effect when you click "Go". In future versions, a majority of the group members will have to vote for them.)</i></p>
        </edit-group>`;
   }
   async onaction(form) {
