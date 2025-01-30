@@ -1,7 +1,8 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
+import QrScanner from './qr-scanner.min.js'; 
 
-const { localStorage, URL, crypto, TextEncoder, FormData } = window;
+const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
 
 // Cleanup todo:
 // - Set App.mumble vs App.resetUrl. Which to use? Be consistent.
@@ -387,6 +388,127 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
+class WebRTC {
+  constructor({label = '', rtcConfiguration = {}} = {}) {
+    this.label = label;
+    const peer = this.peer = new RTCPeerConnection(rtcConfiguration);
+    peer.addEventListener('negotiationneeded', event => this.negotiationneeded(event));
+    // The spec says that a null candidate should not be sent, but that an empty string candidate should.
+    // But Safari gets errors either way.
+    peer.addEventListener('icecandidate',
+			  event => {
+			    if (!event.candidate || !event.candidate.candidate) this.endIce?.();
+			    // event.candidate && event.candidate.candidate &&
+			    else this.signal('icecandidate', event.candidate);
+			  });
+    // I don't think anyone actually signals this. Instead, they reject from addIceCandidate, which we handle the same.
+    peer.addEventListener('icecandidateerror', error => this.icecandidateerror(error));
+  }
+  createDataChannel(label = "data", channelOptions = {}) { // Promise resolves when the channel is open (implying negotiation has happened).
+    //this.log('createDataChannel');
+    return new Promise(resolve => {
+      const channel = this.peer.createDataChannel(label, channelOptions);
+      channel.onopen = _ => resolve(channel);
+    });
+  }
+  negotiationneeded() { // Something has changed locally (new stream, or network change), such that we have to start negotiation.
+    
+    //this.log('negotiationnneded');
+    this.peer.createOffer()
+      .then(offer => {
+        this.peer.setLocalDescription(offer); // promise does not resolve to offer
+	return offer;
+      })
+      .then(offer => this.signal('offer', offer))
+      .catch(error => this.negotiationneededError(error));
+  }
+  offer(offer) { // Handler for receiving an offer from the other user (who started the signaling process).
+    // Note that during signaling, we will receive negotiationneeded/answer, or offer, but not both, depending
+    // on whether we were the one that started the signaling process.
+    //this.log('received offer', offer);
+    this.peer.setRemoteDescription(offer)
+      .then(_ => this.peer.createAnswer())
+      .then(answer => this.peer.setLocalDescription(answer)) // promise does not resolve to answer
+      .then(_ => this.signal('answer', this.peer.localDescription));
+  }
+  answer(answer) { // Handler for finishing the signaling process that we started.
+    //this.log('received answer', answer);
+    this.peer.setRemoteDescription(answer);
+  }
+  icecandidate(iceCandidate) { // Handler for a new candidate received from the other end through signaling.
+    //this.log('received iceCandidate', iceCandidate);
+    this.peer.addIceCandidate(iceCandidate).catch(error => this.icecandidateError(error));
+  }
+  log(...rest) {
+    console.log(this.label, ...rest);
+  }
+  logError(label, eventOrException) {
+    const data = this.constructor.gatherErrorData(label, eventOrException);
+    console.error.apply(console, data);
+    return data;
+  }
+  static gatherErrorData(label, eventOrException) {
+    return [
+      label + " error:",
+      eventOrException.code || eventOrException.errorCode || eventOrException.status || "", // First is deprecated, but still useful.
+      eventOrException.url || eventOrException.name,
+      eventOrException.message || eventOrException.errorText || eventOrException.statusText || eventOrException
+    ];
+  }
+  icecandidateError(eventOrException) { // For errors on this peer during gathering.
+    // Can be overridden or extended by applications.
+
+    // STUN errors are in the range 300-699. See RFC 5389, section 15.6
+    // for a list of codes. TURN adds a few more error codes; see
+    // RFC 5766, section 15 for details.
+    // Server could not be reached are in the range 700-799.
+    const code = eventOrException.code || eventOrException.errorCode || eventOrException.status;
+    // Chrome gives 701 errors for some turn servers that it does not give for other turn servers.
+    // This isn't good, but it's way too noisy to slog through such errors, and I don't know how to fix our turn configuration.
+    if (code === 701) return;
+    this.logError('ice', eventOrException);
+  }
+  signal(type, message) {
+    this.log('sending', type, type.length, JSON.stringify(message).length);
+  }
+}
+class LocalWebRTC extends WebRTC {
+  constructor({qrcode, instructions, video, send, receive, ...rest}) {
+    super(rest);
+    Object.assign(this, {qrcode, instructions, video, send, receive});
+  }
+  sending = [];
+  async endIce() {
+    //console.log('end ice');
+    const data = JSON.stringify(this.sending);
+    console.log('sending', data.length);
+    if (this.qrcode) {
+      this.qrcode.style.display = 'block';
+      this.send.toggleAttribute('disabled', true);
+      this.instructions.textContent = "Now hold up the other device to this QR code:";
+      this.qrcode.data = data;
+      this.qrcode.errorCorrectionLevel = 'L';
+      this.qrcode.color = "#000000";
+      this.qrcode.background = "#FFFFFF";
+      this.qrcode.shape = 'square';
+      const generator = await this.qrcode.generator;
+      const blob = await generator.getRawData('svg');
+      const scan = await QrScanner.scanImage(blob);
+      console.log('scans as:', scan);
+      JSON.parse(scan).forEach(([type, message]) => this.otherEnd[type](message));
+      this.sending = [];
+      return;
+    }
+    this.sending.forEach(([type, message]) => this.otherEnd[type](message));
+    this.sending = [];
+  }
+  signal(type, message) {
+    super.signal(type, message);
+    //this.otherEnd[type](message); // otherEnd must be set.
+    this.sending.push([type, message]);
+  }
+}
+
 class FairsharePay extends MDElement {
   get transactionElement1() { // There will be more with exchanges.
     return this.shadow$('fairshare-transaction');
@@ -407,6 +529,33 @@ class FairsharePay extends MDElement {
     this.payElement.toggleAttribute('disabled', !this.transactionElement1.valid);
     return true;
   }
+  async lanSend() {
+    const qrcode = this.shadow$('app-qrcode');
+    const video = this.shadow$('video');
+    const send = this.shadow$('#send');
+    const receive = this.shadow$('#receive');    
+    const instructions = this.shadow$('#instructions');
+    const p1 = new LocalWebRTC({label: '1', qrcode, video, send, receive, instructions}),
+	  p2 = new LocalWebRTC({label: '2', qrcode, video, send, receive, instructions});
+    p1.otherEnd = p2;
+    p2.otherEnd = p1;
+    const data2Promise = new Promise(resolve => {
+      p2.peer.ondatachannel = event => resolve(event.channel);
+    });
+    const data1 = await p1.createDataChannel();
+    const data2 = await data2Promise;
+    data1.onmessage = event => console.log('p1 got', event.data);
+    data2.onmessage = event => console.log('p2 got', event.data);
+    data2.send('foo');
+    data1.send('bar');
+  }
+  async lanReceive() {
+    const qrcode = this.shadow$('app-qrcode');
+    const video = this.shadow$('video');
+    const start = this.shadow$('#start');
+    const receive = this.shadow$('#receive');    
+    const instructions = this.shadow$('#instructions');
+  }
   afterInitialize() {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
@@ -421,6 +570,8 @@ class FairsharePay extends MDElement {
       App.alert(`Paid ${amount} ${App.groupRecord.title} to ${payee}.`);
       button.toggleAttribute('disabled', false);
     });
+    this.shadow$('#send').addEventListener('click', async event => await this.lanSend(event));
+    this.shadow$('#receive').addEventListener('click', async event => await this.lanReceive(event));    
   }
   get template() {
     return `
@@ -434,11 +585,26 @@ class FairsharePay extends MDElement {
         <hr>
         <fairshare-transaction></fairshare-transaction>
         <md-filled-button id="pay" disabled>Pay</md-filled-button>
+        <hr/>
+        <p>Experimental data transfer: If you have two devices with cameras, you can try the following with or without first killing your WAN/Internet access. (You do have to have some sort of local LAN network going, such as WIFI.)</p>
+        <p id="instructions">To start, press the 'Start transfer' on one of the devices, and 'Receive transfer' on the other:</p>
+        <div class="column">
+          <md-filled-button id="send">Start transfer</md-filled-button>
+          <md-filled-button id="receive">Receive transfer</md-filled-button>
+          <app-qrcode style="display:none"></app-qrcode>
+          <video></video>
+        </div>
       </section>
     `;
   }
   get styles() {
     return `
+      .column {
+        display: flex;
+        flex-direction: column;
+        gap: var(--margin);
+        align-items: center;
+      }
       .row {
         display: flex;
         gap: var(--margin);
