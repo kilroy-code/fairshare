@@ -14,7 +14,8 @@ p md-filled-button {
     gap: var(--margin);
 }
 .video-container, video {
-    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
 }
 @media (max-width:700px) { .row { justify-content: space-between; } }
 @media (min-width:700px) { .row { justify-content: start; } }

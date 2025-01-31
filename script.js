@@ -538,7 +538,7 @@ class FairshareSync extends MDElement {
     this.show(element);
     element.textContent = text;
   }
-  async scan(view, localTestQrCode = null) { // Scan the code at view, unless a local app-qrcode is supplied to read directly.
+  async scan(view, onDecodeError = _ => _, localTestQrCode = null) { // Scan the code at view, unless a local app-qrcode is supplied to read directly.
     // Returns a promise for the JSON-parsed scanned string
     if (localTestQrCode) {
       const generator = await localTestQrCode.generator;
@@ -546,18 +546,18 @@ class FairshareSync extends MDElement {
       return JSON.parse(await QrScanner.scanImage(blob));
     }
     return new Promise(resolve => {
+      let gotError = false;
       const scanner = new QrScanner(view,
 				    result => {
 				      scanner.stop();
 				      scanner.destroy();
 				      resolve(JSON.parse(result.data));
 				    }, {
+				      onDecodeError,
 				      highlightScanRegion: true,
 				      highlightCodeOutline: true,
 				    });
       scanner.start();
-      scanner.$overlay.style.display = '';
-      scanner.$codeOutlineHighlight.style.display = '';
     });
   }
   testMessageSize = 16 * 1024; // See https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Using_data_channels#concerns_with_large_messages
@@ -582,19 +582,22 @@ class FairshareSync extends MDElement {
 	this.updateText(element, message);
       }
       if (onFinished && (nReceived > this.nTestMessages)) {
-	setTimeout(onFinished, 5e3); // Allow time for the other side to drain, too. (When on the same machine, they go one-at-a-time.)
+	setTimeout(onFinished, 10e3); // Allow time for the other side to drain, too. (When on the same machine, they go one-at-a-time.)
       }
     };
   }
   async lanSend() {
     if (!this.send.hasAttribute('awaitScan')) {
+      this.hide(this.instructions);
       this.send.toggleAttribute('disabled', true);
       this.receive.toggleAttribute('disabled', true);
-      this.hide(this.instructions);
       this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
 
       this.updateText(this.sendInstructions, 'Press "Start scanning" on the other device, and use it to read this qr code:');
       this.sendCode.sendObject(await this.sender.signals);
+      console.log(this.send);
+      setTimeout(() => this.send.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
+
       this.show(this.sendCode);
       this.send.toggleAttribute('awaitScan', true);
       this.updateText(this.send, "Receive other code");
@@ -604,7 +607,9 @@ class FairshareSync extends MDElement {
       this.show(this.sendVideo);
       this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
 
-      const scan = await this.scan(this.sendVideo.querySelector('video')/*, this.receiveCode*/);
+      const scan = await this.scan(this.sendVideo.querySelector('video'),
+				   //, this.receiveCode
+				  );
       this.sender.signals = scan;
 
       const data = await this.sendDataPromise;
@@ -633,10 +638,14 @@ class FairshareSync extends MDElement {
       this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
 
       this.receive.toggleAttribute('awaitScan', false);
-      this.updateText(this.receive, "Continue after scan");
+      this.updateText(this.receive, "Continue after scanning on other device");
     // } else {
       this.receive.toggleAttribute('disabled', true);
-      const scan = await this.scan(this.receiveVideo.querySelector('video')/*, this.sendCode*/);
+      let unscrolled = true;
+      const scan = await this.scan(this.receiveVideo.querySelector('video'),
+				   () => unscrolled && !(unscrolled=false) && this.receiveInstructions.scrollIntoView({block: 'start', behavior: 'smooth'})
+				   //, this.sendCode
+				  );
       this.receiver.signals = scan;
 
       this.updateText(this.receiveInstructions, 'Press "Receive other code" on the other device, and use it to read this qr code:');
