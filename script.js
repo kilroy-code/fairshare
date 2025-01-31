@@ -675,8 +675,11 @@ class FairshareSync extends MDElement {
       const drained = new Promise(resolve => data.onbufferedamountlow = resolve);      
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
       await Promise.all([received, drained]);
+      this.updateText(this.receiveInstructions, 'received and drained');
       setTimeout(() => {
+	this.updateText(this.receiveInstructions, 'closing');
 	this.receiver.close();
+	this.updateText(this.receiveInstructions, 'closed');
 	this.receive.toggleAttribute('awaitScan', true);
 	this.updateText(this.receive, "Start scanning");
 	this.send.toggleAttribute('disabled', false);
