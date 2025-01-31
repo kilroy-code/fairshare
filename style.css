@@ -13,6 +13,9 @@ p md-filled-button {
     align-items: center;
     gap: var(--margin);
 }
+.video-container, video {
+    width: 100%;
+}
 @media (max-width:700px) { .row { justify-content: space-between; } }
 @media (min-width:700px) { .row { justify-content: start; } }
 :root {
