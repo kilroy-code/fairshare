@@ -684,7 +684,7 @@ class FairshareSync extends MDElement {
       await Promise.all([received, drained]);
       setTimeout(() => {
 	this.receive.toggleAttribute('awaitScan', true);
-	this.updateText(this.send, "Start scanning");
+	this.updateText(this.receive, "Start scanning");
 	this.send.toggleAttribute('disabled', false);
 	this.receiver.close();
       }, 2e3);
