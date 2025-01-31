@@ -391,7 +391,14 @@ FairshareGroupMembersMenuButton.register();
 class WebRTC {
   constructor({label = '', rtcConfiguration = {}} = {}) {
     this.label = label;
-    const peer = this.peer = new RTCPeerConnection(rtcConfiguration);
+    this.configuration = rtcConfiguration;
+    this.resetPeer();
+  }
+  peerVersion = 0;
+  resetPeer() {
+    const peer = this.peer = new RTCPeerConnection(this.rtcConfiguration);
+    peer.versionId = this.peerVersion++;
+    this.log('new peer', peer.versionId);
     peer.addEventListener('negotiationneeded', event => this.negotiationneeded(event));
     // The spec says that a null candidate should not be sent, but that an empty string candidate should.
     // But Safari gets errors either way.
@@ -403,6 +410,7 @@ class WebRTC {
 			  });
     // I don't think anyone actually signals this. Instead, they reject from addIceCandidate, which we handle the same.
     peer.addEventListener('icecandidateerror', error => this.icecandidateerror(error));
+    peer.addEventListener('connectionstatechange', event => this.connectionStateChange(this.peer.connectionState));
   }
   createDataChannel(label = "data", channelOptions = {}) { // Promise resolves when the channel is open (implying negotiation has happened).
     //this.log('createDataChannel');
@@ -410,6 +418,14 @@ class WebRTC {
       const channel = this.peer.createDataChannel(label, channelOptions);
       channel.onopen = _ => resolve(channel);
     });
+  }
+  close() {
+    this.peer.close(); // Will trigger a state change on the other side, but not this side...
+    this.resetPeer();  // ...so reset this side now.
+  }
+  connectionStateChange(state) {
+    this.log('state change:', state);
+    if (state === 'disconnected') this.resetPeer(); // Other behavior are reasonable, tolo.
   }
   negotiationneeded() { // Something has changed locally (new stream, or network change), such that we have to start negotiation.
     
@@ -443,7 +459,7 @@ class WebRTC {
     console.log(this.label, ...rest);
   }
   logError(label, eventOrException) {
-    const data = this.constructor.gatherErrorData(label, eventOrException);
+    const data = [this.label, ...this.constructor.gatherErrorData(label, eventOrException)];
     console.error.apply(console, data);
     return data;
   }
@@ -451,7 +467,7 @@ class WebRTC {
     return [
       label + " error:",
       eventOrException.code || eventOrException.errorCode || eventOrException.status || "", // First is deprecated, but still useful.
-      eventOrException.url || eventOrException.name,
+      eventOrException.url || eventOrException.name || '',
       eventOrException.message || eventOrException.errorText || eventOrException.statusText || eventOrException
     ];
   }
@@ -473,41 +489,163 @@ class WebRTC {
   }
 }
 class LocalWebRTC extends WebRTC {
-  constructor({qrcode, instructions, video, send, receive, ...rest}) {
-    super(rest);
-    Object.assign(this, {qrcode, instructions, video, send, receive});
+  // 0. Something trigger negotiation on peer1 (such as creating a peer1.createDataChannel()). 
+  // 1. peer1.signals resolves with <signal1> POJO to be conveyed to peer2.
+  // 2. Set peer2.signals = <signal1>.
+  // 3. peer2.signals resolves  with <signal2> POJO to be conveyed to peer1.
+  // 4. Set peer1.signals = <signal2>.
+  // 5. Data flows, but each side whould grab a new signals promise and be prepared to act if it resolves.
+  get signals() { // Returns a promise that resolve to the signal messaging when ice candidate gathering is complete.
+    return this._signalPromise ||= new Promise(resolve => this._signalReady = resolve);
   }
-  sending = [];
+  set signals(data) { // Set with the signals received from the other end.
+    data.forEach(([type, message]) => this[type](message));
+  }
   async endIce() {
-    //console.log('end ice');
-    const data = JSON.stringify(this.sending);
-    console.log('sending', data.length);
-    if (this.qrcode) {
-      this.qrcode.style.display = 'block';
-      this.send.toggleAttribute('disabled', true);
-      this.instructions.textContent = "Now hold up the other device to this QR code:";
-      this.qrcode.data = data;
-      this.qrcode.errorCorrectionLevel = 'L';
-      this.qrcode.color = "#000000";
-      this.qrcode.background = "#FFFFFF";
-      this.qrcode.shape = 'square';
-      const generator = await this.qrcode.generator;
-      const blob = await generator.getRawData('svg');
-      const scan = await QrScanner.scanImage(blob);
-      console.log('scans as:', scan);
-      JSON.parse(scan).forEach(([type, message]) => this.otherEnd[type](message));
-      this.sending = [];
+    if (!this._signalPromise) {
+      this.logError('ice', "End of ICE without anything waiting on signals.");
       return;
     }
-    this.sending.forEach(([type, message]) => this.otherEnd[type](message));
+    this._signalReady(this.sending);
+    delete this._signalPromise;
     this.sending = [];
   }
+  sending = [];
   signal(type, message) {
     super.signal(type, message);
-    //this.otherEnd[type](message); // otherEnd must be set.
     this.sending.push([type, message]);
   }
 }
+
+class FairshareSync extends MDElement {
+  get sendCode() { return this.shadow$('#sendCode'); }
+  get receiveCode() { return this.shadow$('#receiveCode');}   
+  get sendVideo() { return this.shadow$('#sendVideo'); }
+  get receiveVideo() { return this.shadow$('#receiveVideo'); }
+  get send() { return this.shadow$('#send'); }
+  get receive() { return  this.shadow$('#receive'); }
+  get instructions() { return this.shadow$('#instructions'); }  
+  get sendInstructions() { return this.shadow$('#sendInstructions'); }
+  get receiveInstructions() { return this.shadow$('#receiveInstructions'); }  
+  get sender() { return new LocalWebRTC({label: 'sender'}); }
+  get receiver() { return new LocalWebRTC({label: 'receiver'}); }
+  hide(element) { element.style.display = 'none'; }
+  show(element) {
+    element.style.display = '';
+    element.toggleAttribute('disabled', false);
+  }
+  updateText(element, text) {
+    this.show(element);
+    element.textContent = text;
+  }
+  async lanSend() {
+    if (!this.send.hasAttribute('awaitScan')) {
+      this.send.toggleAttribute('disabled', true);
+      this.hide(this.instructions);
+      this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
+
+      this.updateText(this.sendInstructions, 'Press "Start scanning" on the other device, and use it to read this qr code:');
+      this.sendCode.sendObject(await this.sender.signals);
+      this.show(this.sendCode);
+      this.send.toggleAttribute('awaitScan', true);
+      this.updateText(this.send, "Receive other code");
+    } else {
+      this.send.toggleAttribute('disabled', true);
+      this.hide(this.sendCode);
+      this.show(this.sendVideo);
+      this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
+      const generator = await this.receiveCode.generator;
+      const blob = await generator.getRawData('svg');
+      const scan = await QrScanner.scanImage(blob);
+      this.sender.signals = JSON.parse(scan);
+
+      const data = await this.sendDataPromise;
+      data.onmessage = event => this.updateText(this.sendInstructions, `Received "${event.data}".`);
+      this.hide(this.sendVideo);
+      data.send(`Simulated history forked from initiator ${App.user}`);
+      setTimeout(() => {
+	this.sender.close();
+	setTimeout(() => {
+	  this.send.toggleAttribute('awaitScan', false);
+	  this.updateText(this.send, "Start transfer");
+	}, 8e3);
+      }, 2e3);
+    }
+  }
+  async lanReceive() {
+    if (this.receive.hasAttribute('awaitScan')) {
+      this.hide(this.instructions);
+      this.receiveDataPromise = new Promise(resolve => {
+	this.receiver.peer.ondatachannel = event => resolve(event.channel);
+      });
+
+      this.receive.toggleAttribute('disabled', true);
+      this.show(this.receiveVideo);
+      this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
+
+      this.receive.toggleAttribute('awaitScan', false);
+      this.updateText(this.receive, "Continue after scan");
+    } else {
+      this.receive.toggleAttribute('disabled', true);
+      const generator = await this.sendCode.generator;
+      const blob = await generator.getRawData('svg');
+      const scan = await QrScanner.scanImage(blob);
+      this.receiver.signals = JSON.parse(scan);
+
+      this.updateText(this.receiveInstructions, 'Press "Receive other code" on the other device, and use it to read this qr code:');
+      this.receiveCode.sendObject(await this.receiver.signals);
+      this.hide(this.receiveVideo);
+      this.show(this.receiveCode);
+    
+      const data = await this.receiveDataPromise;
+      data.onmessage = event => this.updateText(this.receiveInstructions, `Received "${event.data}".`);
+      this.hide(this.receiveCode);
+      data.send(`Simulated history forked from receiver ${App.user}`);
+      setTimeout(() => {
+	this.receive.toggleAttribute('awaitScan', true);
+	this.updateText(this.receive, "Start scanning");
+      }, 10e3);
+    }
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.send.addEventListener('click', async event => await this.lanSend(event));
+    this.receive.addEventListener('click', async event => await this.lanReceive(event));    
+  }
+  get template() {
+    return `
+      <section>
+        <p>Experimental data transfer: If you have two devices with cameras, you can try the following with or without first killing your WAN/Internet access. (You do have to have some sort of local LAN network going, such as WIFI.)</p>
+        <p id="instructions">To start, press "Start transfer" on one of the devices:</p>
+
+        <div class="column">
+          <md-filled-button id="send">Start transfer</md-filled-button>
+          <p id="sendInstructions"></p>
+          <app-qrcode id="sendCode" style="display:none"></app-qrcode>
+          <video id="sendVideo" height="300" width="300" style="display:none"></video>
+
+          <md-filled-button id="receive" awaitScan>Start scanning</md-filled-button>
+          <p id="receiveInstructions" style="display:none"></p>
+          <app-qrcode id="receiveCode" style="display:none"></app-qrcode>
+          <video id="receiveVideo" height="300" width="300" style="display:none"></video>
+        </div>
+      </section>
+    `;
+  }
+  get styles() {
+    return `
+      section { margin: var(--margin, 10px); }
+      video { background: black; }
+      .column {
+        display: flex;
+        flex-direction: column;
+        gap: var(--margin);
+        align-items: center;
+      }
+   `;
+  }
+}
+FairshareSync.register();
 
 class FairsharePay extends MDElement {
   get transactionElement1() { // There will be more with exchanges.
@@ -529,33 +667,6 @@ class FairsharePay extends MDElement {
     this.payElement.toggleAttribute('disabled', !this.transactionElement1.valid);
     return true;
   }
-  async lanSend() {
-    const qrcode = this.shadow$('app-qrcode');
-    const video = this.shadow$('video');
-    const send = this.shadow$('#send');
-    const receive = this.shadow$('#receive');    
-    const instructions = this.shadow$('#instructions');
-    const p1 = new LocalWebRTC({label: '1', qrcode, video, send, receive, instructions}),
-	  p2 = new LocalWebRTC({label: '2', qrcode, video, send, receive, instructions});
-    p1.otherEnd = p2;
-    p2.otherEnd = p1;
-    const data2Promise = new Promise(resolve => {
-      p2.peer.ondatachannel = event => resolve(event.channel);
-    });
-    const data1 = await p1.createDataChannel();
-    const data2 = await data2Promise;
-    data1.onmessage = event => console.log('p1 got', event.data);
-    data2.onmessage = event => console.log('p2 got', event.data);
-    data2.send('foo');
-    data1.send('bar');
-  }
-  async lanReceive() {
-    const qrcode = this.shadow$('app-qrcode');
-    const video = this.shadow$('video');
-    const start = this.shadow$('#start');
-    const receive = this.shadow$('#receive');    
-    const instructions = this.shadow$('#instructions');
-  }
   afterInitialize() {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
@@ -570,8 +681,6 @@ class FairsharePay extends MDElement {
       App.alert(`Paid ${amount} ${App.groupRecord.title} to ${payee}.`);
       button.toggleAttribute('disabled', false);
     });
-    this.shadow$('#send').addEventListener('click', async event => await this.lanSend(event));
-    this.shadow$('#receive').addEventListener('click', async event => await this.lanReceive(event));    
   }
   get template() {
     return `
@@ -585,26 +694,11 @@ class FairsharePay extends MDElement {
         <hr>
         <fairshare-transaction></fairshare-transaction>
         <md-filled-button id="pay" disabled>Pay</md-filled-button>
-        <hr/>
-        <p>Experimental data transfer: If you have two devices with cameras, you can try the following with or without first killing your WAN/Internet access. (You do have to have some sort of local LAN network going, such as WIFI.)</p>
-        <p id="instructions">To start, press the 'Start transfer' on one of the devices, and 'Receive transfer' on the other:</p>
-        <div class="column">
-          <md-filled-button id="send">Start transfer</md-filled-button>
-          <md-filled-button id="receive">Receive transfer</md-filled-button>
-          <app-qrcode style="display:none"></app-qrcode>
-          <video></video>
-        </div>
       </section>
     `;
   }
   get styles() {
     return `
-      .column {
-        display: flex;
-        flex-direction: column;
-        gap: var(--margin);
-        align-items: center;
-      }
       .row {
         display: flex;
         gap: var(--margin);
