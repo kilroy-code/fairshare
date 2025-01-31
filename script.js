@@ -627,10 +627,12 @@ class FairshareSync extends MDElement {
       const drained = new Promise(resolve => data.onbufferedamountlow = resolve);
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
       await Promise.all([received, drained]);
-      this.sender.close();
-      this.send.toggleAttribute('awaitScan', false);
-      this.updateText(this.send, "Start transfer");
-      this.receive.toggleAttribute('disabled', false);
+      setTimeout(() => {
+	this.sender.close();
+	this.send.toggleAttribute('awaitScan', false);
+	this.updateText(this.send, "Start transfer");
+	this.receive.toggleAttribute('disabled', false);
+      }, 2e3);
     }
   }
   async lanReceive() {
@@ -673,10 +675,12 @@ class FairshareSync extends MDElement {
       const drained = new Promise(resolve => data.onbufferedamountlow = resolve);      
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
       await Promise.all([received, drained]);
-      this.receiver.close();
-      this.receive.toggleAttribute('awaitScan', true);
-      this.updateText(this.receive, "Start scanning");
-      this.send.toggleAttribute('disabled', false);
+      setTimeout(() => {
+	this.receiver.close();
+	this.receive.toggleAttribute('awaitScan', true);
+	this.updateText(this.receive, "Start scanning");
+	this.send.toggleAttribute('disabled', false);
+      }, 2e3);
     }
   }
   afterInitialize() {
