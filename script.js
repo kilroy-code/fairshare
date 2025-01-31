@@ -595,6 +595,7 @@ class FairshareSync extends MDElement {
       this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
 
       this.updateText(this.sendInstructions, 'Press "Start scanning" on the other device, and use it to read this qr code:');
+      this.sendCode.size = this.shadow$('.column').offsetWidth;
       this.sendCode.sendObject(await this.sender.signals);
       console.log(this.send);
       setTimeout(() => this.send.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
@@ -651,6 +652,7 @@ class FairshareSync extends MDElement {
       this.receiver.signals = scan;
 
       this.updateText(this.receiveInstructions, 'Press "Receive other code" on the other device, and use it to read this qr code:');
+      this.sendCode.size = this.shadow$('.column').offsetWidth;
       this.receiveCode.sendObject(await this.receiver.signals);
       this.hide(this.receiveVideo);
       this.show(this.receiveCode);
