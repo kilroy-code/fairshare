@@ -517,7 +517,7 @@ class LocalWebRTC extends WebRTC {
   }
 }
 
-const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
