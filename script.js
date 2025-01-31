@@ -581,23 +581,25 @@ class FairshareSync extends MDElement {
 	const message = `${initialMessage} Sent and received ${(totalBytes / (1024 * 1024)).toFixed()} Mbytes in ${elapsed.toLocaleString()} ms (${(totalBytes / (1024 * 1024 * elapsed/1000)).toFixed(1)} MB/s).`;
 	this.updateText(element, message);
       }
-      if (onFinished && (nReceived > this.nTestMessages)) {
-	setTimeout(onFinished, 10e3); // Allow time for the other side to drain, too. (When on the same machine, they go one-at-a-time.)
-      }
+      if (onFinished && (nReceived > this.nTestMessages)) onFinished();
     };
+  }
+  promiseDataHandled(data, element) { // Sets data.onmessage like generateTestDataHandler, but resolves when all data is in.
+    return new Promise(resolve => {
+      data.onmessage = this.generateTestDataHandler(element, resolve);
+    });
   }
   async lanSend() {
     if (!this.send.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
-      this.hide(this.receiveInstructions);
+      //this.hide(this.receiveInstructions); // Comment out for self2self test.
+      //this.receive.toggleAttribute('disabled', true); // Comment out for self2self test.
       this.send.toggleAttribute('disabled', true);
-      this.receive.toggleAttribute('disabled', true);
       this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
 
       this.updateText(this.sendInstructions, 'Press "Start scanning" on the other device, and use it to read this qr code:');
       this.sendCode.size = this.shadow$('.column').offsetWidth;
       this.sendCode.sendObject(await this.sender.signals);
-      console.log(this.send);
       setTimeout(() => this.send.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
 
       this.show(this.sendCode);
@@ -610,44 +612,46 @@ class FairshareSync extends MDElement {
       this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
 
       const scan = await this.scan(this.sendVideo.querySelector('video'),
-				   //, this.receiveCode
+				   _ => _
+				   , this.receiveCode // Uncomment for self2self test.
 				  );
       this.sender.signals = scan;
 
       const data = await this.sendDataPromise;
-      data.onmessage = this.generateTestDataHandler(this.sendInstructions, () => {
-      	this.sender.close();
-	this.send.toggleAttribute('awaitScan', false);
-	this.updateText(this.send, "Start transfer");
-	this.receive.toggleAttribute('disabled', false);
-      });
+      const received = this.promiseDataHandled(data, this.sendInstructions);
       this.hide(this.sendVideo);
       data.send(`Simulated history forked from initiator ${App.user}.`);
       const message = this.makeTestMessage();
+      const drained = new Promise(resolve => data.onbufferedamountlow = resolve);
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
+      await Promise.all([received, drained]);
+      this.sender.close();
+      this.send.toggleAttribute('awaitScan', false);
+      this.updateText(this.send, "Start transfer");
+      this.receive.toggleAttribute('disabled', false);
     }
   }
   async lanReceive() {
     if (this.receive.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
-      this.hide(this.sendInstructions);
+      //this.hide(this.sendInstructions); // Comment out for self2self test.
+      //this.send.toggleAttribute('disabled', true); // Comment out for self2self test.
       this.receiveDataPromise = new Promise(resolve => {
 	this.receiver.peer.ondatachannel = event => resolve(event.channel);
       });
 
       this.receive.toggleAttribute('disabled', true);
-      this.send.toggleAttribute('disabled', true);
       this.show(this.receiveVideo);
       this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
 
       this.receive.toggleAttribute('awaitScan', false);
       this.updateText(this.receive, "Continue after scanning on other device");
-    // } else {
+    } else { // Uncomment for self2self test.
       this.receive.toggleAttribute('disabled', true);
       let unscrolled = true;
       const scan = await this.scan(this.receiveVideo.querySelector('video'),
 				   () => unscrolled && !(unscrolled=false) && this.receiveInstructions.scrollIntoView({block: 'start', behavior: 'smooth'})
-				   //, this.sendCode
+				   , this.sendCode // Uncomment for self2self test.
 				  );
       this.receiver.signals = scan;
 
@@ -658,16 +662,17 @@ class FairshareSync extends MDElement {
       this.show(this.receiveCode);
     
       const data = await this.receiveDataPromise;
-      data.onmessage = this.generateTestDataHandler(this.receiveInstructions, () => {
-	this.receiver.close();
-	this.receive.toggleAttribute('awaitScan', true);
-	this.updateText(this.receive, "Start scanning");
-	this.send.toggleAttribute('disabled', false);
-      });
+      const received = this.promiseDataHandled(data, this.receiveInstructions);
       this.hide(this.receiveCode);
       data.send(`Simulated history forked from receiver ${App.user}.`);
       const message = this.makeTestMessage();
+      const drained = new Promise(resolve => data.onbufferedamountlow = resolve);      
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
+      await Promise.all([received, drained]);
+      this.receiver.close();
+      this.receive.toggleAttribute('awaitScan', true);
+      this.updateText(this.receive, "Start scanning");
+      this.send.toggleAttribute('disabled', false);
     }
   }
   afterInitialize() {
