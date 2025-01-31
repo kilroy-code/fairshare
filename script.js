@@ -589,6 +589,7 @@ class FairshareSync extends MDElement {
   async lanSend() {
     if (!this.send.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
+      this.hide(this.receiveInstructions);
       this.send.toggleAttribute('disabled', true);
       this.receive.toggleAttribute('disabled', true);
       this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
@@ -628,6 +629,7 @@ class FairshareSync extends MDElement {
   async lanReceive() {
     if (this.receive.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
+      this.hide(this.sendInstructions);
       this.receiveDataPromise = new Promise(resolve => {
 	this.receiver.peer.ondatachannel = event => resolve(event.channel);
       });
