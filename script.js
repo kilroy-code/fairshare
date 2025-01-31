@@ -627,7 +627,10 @@ class FairshareSync extends MDElement {
       this.hide(this.sendVideo);
       data.send(`Simulated history forked from initiator ${App.user}.`);
       const message = this.makeTestMessage();
-      const drained = new Promise(resolve => data.onbufferedamountlow = resolve);
+      const drained = new Promise(resolve => {	
+	data.onbufferedamountlow = resolve;
+	setTimeout(resolve, 15e3); // Because the former doesn't always work well on iphone when other end initiated data channel.
+      });
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
       await Promise.all([received, drained]);
       setTimeout(() => {
