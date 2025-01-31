@@ -583,7 +583,6 @@ class FairshareSync extends MDElement {
 	this.updateText(element, message);
       }
       if (onFinished && (nReceived > this.nTestMessages)) {
-	this.updateText(element, element.textContent += ' Done!');
 	onFinished();
       }
     };
@@ -682,16 +681,10 @@ class FairshareSync extends MDElement {
 	setTimeout(resolve, 10e3); // Because the former doesn't always work well on iphone when other end initiated data channel.
       });
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
-      await received; this.updateText(this.receiveInstructions, 'received');
-      await drained; this.updateText(this.receiveInstructions, 'drained');
       await Promise.all([received, drained]);
-      this.updateText(this.receiveInstructions, 'received and drained');
       setTimeout(() => {
-	this.updateText(this.receiveInstructions, 'closing');
 	this.receiver.close();
-	this.updateText(this.receiveInstructions, 'closed');
 	this.receive.toggleAttribute('awaitScan', true);
-	this.updateText(this.receive, "Start scanning");
 	this.send.toggleAttribute('disabled', false);
       }, 2e3);
     }
