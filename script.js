@@ -629,7 +629,6 @@ class FairshareSync extends MDElement {
       const message = this.makeTestMessage();
       const drained = new Promise(resolve => {	
 	data.onbufferedamountlow = resolve;
-	setTimeout(resolve, 15e3); // Because the former doesn't always work well on iphone when other end initiated data channel.
       });
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
       await Promise.all([received, drained]);
@@ -678,7 +677,10 @@ class FairshareSync extends MDElement {
       this.hide(this.receiveCode);
       data.send(`Simulated history forked from receiver ${App.user}.`);
       const message = this.makeTestMessage();
-      const drained = new Promise(resolve => data.onbufferedamountlow = resolve);      
+      const drained = new Promise(resolve => {
+	data.onbufferedamountlow = resolve;
+	setTimeout(resolve, 10e3); // Because the former doesn't always work well on iphone when other end initiated data channel.
+      });
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
       await received; this.updateText(this.receiveInstructions, 'received');
       await drained; this.updateText(this.receiveInstructions, 'drained');
