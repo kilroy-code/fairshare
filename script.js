@@ -517,6 +517,7 @@ class LocalWebRTC extends WebRTC {
   }
 }
 
+const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
@@ -592,8 +593,10 @@ class FairshareSync extends MDElement {
   async lanSend() {
     if (!this.send.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
-      //this.hide(this.receiveInstructions); // Comment out for self2self test.
-      //this.receive.toggleAttribute('disabled', true); // Comment out for self2self test.
+      if (!LOCAL_TEST) {
+	this.hide(this.receiveInstructions);
+	this.receive.toggleAttribute('disabled', true);
+      }
       this.send.toggleAttribute('disabled', true);
       this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
 
@@ -612,9 +615,8 @@ class FairshareSync extends MDElement {
       this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
 
       const scan = await this.scan(this.sendVideo.querySelector('video'),
-				   _ => _
-				   , this.receiveCode // Uncomment for self2self test.
-				  );
+				   _ => _,
+				   LOCAL_TEST && this.receiveCode);
       this.sender.signals = scan;
 
       const data = await this.sendDataPromise;
@@ -634,8 +636,10 @@ class FairshareSync extends MDElement {
   async lanReceive() {
     if (this.receive.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
-      //this.hide(this.sendInstructions); // Comment out for self2self test.
-      //this.send.toggleAttribute('disabled', true); // Comment out for self2self test.
+      if (!LOCAL_TEST) {
+	this.hide(this.sendInstructions);
+	this.send.toggleAttribute('disabled', true);
+      }
       this.receiveDataPromise = new Promise(resolve => {
 	this.receiver.peer.ondatachannel = event => resolve(event.channel);
       });
@@ -646,13 +650,13 @@ class FairshareSync extends MDElement {
 
       this.receive.toggleAttribute('awaitScan', false);
       this.updateText(this.receive, "Continue after scanning on other device");
-    } else { // Uncomment for self2self test.
+      if (!LOCAL_TEST) setTimeout(() => this.lanReceive());
+    } else {
       this.receive.toggleAttribute('disabled', true);
       let unscrolled = true;
       const scan = await this.scan(this.receiveVideo.querySelector('video'),
-				   () => unscrolled && !(unscrolled=false) && this.receiveInstructions.scrollIntoView({block: 'start', behavior: 'smooth'})
-				   , this.sendCode // Uncomment for self2self test.
-				  );
+				   () => unscrolled && !(unscrolled=false) && this.receiveInstructions.scrollIntoView({block: 'start', behavior: 'smooth'}),
+				   LOCAL_TEST && this.sendCode);
       this.receiver.signals = scan;
 
       this.updateText(this.receiveInstructions, 'Press "Receive other code" on the other device, and use it to read this qr code:');
