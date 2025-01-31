@@ -517,7 +517,7 @@ class LocalWebRTC extends WebRTC {
   }
 }
 
-const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
@@ -582,7 +582,10 @@ class FairshareSync extends MDElement {
 	const message = `${initialMessage} Sent and received ${(totalBytes / (1024 * 1024)).toFixed()} Mbytes in ${elapsed.toLocaleString()} ms (${(totalBytes / (1024 * 1024 * elapsed/1000)).toFixed(1)} MB/s).`;
 	this.updateText(element, message);
       }
-      if (onFinished && (nReceived > this.nTestMessages)) onFinished();
+      if (onFinished && (nReceived > this.nTestMessages)) {
+	this.updateText(element, element.textContent += ' Done!');
+	onFinished();
+      }
     };
   }
   promiseDataHandled(data, element) { // Sets data.onmessage like generateTestDataHandler, but resolves when all data is in.
@@ -674,6 +677,8 @@ class FairshareSync extends MDElement {
       const message = this.makeTestMessage();
       const drained = new Promise(resolve => data.onbufferedamountlow = resolve);      
       for (let i = 0; i < this.nTestMessages; i++) data.send(message);
+      await received; this.updateText(this.receiveInstructions, 'received');
+      await drained; this.updateText(this.receiveInstructions, 'drained');
       await Promise.all([received, drained]);
       this.updateText(this.receiveInstructions, 'received and drained');
       setTimeout(() => {
