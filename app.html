@@ -117,7 +117,10 @@
 	</fairshare-create-user>
       </app-firstuse>
 
-      <fairshare-sync title="Experimental 'Sync'"></fairshare-sync>
+      <fairshare-sync title="Experimental 'Sync'">
+	<div slot="sendVideo" style="display:none;"><video disablepictureinpicture playsinline></video></div>
+	<div slot="receiveVideo" style="display:none;"><video disablepictureinpicture playsinline></video></div>
+      </fairshare-sync>
       <section title="To Do">
 	<ol>
 	  <li>Average rates among votes. (Currently just takes last vote.).
