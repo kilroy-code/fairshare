@@ -1,10 +1,26 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <script type="importmap">
-      { "comment": "Tells browser where to find each package, so that we do not need a build step.",
-      	"imports": {
+    <script>
+      // See https://github.com/WICG/import-maps#dynamic-import-map-example
+      const url = new URL(location.href);
+      if (url.hostname === 'localhost') {
+	url.port = 59693;
+      } else {
+	url.protocol = "https:"
+	url.host = "cloud.ki1r0y.com";
+	url.port = "";
+      }
+      url.pathname = "/@ki1r0y/distributed-security/dist/index-bundle.mjs";
+      url.search = url.hash = '';
+      console.log(`Mapping distributed-security to ${url.href}.`);
+      const importMap = {
+	"imports": {
+          "uuid4": "./node_modules/uuid4/browser.mjs",
+          "@ki1r0y/distributed-security": url.href,
           "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
+          "@kilroy-code/flexstore": "/@kilroy-code/flexstore/index.mjs",
+          "@kilroy-code/flexstore/": "/@kilroy-code/flexstore/",
           "@kilroy-code/ui-components": "/@kilroy-code/ui-components/index.mjs",
           "@material/web/": "/@material/web/",
           "tslib": "/tslib/tslib.es6.mjs",
@@ -16,7 +32,11 @@
           "@lit/reactive-element": "/@lit/reactive-element/reactive-element.js",
           "@lit/": "/@lit/"
 	}
-      }
+      };
+      const im = document.createElement('script');
+      im.type = 'importmap';
+      im.textContent = JSON.stringify(importMap);
+      document.currentScript.after(im);
     </script>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">

@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, MutableCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 import QrScanner from './qr-scanner.min.js'; 
 
@@ -73,13 +73,13 @@ class FairshareApp extends BasicApp {
     this.updateLiveFromLocal('userCollection');
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
-    return new MutableCollection({getRecord: getUserData, getLiveRecord: getUserModel});
+    return new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
   }
   get liveUsersEffect() { // If this.userCollection.liveTags changes, write the list to localStorage for future visits.
     return this.setLocalLive('userCollection');
   }
   get groupCollection() { // As with userCollection, it is stable as a collection, but with liveTags changing.
-    return new MutableCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
+    return new LiveCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
   }
   get group() {
     let param = this.getParameter('group');
@@ -176,10 +176,9 @@ class FairshareApp extends BasicApp {
 
     const groupMenuButton = this.child$('#groupMenuButton');
     const groupMenuScreens = Array.from(this.querySelectorAll('[slot="additional-screen"]'));
-    groupMenuButton.collection = new MutableCollection({
+    groupMenuButton.collection = new LiveCollection({
       records: groupMenuScreens
     });
-
   }
 }
 FairshareApp.register();
@@ -693,12 +692,20 @@ class FairshareSync extends MDElement {
   afterInitialize() {
     super.afterInitialize();
     this.send.addEventListener('click', async event => await this.lanSend(event));
-    this.receive.addEventListener('click', async event => await this.lanReceive(event));    
+    this.receive.addEventListener('click', async event => await this.lanReceive(event));
+    this.shadow$('#t1').addEventListener('click', () => window.open(this.wifi1));
+    this.shadow$('#t2').addEventListener('click', () => window.open(this.wifi2));
+    this.shadow$('#t0').addEventListener('click', () => window.open('mailto:howard.stearns@gmail.com'));
   }
+  wifi1 = "WIFI:S:stearns;T:WPA;P:stearnsair;H:false;";
+  wifi2 = "wifi://:stearnsair@stearns";
   get template() {
     return `
       <section>
         <p>Experimental data transfer: If you have two devices with cameras, you can try the following with or without first killing your WAN/Internet access. (You do have to have some sort of local LAN network going, such as WIFI.)</p>
+<p>Test <a href="${this.wifi1}">one</a> or <a href="${this.wifi2}">two</a>, <a href="mailto:howard.stearns@gmail.com">mailto</a> or via javascript, <button id="t1">one</button> or <button id="t2">two</button> or test with  <button id="t0">mailto</button>.</p>
+<app-qrcode data="${this.wifi1}"></app-qrcode>
+<app-qrcode data="${this.wifi2}"></app-qrcode>
         <p id="instructions">To start, press "Start transfer" on one of the devices:</p>
 
         <div class="column">
@@ -1042,32 +1049,37 @@ export class EditGroup extends MDElement {
               </md-outlined-text-field>
 
               <div class="avatar">
-		<div>
+		<div class="column">
 		  Your Image
 		  <group-image class="avatarImage" size="80"></group-image>
 		</div>
-		<div>
+		<div class="column">
 		  <md-outlined-button name="pictureDriver" id="${this.formId}-pictureDriver">Use photo</md-outlined-button>
 		  <md-outlined-button name="pictureClear" id="${this.formId}-pictureClearr">Clear photo</md-outlined-button>
 		  <input type="file" accept=".jpg,.jpeg,.png" name="picture" id="${this.formId}-picture"></input>
 		</div>
               </div>
 
-              <md-outlined-text-field required
-                   type="number" min="0" step="0.01"
-                   label="tax rate on each transaction"
-                   name="rate"
-                   value="0.01"
-                   id="${this.formId}-rate">
-              </md-outlined-text-field>
-              <md-outlined-text-field required
-                   type="number" min="0" step="0.01"
-                   label="daily stipend paid to each member"
-                   name="stipend"
-                   value="1"
-                   id="${this.formId}-stipend">
-              </md-outlined-text-field>
-
+              <div class="row">
+		<md-outlined-text-field required
+		     type="number" min="0" step="0.01"
+		     label="tax rate on each transaction"
+		     name="rate"
+		     value="0.01"
+		     id="${this.formId}-rate">
+		</md-outlined-text-field>
+                <div class="current">(currently <span id="currentRate">x</span>)</div>
+              </div>
+              <div class="row">
+		<md-outlined-text-field required
+		     type="number" min="0" step="0.01"
+		     label="daily stipend for each member"
+		     name="stipend"
+		     value="1"
+		     id="${this.formId}-stipend">
+		</md-outlined-text-field>
+                <div class="current">(currently <span id="currentStipend">x</span>)</div>
+              </div>
             </form>
 	    <div slot="actions">
               <md-filled-button type="submit" form="${this.formId}" id="${this.formId}-submit"> <!-- cannot be a fab -->
@@ -1082,26 +1094,28 @@ export class EditGroup extends MDElement {
     return `
       section { margin: var(--margin, 10px); }
       [type="file"] { display: none; }
-      form, div {
+      form, .column {
         display: flex;
         flex-direction: column;
         // justify-content: space-between;
         gap: 10px;
         margin: 10px;
       }
-      .avatar, [slot="actions"] {
+      .avatar, [slot="actions"], .row {
+         display: flex;
          flex-direction: row;
          justify-content: center;
+         gap: 10px;
+         margin: 10px;
       }
-      .avatar > div { align-items: center; }
-     [slot="actions"] { margin-top: 20px; }
+      .row { align-items: baseline; }
+      .avatar, .avatar > div { align-items: center; }
+      [slot="actions"] { margin-top: 20px; }
+      ${this.expectUnique ? '.current {display:none;}' : ''}
     `;
   }
 }
 EditGroup.register();
-
-
-
 
 // Some data for populating the db, local or remote.
 const users = window.users = {
@@ -1118,12 +1132,7 @@ const groups = window.groups = {
   FairShare: new Group({title: "FairShare", picture: "fairshare.webp"})
 };
 
-/*
-// Local definitions
-function getUserModel(key) { return Promise.resolve(users[key]); }
-function getGroupModel(key) { return new Promise(resolve => setTimeout(() => resolve(groups[key]), 1000)); }
 
-*/
 // Networked definitions
 function dataPath(collection, key) {
   return `/persist/${collection}/${key}.json`;
@@ -1167,12 +1176,15 @@ function setUserData(key, data) {
 function setGroupData(key, data) {
   return setData('group', key, data);
 }
+// Get a record of the current user or group data for a given tag.
 function getUserData(key) {
   return getData('user', key);
 }
 function getGroupData(key) {
   return getData('group', key);
 }
+
+// Get a listing of the user or group tags. The answer is used at startup to populate the known tags of their respective collections.
 function getUserList() {
   return getData('user', 'list');
 }
@@ -1180,23 +1192,8 @@ function getGroupList() {
   return getData('group', 'list');
 }
 
-function getModelData(model) {
-  let {title, picture} = model;
-  return {title, picture};
-}
-function populateDb() {
-  for (const key in users) {
-    setUserData(key, getModelData(users[key]));
-  }
-  for (const key in groups) {
-    setGroupData(key, getModelData(groups[key]));
-  }
-}
-Object.assign(window, {getData, setData, getUserData, getGroupData, setUserData, setGroupData, getUserModel, getGroupModel, getModelData, populateDb, getUserList, getGroupList});
-//*/
-		   
-
-// fixme: remove in favor of above
-//document.querySelector('switch-user').getModel = getUserModel;
-//document.querySelector('fairshare-groups').getModel = getGroupModel;
-
+Object.assign(window, {
+  // populdateDb, getModelData,
+  getUserList, getGroupList, getUserData, getGroupData,
+  getData, setData, setUserData, setGroupData, getUserModel, getGroupModel,
+});
