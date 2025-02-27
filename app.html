@@ -20,7 +20,6 @@
           "@ki1r0y/distributed-security": url.href,
           "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
           "@kilroy-code/flexstore": "/@kilroy-code/flexstore/index.mjs",
-          "@kilroy-code/flexstore/": "/@kilroy-code/flexstore/",
           "@kilroy-code/ui-components": "/@kilroy-code/ui-components/index.mjs",
           "@material/web/": "/@material/web/",
           "tslib": "/tslib/tslib.es6.mjs",
@@ -137,12 +136,13 @@
 	</fairshare-create-user>
       </app-firstuse>
 
-      <fairshare-sync title="Experimental 'Sync'">
-	<div slot="sendVideo" style="display:none;" class="video-container"><video disablepictureinpicture playsinline></video></div>
-	<div slot="receiveVideo" style="display:none;" class="video-container"><video disablepictureinpicture playsinline></video></div>
-      </fairshare-sync>
+      <!-- <fairshare-sync title="Experimental 'Sync'"> -->
+      <!-- 	<div slot="sendVideo" style="display:none;" class="video-container"><video disablepictureinpicture playsinline></video></div> -->
+      <!-- 	<div slot="receiveVideo" style="display:none;" class="video-container"><video disablepictureinpicture playsinline></video></div> -->
+      <!-- </fairshare-sync> -->
       <section title="To Do">
 	<ol>
+	  <li>p2p sync.</li>
 	  <li>Average rates among votes. (Currently just takes last vote.).
 	  <li>Push changes to online users. (Must currently reload to see new data.)</li>
 	  <li>Installable PWA</li>
@@ -150,8 +150,6 @@
 	  <li>Voting for new members. (And for picture change? Will be more practical after notifications.)</li>
 	  <li>Currency exchanges. (As in separate <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a>, allowing <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=fairshare&payee=carol&amount=10&investment=-50&currency=apples#pay" target="fairshare-pc">cross-group payment</a>.)</li>
 	  <li>History explorer.</li>
-	  <li>Signed transactions.</li>
-	  <li>API, e.g., so a game can incorporate guild-groups.</li>
 	</ol>
       </section>
 
