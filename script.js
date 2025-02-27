@@ -1,6 +1,6 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
-import { Credentials, MutableCollection, ready } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
@@ -60,7 +60,50 @@ class Group { // A single group, of which the current user must be a member.
 }
 Rule.rulify(Group.prototype);
 
-let users, groups, Fairshare;
+/*
+  The app maintains a LiveCollection for Users and another for Groups.
+
+  The known tags of each is populated from a server at startup, calling LiveCollection.updateKnownTags.
+  This causes the collection to start asking the server for a POJO record of the import public data (e.g., title, picture) for each known tag using getUserData/getGroupData.
+  These POJOs are kept in collection[tag].
+
+  When we want to instead get a rule-based live model (a User or Group), the LiveCollection pulls this in with getUserModel/getGroupModel.
+  Any changes pushed to us should effect the collection[tag], and the app takes it from there.
+  App.setGroup/setUser are called to persist whole updated records, using setUserData/setGroupData, always on a tag for which we have a live model.
+  The set of such live tags is updated with LiveCollection.updateLiveTags:
+    The list of Users live tags are persisted in localStorage, and added to whenever we create or authorize a new user.
+    The list of Group live tags is enumerated for each user, and added to whenver we create or join a new group.
+
+  As a first step in using Flexstore, there will be "social.fairshare.users" and "social.fairshare.groups" collections.
+  Getting a live model will consist of adding an event handler for the specific tag.
+  That will mean that anyone connected will get an update about any changes to any group or user, which will usually be ignored.
+  A minor(?) next step is to pull pictures out into a media collection.
+  Next, the user and group collections will just be the directories with the public info about public groups, and the real data will be in a
+  separate collection specific to the group:
+  - Items will be encrypted for the group audience only.
+  - Updates will only be seen (with encrypted conent and open signatures) for those connected to the specific group/collection being updated.
+  - Groups may decide to not list in the directory, and/or to not synchronize their data to a public relay.
+*/
+const users = new MutableCollection({name: 'social.fairshare.users'});
+const groups = new MutableCollection({name: 'social.fairshare.groups'});
+Object.assign(window, {Credentials, MutableCollection, groups, users, Group, User});
+
+function getUserList() { return users.list(); }
+function getGroupList() { return groups.list(); }
+async function getUserData(tag)  { return (await users.retrieve({tag}))?.json || ''; } // Not undefined.
+async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json || ''; }
+function setUserData(tag, data)  { return users.store(data, {tag}); }
+function setGroupData(tag, data) { return groups.store(data, {tag}); }
+async function getUserModel(tag) {
+  // TODO: listen for updates
+  const data = await getUserData(tag);
+  return new User(data);
+}
+async function getGroupModel(tag) {
+  // TODO: listen for updates
+  const data = await getGroupData(tag);
+  return new Group(data);
+}
 
 class FairshareApp extends BasicApp {
   constructor(...rest) {
@@ -72,6 +115,20 @@ class FairshareApp extends BasicApp {
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
     this.updateLiveFromLocal('userCollection');
+  }
+  afterInitialize() {
+    super.afterInitialize();
+
+    // When we get the list from the network, it will contain those initial knownTags members from above
+    // (unless deleted on server!), and when it comes in, that will (re-)define the total knownTags order.
+    getUserList().then(knownTags => this.userCollection.updateKnownTags(knownTags));
+    getGroupList().then(knownTags => this.groupCollection.updateKnownTags(knownTags));
+
+    const groupMenuButton = this.child$('#groupMenuButton');
+    const groupMenuScreens = Array.from(this.querySelectorAll('[slot="additional-screen"]'));
+    groupMenuButton.collection = new LiveCollection({
+      records: groupMenuScreens
+    });
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     return new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
@@ -121,7 +178,8 @@ class FairshareApp extends BasicApp {
   }
   updateLiveFromLocal(collectionName) {
     let stored = this.getLocalLive(collectionName);
-    return this[collectionName].updateLiveTags(stored);
+    const collection = this[collectionName];
+    return collection.updateLiveTags(stored);
   }
   async createUserTag(editUserComponent) {
     const prompt = editUserComponent.questionElement.value;
@@ -180,24 +238,7 @@ class FairshareApp extends BasicApp {
     if (key === 'Group actions...') return this.$('#groupMenuButton').button.click();
     if (key === 'User actions...') return this.$('#user').button.click();
     super.select(key);
-  }
-  afterInitialize() {
-    super.afterInitialize();
-    // When we get the list from the network, it will contain those initial knownTags members from above
-    // (unless deleted on server!), and when it comes in, that will (re-)define the total knownTags order.
-    ready.then(() => {
-      users = new MutableCollection({name: 'social.fairshare.users'});
-      groups = new MutableCollection({name: 'social.fairshare.groups'});
-      getUserList().then(knownTags => this.userCollection.updateKnownTags(knownTags));
-      getGroupList().then(knownTags => this.groupCollection.updateKnownTags(knownTags));
-
-      Object.assign(window, {Credentials, MutableCollection, groups, users, Group, User});
-    });
-    const groupMenuButton = this.child$('#groupMenuButton');
-    const groupMenuScreens = Array.from(this.querySelectorAll('[slot="additional-screen"]'));
-    groupMenuButton.collection = new LiveCollection({
-      records: groupMenuScreens
-    });
+    return null;
   }
 }
 FairshareApp.register();
@@ -298,7 +339,7 @@ class FairshareGroups extends LiveList {
     const fetched = await App.groupCollection.getLiveRecord(tag);
     //const existing = App.groupCollection[tag];
     App.groupCollection.addRecordRule(tag, fetched);
-    if (!fetched.balances[Credentials.author]) {
+    if (!fetched.members.includes(Credentials.author)) {
       fetched.getBalance(App.user); // for side-effect of entering an initial balance
       await App.setGroup(tag, fetched); // Save with our presence.
     }
@@ -403,7 +444,8 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
   }
   get choiceEffect() { // Empties choice if not a member, and updates display to match final choice.
     if (this.choice && this.groupRecord && !this.groupRecord.members?.includes(this.choice)) this.choice = '';
-    return this.button.textContent = this.choice || 'Select member';
+    const record = this.choice && this.collection[this.choice];
+    return this.button.textContent = record?.title || 'Select member';
   }
 }
 FairshareGroupMembersMenuButton.register();
@@ -1135,44 +1177,3 @@ export class EditGroup extends MDElement {
   }
 }
 EditGroup.register();
-
-/*
-  The app maintains a LiveCollection for Users and another for Groups.
-
-  The known tags of each is populated from a server at startup, calling LiveCollection.updateKnownTags.
-  This causes the collection to start asking the server for a POJO record of the import public data (e.g., title, picture) for each known tag using getUserData/getGroupData.
-  These POJOs are kept in collection[tag].
-
-  When we want to instead get a rule-based live model (a User or Group), the LiveCollection pulls this in with getUserModel/getGroupModel.
-  Any changes pushed to us should effect the collection[tag], and the app takes it from there.
-  App.setGroup/setUser are called to persist whole updated records, using setUserData/setGroupData, always on a tag for which we have a live model.
-  The set of such live tags is updated with LiveCollection.updateLiveTags:
-    The list of Users live tags are persisted in localStorage, and added to whenever we create or authorize a new user.
-    The list of Group live tags is enumerated for each user, and added to whenver we create or join a new group.
-
-  As a first step in using Flexstore, there will be "social.fairshare.users" and "social.fairshare.groups" collections.
-  Getting a live model will consist of adding an event handler for the specific tag.
-  That will mean that anyone connected will get an update about any changes to any group or user, which will usually be ignored.
-  A minor(?) next step is to pull pictures out into a media collection.
-  Next, the user and group collections will just be the directories with the public info about public groups, and the real data will be in a
-  separate collection specific to the group:
-  - Items will be encrypted for the group audience only.
-  - Updates will only be seen (with encrypted conent and open signatures) for those connected to the specific group/collection being updated.
-  - Groups may decide to not list in the directory, and/or to not synchronize their data to a public relay.
-*/
-function getUserList() { return users.list(); }
-function getGroupList() { return groups.list(); }
-async function getUserData(tag)  { return (await users.retrieve({tag}))?.json || ''; } // Not undefined.
-async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json || ''; }
-function setUserData(tag, data)  { return users.store(data, {tag}); }
-function setGroupData(tag, data) { return groups.store(data, {tag}); }
-async function getUserModel(tag) {
-  // TODO: listen for updates
-  const data = await getUserData(tag);
-  return new User(data);
-}
-async function getGroupModel(tag) {
-  // TODO: listen for updates
-  const data = await getGroupData(tag);
-  return new Group(data);
-}
