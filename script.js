@@ -225,6 +225,12 @@ class FairshareApp extends BasicApp {
     };
   }
 
+  get userEffect() {
+    return Credentials.author = this.user || '';
+  }
+  get groupRecordEffect() {
+    return Credentials.owner = this.groupRecord?.owner || '';
+  }
   get groupEffect() {
     return this.resetUrl({group: this.group});
   }
@@ -830,7 +836,7 @@ class FairsharePay extends MDElement {
       await this.transactionElement1.onAction();
       this.payeeElement.choice = '';
       App.resetUrl({payee: '', amount: ''});
-      App.alert(`Paid ${amount} ${App.groupRecord.title} to ${payee}.`);
+      App.alert(`Paid ${amount} ${App.groupRecord.title} to ${App.userCollection[payee]?.title || payee}.`);
       button.toggleAttribute('disabled', false);
     });
   }
