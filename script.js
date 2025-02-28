@@ -131,6 +131,7 @@ class FairshareApp extends BasicApp {
     groupMenuButton.collection = new LiveCollection({
       records: groupMenuScreens
     });
+    groups.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag); // Once we're in production, we can hardcode this.
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     return new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
@@ -146,7 +147,7 @@ class FairshareApp extends BasicApp {
   }
   get group() {
     let param = this.getParameter('group');
-    return param || 'FairShare';
+    return param || this.FairShareTag;
   }
   getGroupTitle(key = App.group) { // Callers of this will become more complicated when key is a guid.
     return this.groupCollection[key]?.title || key;
@@ -164,6 +165,9 @@ class FairshareApp extends BasicApp {
     }
     this.groupCollection.updateLiveTags(groups); // Ensures that there are named rules for each group.
     return this.groupCollection[group];
+  }
+  get FairShareTag() {
+    return 'FairShare';
   }
   get title() {
     return 'FairShare';
@@ -342,7 +346,7 @@ class FairshareOpener extends MDElement {
 FairshareOpener.register();
 
 class FairshareGroups extends LiveList {
-  static async addToOwner(userTag, groupTag = 'FairShare') { // Adds userTag to the owning team of group, of which we must be a member.
+  static async addToOwner(userTag, groupTag = App.FairShareTag) { // Adds userTag to the owning team of group, of which we must be a member.
     return Credentials.changeMembership({tag: App.groupCollection[groupTag].owner, add: [userTag]});
   }
   static async adopt(groupTag) { // Add user to group data and group to user's data, updates live records, and makes group active.
@@ -957,7 +961,7 @@ FairshareInvest.register();
 class FairshareCreateUser extends CreateUser {
   async onaction(form) {
     await super.onaction(form);
-    await FairshareGroups.adopt('FairShare');
+    await FairshareGroups.adopt(App.FairShareTag);
   }
 }
 FairshareCreateUser.register();
@@ -979,7 +983,7 @@ class FairshareGroupProfile extends MDElement {
   get template() {
     return `
        <edit-group>
-         <p>You can change the group picture, tax rate, and daily stipend. <i>(In future versions, you will also be able to change the group name. These changes take effect when you click "Go". In future versions, a majority of the group members will have to vote for them.)</i></p>
+         <p>You can change the group name, picture, tax rate, and daily stipend. <i>(These changes take effect when you click "Go". In future versions, an average of each vote will be used)</i></p>
        </edit-group>`;
   }
   async onaction(form) {
@@ -998,22 +1002,18 @@ class FairshareGroupProfile extends MDElement {
     const stipend = record?.stipend || 1;
     if (!App.groupRecord) return false;
 
-    edit.usernameElement.toggleAttribute('disabled', true);
     edit.picture = picture;
 
-    edit.title = title;
+    edit.allowedTitle = title;
+    edit.title = undefined;
     edit.owner = record?.owner;
     // This next casues a warning if the screen is not actually being shown:
     // Invalid keyframe value for property transform: translateX(0px) translateY(NaNpx) scale(NaN)
     edit.usernameElement.value = title;
-    edit.rateElement.value = rate;
-    edit.stipendElement.value = stipend;
+    edit.shadow$('#currentRate').textContent = edit.rateElement.value = rate;
+    edit.shadow$('#currentStipend').textContent = edit.stipendElement.value = stipend;
 
     return true;
-  }
-  afterInitialize() {
-    super.afterInitialize();
-    this.editElement.expectUnique = false;
   }
 }
 FairshareGroupProfile.register();
@@ -1030,8 +1030,8 @@ export class EditGroup extends MDElement {
   get owner() { // Overridden by FairshareGroupProfile.
     return Credentials.create(App.user);
   }
-  get tag() { // Todo: return this.owner, and then do not disable the changing of title/"username".
-    return this.title;
+  get tag() {
+    return this.owner;
   }
   get existenceCheck() {
     if (!this.tag) return false;
@@ -1051,12 +1051,9 @@ export class EditGroup extends MDElement {
     return true;
   }
   async checkUsernameAvailable() { // Returns true if available. Forces update of username.
-    if (!this.expectUnique) return true;
     this.title = undefined;
-    if (!await this.exists) {
-      this.setUsernameValidity('');
-      return true;
-    }
+    if (this.allowedTitle === this.title) return this.setUsernameValidity('');
+    if (!await this.exists) return this.setUsernameValidity('');
     await this.setUsernameValidity("Already exists");
     console.warn(`${this.title} already exists.`);
     return false;
