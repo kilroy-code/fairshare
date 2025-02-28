@@ -152,6 +152,15 @@ class FairshareApp extends BasicApp {
   getGroupTitle(key = App.group) { // Callers of this will become more complicated when key is a guid.
     return this.groupCollection[key]?.title || key;
   }
+  findGroup(properties) { // Can be overwritten by applications if they have a more complete picture of things elsewhere.
+    return this.groupCollection.knownTags.find(tag => {
+      const record = this.groupCollection[tag];
+      for (let key in properties) {
+	if (record[key] !== properties[key]) return false;
+      }
+      return true;
+    });
+  }
   get groupRecord() {
     let group = this.group;
     const groups = this.userRecord?.groups;
@@ -1033,12 +1042,9 @@ export class EditGroup extends MDElement {
   get tag() {
     return this.owner;
   }
-  get existenceCheck() {
+  get exists() {
     if (!this.tag) return false;
-    return App.groupCollection.getRecord(this.tag);
-  }
-  get exists() {  // Note that rules automatically de-thenify promises.
-    return this.existenceCheck;
+    return App.findGroup({title: this.title}) || null;
   }
   setUsernameValidity(message) {
     this.usernameElement.setCustomValidity(message);
@@ -1061,7 +1067,7 @@ export class EditGroup extends MDElement {
   async onaction(target) {
     const data = Object.fromEntries(new FormData(target)); // Must be now, before await.
     if (!await this.checkUsernameAvailable()) return null;
-    data.title ||= this.title; // If we have disabled the changing of "username", then it won't be included, and yet we need the value.
+    console.log('picture:', data.picture.size, data.picture);
     if (!data.picture.size) data.picture = '';
     else data.picture = await AvatarImage.fileData(data.picture);
     // Credentials.owner is either already set (editing), or will be on next tick after setting group to the new tag,
