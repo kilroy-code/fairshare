@@ -92,7 +92,9 @@ function getUserList() { return users.list(); }
 function getGroupList() { return groups.list(); }
 async function getUserData(tag)  { return (await users.retrieve({tag}))?.json || ''; } // Not undefined.
 async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json || ''; }
-function setUserData(tag, data)  { return users.store(data, {tag}); }
+// Users are only ever written by the owner, even if a different persona is current. The tag is the user's individual key tag.
+function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: ''}); }
+// Groups are written by their member tag on behalf of the whole-group owner (which they are a member of).
 function setGroupData(tag, data) { return groups.store(data, {tag}); }
 async function getUserModel(tag) {
   // TODO: listen for updates
@@ -136,6 +138,9 @@ class FairshareApp extends BasicApp {
   get liveUsersEffect() { // If this.userCollection.liveTags changes, write the list to localStorage for future visits.
     return this.setLocalLive('userCollection');
   }
+  getUserTitle(key = App.user) { // Name of the specified user.
+    return this.userCollection[key]?.title || key;
+  }
   get groupCollection() { // As with userCollection, it is stable as a collection, but with liveTags changing.
     return new LiveCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
   }
@@ -143,7 +148,7 @@ class FairshareApp extends BasicApp {
     let param = this.getParameter('group');
     return param || 'FairShare';
   }
-  getGroupTitle(key) { // Callers of this will become more complicated when key is a guid.
+  getGroupTitle(key = App.group) { // Callers of this will become more complicated when key is a guid.
     return this.groupCollection[key]?.title || key;
   }
   get groupRecord() {
@@ -181,17 +186,16 @@ class FairshareApp extends BasicApp {
     const collection = this[collectionName];
     return collection.updateLiveTags(stored);
   }
-  async createUserTag(editUserComponent) {
+  async createUserTag(editUserComponent) { // For (AppFirstuse >) CreateUser > EditUser
     const prompt = editUserComponent.questionElement.value;
     Credentials.setAnswer(prompt, editUserComponent.answerElement.value);
 
     const invitation = App.url.searchParams.get('invitation');
     if (invitation) {
-      return Credentials.author = await Credentials.claimInvitation(invitation, prompt);
+      return await Credentials.claimInvitation(invitation, prompt);
     }
-
     const tag = await Credentials.createAuthor(prompt);
-    Credentials.author = tag;
+    await FairshareGroups.addToOwner(tag);
     return tag;
   }
   setLocal(key, value) {
@@ -211,7 +215,7 @@ class FairshareApp extends BasicApp {
     delete data.isLiveRecord;
     return data;
   }
-  get setUser() {
+  get setUser() { // TODO: change these two names (one in ui-components), to something implying that data will be merged and saved. (Do they really have to be rules?)
     return (tag, newData) => {
       return setUserData(tag, this.mergeData(this.userCollection[tag], newData));
     };
@@ -338,7 +342,30 @@ class FairshareOpener extends MDElement {
 FairshareOpener.register();
 
 class FairshareGroups extends LiveList {
-  static async join(tag) {
+  static async addToOwner(userTag, groupTag = 'FairShare') { // Adds userTag to the owning team of group, of which we must be a member.
+    return Credentials.changeMembership({tag: App.groupCollection[groupTag].owner, add: [userTag]});
+  }
+  static async adopt(groupTag) { // Add user to group data and group to user's data, updates live records, and makes group active.
+    // Requires group to exist, and userTag to be a member of owning team.
+    // Requires user record to exist, and be active (including Credential.author to be set).
+    const groups = [...App.userRecord.groups, groupTag];
+
+    // Update persistent and live group data (which the user doesn't have yet):
+    const groupRecord = await App.groupCollection.getLiveRecord(groupTag);
+    App.groupCollection.addRecordRule(groupTag, groupRecord); 
+    groupRecord.getBalance(App.user); // For side-effect of entering an initial balance
+    Credentials.owner = groupRecord.owner; // Will happen anyway on next tick, from changing group. But we need it now to save.
+    await App.setGroup(groupTag, groupRecord); // Save with our presence.
+    App.groupCollection.updateLiveTags(groups);  // See comments in AuthorizeUser.adopt.
+
+    // Update persistent and live user data (which the user does have):
+    await App.setUser(App.user, {groups});
+    await App.userCollection.updateLiveRecord(App.user);
+
+    App.resetUrl({group: groupTag, screen: App.defaultScreenTitle,
+		  payee: '', amount: '', invitation: ''}); // Clear N/A stuff.
+  }
+  static async FIXME_old_join(tag) {
     const groups = [...App.userRecord.groups, tag];
     // Add user to group. (Currently, as a full member.)
     // See comments in AuthorizeUser.adopt.
@@ -350,7 +377,7 @@ class FairshareGroups extends LiveList {
       await App.setGroup(tag, fetched); // Save with our presence.
     }
     App.groupCollection.updateLiveTags(groups); // Not previously live.
-    // Add tag to our groups.
+     // Add tag to our groups.
     await App.setUser(App.user, {groups});
     await App.userCollection.updateLiveRecord(App.user);
     App.resetUrl({group: tag, screen: App.defaultScreenTitle, payee: '', amount: '', invitation: ''}); // Clear payee,amount when switching.
@@ -412,10 +439,10 @@ FairshareJoinGroup.register();
   
 class FairshareShare extends AppShare {
   get url() {
-    return App.urlWith({user: '', payee: '', amount: '', screen: 'My Groups'});
+    return App.urlWith({user: '', payee: '', amount: '', screen: ''});
   }
   get description() {
-    return `Come join ${App.user} in ${App.group}!`;
+    return `Come join ${App.getUserTitle()} in ${App.getGroupTitle()}!`;
   }
   get picture() {
     return App.getPictureURL(App.groupRecord?.picture);
@@ -833,7 +860,7 @@ class FairsharePay extends MDElement {
       const payee = App.payee;
       const button = event.target;
       button.toggleAttribute('disabled', true);
-      await this.transactionElement1.onAction();
+      await this.transactionElement1.onaction();
       this.payeeElement.choice = '';
       App.resetUrl({payee: '', amount: ''});
       App.alert(`Paid ${amount} ${App.groupRecord.title} to ${App.userCollection[payee]?.title || payee}.`);
@@ -910,7 +937,7 @@ class FairshareTransaction extends MDElement {
        balance after: <span id="balanceAfter"></span>
     `;
   }
-  async onAction() {
+  async onaction() {
       this.groupRecord.adjustBalance(App.user, -this.cost);
       if (App.user !== this.payee) this.groupRecord.adjustBalance(this.payee, this.amount);
       await App.setGroup(App.group, this.groupRecord);
@@ -930,7 +957,7 @@ FairshareInvest.register();
 class FairshareCreateUser extends CreateUser {
   async onaction(form) {
     await super.onaction(form);
-    await FairshareGroups.join('FairShare');
+    await FairshareGroups.adopt('FairShare');
   }
 }
 FairshareCreateUser.register();
@@ -943,7 +970,7 @@ class FairshareCreateGroup extends MDElement {
     App.resetUrl({payee: ''}); // Any existing payee cannot possibly be a member.
     const component = this.findParentComponent(form),
 	  tag = await component?.tag;
-    await FairshareGroups.join(tag);
+    await FairshareGroups.adopt(tag);
   }
 }
 FairshareCreateGroup.register();
@@ -975,6 +1002,7 @@ class FairshareGroupProfile extends MDElement {
     edit.picture = picture;
 
     edit.title = title;
+    edit.owner = record?.owner;
     // This next casues a warning if the screen is not actually being shown:
     // Invalid keyframe value for property transform: translateX(0px) translateY(NaNpx) scale(NaN)
     edit.usernameElement.value = title;
@@ -999,8 +1027,11 @@ export class EditGroup extends MDElement {
   get picture() {
     return '';
   }
-  get tag() {
-    return this.title; // FIXME: App.toLowerCase or guid
+  get owner() { // Overridden by FairshareGroupProfile.
+    return Credentials.create(App.user);
+  }
+  get tag() { // Todo: return this.owner, and then do not disable the changing of title/"username".
+    return this.title;
   }
   get existenceCheck() {
     if (!this.tag) return false;
@@ -1033,9 +1064,12 @@ export class EditGroup extends MDElement {
   async onaction(target) {
     const data = Object.fromEntries(new FormData(target)); // Must be now, before await.
     if (!await this.checkUsernameAvailable()) return null;
-    data.title ||= this.title; // If we have disabled the changing of username, then it won't be included, and yet we need the value.
+    data.title ||= this.title; // If we have disabled the changing of "username", then it won't be included, and yet we need the value.
     if (!data.picture.size) data.picture = '';
     else data.picture = await AvatarImage.fileData(data.picture);
+    // Credentials.owner is either already set (editing), or will be on next tick after setting group to the new tag,
+    // but we need it set now for setGroup.
+    Credentials.owner = data.owner = await this.owner;
     const tag = this.tag;
     await App.setGroup(tag, data); // Set the data, whether new or not.
     await this.parentComponent.onaction?.(target);
@@ -1083,7 +1117,7 @@ export class EditGroup extends MDElement {
       this.shadow$('[type="file"]').click();
     });
   }
-  get usernameElement() {
+  get usernameElement() { // A misnomer, carried over from EditUser.
     return this.shadow$('[name="title"]');
   }
   get rateElement() {
