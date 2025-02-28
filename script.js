@@ -1067,8 +1067,7 @@ export class EditGroup extends MDElement {
   async onaction(target) {
     const data = Object.fromEntries(new FormData(target)); // Must be now, before await.
     if (!await this.checkUsernameAvailable()) return null;
-    console.log('picture:', data.picture.size, data.picture);
-    if (!data.picture.size) data.picture = '';
+    if (!data.picture.size) data.picture = this.picture;
     else data.picture = await AvatarImage.fileData(data.picture);
     // Credentials.owner is either already set (editing), or will be on next tick after setting group to the new tag,
     // but we need it set now for setGroup.
