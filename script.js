@@ -117,6 +117,11 @@ class FairshareApp extends BasicApp {
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
     this.updateLiveFromLocal('userCollection');
+    console.info(`Initial user ${this.user}.`);
+    if (!this.userCollection.knownTags.includes(this.user)) {
+      console.warn(`User ${this.user} is not authorized for this browser.`);
+      this.resetUrl({screen: 'Add existing account'});
+    }
   }
   afterInitialize() {
     super.afterInitialize();
@@ -134,7 +139,9 @@ class FairshareApp extends BasicApp {
     groups.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag); // Once we're in production, we can hardcode this.
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
-    return new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
+    const users = new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
+    users['0'] = {title: 'New user'}; // Hack
+    return users;
   }
   get liveUsersEffect() { // If this.userCollection.liveTags changes, write the list to localStorage for future visits.
     return this.setLocalLive('userCollection');
@@ -249,6 +256,11 @@ class FairshareApp extends BasicApp {
     return Credentials.owner = this.groupRecord?.owner || '';
   }
   get groupEffect() {
+    console.info(`User ${this.user} groups: ${this.groupCollection.liveTags}, ${this.group}.`);
+    if (!this.groupCollection.liveTags.includes(this.group)) {
+      console.warn(`Group ${this.group} is not among the groups for user ${this.user}.`);
+      // FIXME: do something here.
+    }
     return this.resetUrl({group: this.group});
   }
   get amountEffect() {
@@ -378,23 +390,6 @@ class FairshareGroups extends LiveList {
     App.resetUrl({group: groupTag, screen: App.defaultScreenTitle,
 		  payee: '', amount: '', invitation: ''}); // Clear N/A stuff.
   }
-  static async FIXME_old_join(tag) {
-    const groups = [...App.userRecord.groups, tag];
-    // Add user to group. (Currently, as a full member.)
-    // See comments in AuthorizeUser.adopt.
-    const fetched = await App.groupCollection.getLiveRecord(tag);
-    //const existing = App.groupCollection[tag];
-    App.groupCollection.addRecordRule(tag, fetched);
-    if (!fetched.members.includes(Credentials.author)) {
-      fetched.getBalance(App.user); // for side-effect of entering an initial balance
-      await App.setGroup(tag, fetched); // Save with our presence.
-    }
-    App.groupCollection.updateLiveTags(groups); // Not previously live.
-     // Add tag to our groups.
-    await App.setUser(App.user, {groups});
-    await App.userCollection.updateLiveRecord(App.user);
-    App.resetUrl({group: tag, screen: App.defaultScreenTitle, payee: '', amount: '', invitation: ''}); // Clear payee,amount when switching.
-  }
   get imageTagName() {
     return 'group-image';
   }
@@ -451,14 +446,56 @@ class FairshareJoinGroup extends MDElement {
 FairshareJoinGroup.register();
   
 class FairshareShare extends AppShare {
+  async generateUrl(user, group) {
+    let invitation = '';
+    if (user === '0') {
+      invitation = await Credentials.createAuthor('-');
+      await FairshareGroups.addToOwner(invitation);
+      user = group = '';
+    }
+    const url = App.urlWith({user, invitation, group, payee: '', amount: '', screen: ''});
+    console.log(url.href);
+    return url;
+  }
   get url() {
-    return App.urlWith({user: '', payee: '', amount: '', screen: ''});
+    return this.generateUrl(this.userElement.choice, this.groupElement.choice);
   }
   get description() {
-    return `Come join ${App.getUserTitle()} in ${App.getGroupTitle()}!`;
+    return `\nCome join ${App.getUserTitle()} in ${App.getGroupTitle()}!`;
   }
   get picture() {
     return App.getPictureURL(App.groupRecord?.picture);
+  }
+  get userElement() {
+    return this.child$('all-users-menu-button');
+  }
+  get groupElement() {
+    return this.child$('fairshare-groups-menu-button');
+  }
+  get buttonChoicesEffect() {
+    const userTag = this.userElement.choice,
+	  userRecord = App.userCollection[userTag],
+	  userTitle = userRecord?.title,
+	  isNewUser = userTag === '0',
+	  groupTag = this.groupElement.choice,
+	  groupRecord = App.groupCollection[groupTag],
+	  groupTitle = groupRecord?.title,
+	  isFairShare = groupTag === App.FairShareTag;
+    if (isNewUser) { // New users can only go to the FairShare group.
+      if (!isFairShare) {
+	setTimeout(() => this.groupElement.select(App.FairShareTag));
+      }
+    } else if (groupRecord?.members?.includes(userTag)) {
+      for (const candidateGroup of this.groupElement.tags) {
+	const record = App.groupCollection[candidateGroup];
+	if (!record?.members?.includes(userTag)) {
+	  setTimeout(() => this.groupElement.select(candidateGroup));
+	}
+      }
+      App.alert(`Existing user (${App.getUserTitle()}) is already a member of all your groups.`)
+	.then(() => setTimeout(() => this.userElement.choice = 0));
+    }
+    return true;
   }
 }
 FairshareShare.register();

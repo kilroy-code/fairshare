@@ -119,11 +119,12 @@
       </fairshare-create-user>
 
       <fairshare-share slot="user-menu" title="Invite someone">
-	<p slot="qr">Sign up another user to
+	<p slot="qr">Sign up <all-users-menu-button include-new-user></all-users-menu-button> to
 	  <fairshare-groups-menu-button></fairshare-groups-menu-button>
 	  <!-- <fairshare-group-chooser></fairshare-group-chooser> -->
-	  by having them scan this code with their phone. (They will still have to be voted in by a majority of the group's members.)</p>
-	<p slot="social">Or share the group's signup URL directly or on social media:</p>
+	  by having them scan this code with their phone.</p>
+	<p slot="qr"><i>(For now, this is how <b>new</b> users get admitted to the FairShare group, or <b>existing</b> users get added to other groups. Later on, the latter will have voting through in-app messages.)</i></p>
+	<p slot="social">Or share the acceptance URL yourself:</p>
       </fairshare-share>
 
       <list-divider></list-divider>
@@ -144,7 +145,6 @@
 	<ol>
 	  <li>Push changes to online users. (Must currently reload to see new data.) Try relay sync, and two users connected to same relay.</li>
 	  <li>p2p sync.</li>
-	  <li>Invite: either specify a user + non-fairshare-group, or just new-user + fairshare
 	  <li>History explorer / messages.</li>
 	  <li>Voting for new members.
 	  <li>Average rates among votes. (Currently just takes last vote.).
