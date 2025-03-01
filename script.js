@@ -117,11 +117,6 @@ class FairshareApp extends BasicApp {
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
     this.updateLiveFromLocal('userCollection');
-    console.info(`Initial user ${this.user}.`);
-    if (!this.userCollection.knownTags.includes(this.user)) {
-      console.warn(`User ${this.user} is not authorized for this browser.`);
-      this.resetUrl({screen: 'Add existing account'});
-    }
   }
   afterInitialize() {
     super.afterInitialize();
@@ -175,9 +170,14 @@ class FairshareApp extends BasicApp {
     if (!groups.includes(group)) { // If we're not in the requested group...
       const next = groups[0];
       if (!next) return null; // New user.
-      //this.alert(`${this.userRecord.title} is not a member of ${this.getGroupTitle(group)}. Switched to ${this.getGroupTitle(next)}.`);
-      group = next;
-      this.resetUrl({group});
+      console.info(`${this.userRecord.title} is not a member of ${this.getGroupTitle(group)}. Trying to adopt.`);
+      Credentials.author = this.user;
+      Credentials.owner = group;
+      FairshareGroups.adopt(group).catch(error => {
+	console.error(error);
+	this.resetUrl({group: next});
+      });
+      return null;
     }
     this.groupCollection.updateLiveTags(groups); // Ensures that there are named rules for each group.
     return this.groupCollection[group];
@@ -256,11 +256,6 @@ class FairshareApp extends BasicApp {
     return Credentials.owner = this.groupRecord?.owner || '';
   }
   get groupEffect() {
-    console.info(`User ${this.user} groups: ${this.groupCollection.liveTags}, ${this.group}.`);
-    if (!this.groupCollection.liveTags.includes(this.group)) {
-      console.warn(`Group ${this.group} is not among the groups for user ${this.user}.`);
-      // FIXME: do something here.
-    }
     return this.resetUrl({group: this.group});
   }
   get amountEffect() {
@@ -450,9 +445,9 @@ class FairshareShare extends AppShare {
     let invitation = '';
     if (user === '0') {
       invitation = await Credentials.createAuthor('-');
-      await FairshareGroups.addToOwner(invitation);
       user = group = '';
     }
+    await FairshareGroups.addToOwner(invitation || user, group || App.FairShareTag);
     const url = App.urlWith({user, invitation, group, payee: '', amount: '', screen: ''});
     console.log(url.href);
     return url;
