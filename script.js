@@ -1,6 +1,6 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
-import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, Collection } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
@@ -84,9 +84,28 @@ Rule.rulify(Group.prototype);
   - Updates will only be seen (with encrypted conent and open signatures) for those connected to the specific group/collection being updated.
   - Groups may decide to not list in the directory, and/or to not synchronize their data to a public relay.
 */
+const services = [new URL('/flexstore', location).href];
 const users = new MutableCollection({name: 'social.fairshare.users'});
 const groups = new MutableCollection({name: 'social.fairshare.groups'});
-Object.assign(window, {Credentials, MutableCollection, groups, users, Group, User});
+Object.assign(window, {Credentials, MutableCollection, Collection, groups, users, Group, User});
+function addUnknown(collectionName) {
+  return event => {
+    const tag = event.detail.tag;
+    const collection = App[collectionName];
+    const known = collection.knownTags;
+    if (known.includes(tag)) return;
+    collection.updateKnownTags([...known, tag]);
+  };
+}
+users.onupdate = addUnknown('userCollection');
+groups.onupdate = addUnknown('groupCollection');
+
+Credentials.collections.Team.synchronize(...services);
+Credentials.collections.Team.synchronized.then(() => {
+  [Credentials.collections.EncryptionKey, Credentials.collections.KeyRecovery, users, groups].forEach(c => {
+    c.synchronize(...services);
+  });
+});
 
 function getUserList() { return users.list(); }
 function getGroupList() { return groups.list(); }
@@ -183,7 +202,7 @@ class FairshareApp extends BasicApp {
     return this.groupCollection[group];
   }
   get FairShareTag() {
-    return 'FairShare';
+    return ''; // Overrwritten at startup. Until then, empty.
   }
   get title() {
     return 'FairShare';
@@ -354,6 +373,19 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
 FairshareAmount.register();
 
 class FairshareAuthorizeUser extends AuthorizeUser {
+  onaction() { // Capture q/a now, while we have 'this', in case super proceedes to adopt.
+    const prompt = this.userRecord.q0;
+    const answer = this.answerElement.value;
+    Credentials.setAnswer(prompt, answer);
+    super.onaction();
+  }
+  static async adopt(tag) { // Create and add a device tag using q/a, and "wear" the new tag so we can author the user item changes in super.
+    if (!tag) return '';
+    const deviceTag = await Credentials.create();
+    await Credentials.changeMembership({tag, add: [deviceTag]});
+    Credentials.author = tag;
+    return super.adopt(tag);
+  }
 }
 FairshareAuthorizeUser.register();
 
@@ -363,12 +395,14 @@ FairshareOpener.register();
 
 class FairshareGroups extends LiveList {
   static async addToOwner(userTag, groupTag = App.FairShareTag) { // Adds userTag to the owning team of group, of which we must be a member.
-    return Credentials.changeMembership({tag: App.groupCollection[groupTag].owner, add: [userTag]});
+    await Credentials.changeMembership({tag: App.groupCollection[groupTag].owner, add: [userTag]});
+    return groupTag;
   }
   static async adopt(groupTag) { // Add user to group data and group to user's data, updates live records, and makes group active.
     // Requires group to exist, and userTag to be a member of owning team.
-    // Requires user record to exist, and be active (including Credential.author to be set).
-    const groups = [...App.userRecord.groups, groupTag];
+    // Requires Credential.author to be set.
+    if (!groupTag) return;
+    const groups = [...App.userRecord?.groups || [], groupTag];
 
     // Update persistent and live group data (which the user doesn't have yet):
     const groupRecord = await App.groupCollection.getLiveRecord(groupTag);
@@ -442,6 +476,7 @@ FairshareJoinGroup.register();
   
 class FairshareShare extends AppShare {
   async generateUrl(user, group) {
+    if (!user) return '';
     let invitation = '';
     if (user === '0') {
       invitation = await Credentials.createAuthor('-');
@@ -494,6 +529,14 @@ class FairshareShare extends AppShare {
   }
 }
 FairshareShare.register();
+
+class FairshareFirstuse extends AppFirstuse {
+  activate() {
+    super.activate();
+    if (!App.getParameter('invitation')) App.resetUrl({screen: 'Add existing account'});
+  }
+}
+FairshareFirstuse.register();
 
 class FairsharePayme extends AppShare {
   get url() {
