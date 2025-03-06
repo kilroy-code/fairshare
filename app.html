@@ -13,11 +13,10 @@
       }
       url.pathname = "/@ki1r0y/distributed-security/dist/index-bundle.mjs";
       url.search = url.hash = '';
-      console.log(`Mapping distributed-security to ${url.href}.`);
       const importMap = {
 	"imports": {
           "uuid4": "./node_modules/uuid4/browser.mjs",
-          "@ki1r0y/distributed-security": url.href,
+	  "@ki1r0y/distributed-security": url.href,	  
           "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
           "@kilroy-code/flexstore": "/@kilroy-code/flexstore/index.mjs",
           "@kilroy-code/ui-components": "/@kilroy-code/ui-components/index.mjs",
@@ -32,6 +31,7 @@
           "@lit/": "/@lit/"
 	}
       };
+      console.log(`Mapping distributed-security to ${importMap.imports['@ki1r0y/distributed-security']}.`);
       const im = document.createElement('script');
       im.type = 'importmap';
       im.textContent = JSON.stringify(importMap);
@@ -80,9 +80,10 @@
       <fairshare-opener title="User actions..."></fairshare-opener>
       <section title="About">
 	<p>
-	  <i><b>Under construction. For more information, see see <a href="https://howard-stearns.github.io/FairShare/" target="fairshare-poc">README.md</a>.</b></i>
+	  <i><b>Under construction.</b></i>
 	</p>
-	<p>FairShare is payment program in which you set your own fees, which are then distributed to members.</p>
+	<p>FairShare lets you share money and messages amongst a group of humans.</p>
+	<p>As a payment program, the group sets its own fees, which are then distributed to members.</p>
 	<p>You can join any number of groups, which each have their own currency. The members of the group vote on:
 	  <ol>
 	    <li>allowing a candidate member, or ejecting an existing member</li>
@@ -145,8 +146,7 @@
       <!-- </fairshare-sync> -->
       <section title="To Do">
 	<ol>
-	  <li>Push changes to online users. (Must currently reload to see new data.) Try relay sync, and two users connected to same relay.</li>
-	  <li>p2p sync.</li>
+	  <li>relay options (host/WAN/LAN).</li>
 	  <li>History explorer / messages.</li>
 	  <li>Voting for new members.
 	  <li>Average rates among votes. (Currently just takes last vote.).

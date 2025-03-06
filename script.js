@@ -100,11 +100,10 @@ function addUnknown(collectionName) {
 users.onupdate = addUnknown('userCollection');
 groups.onupdate = addUnknown('groupCollection');
 
-Credentials.collections.Team.synchronize(...services);
-Credentials.collections.Team.synchronized.then(() => {
-  [Credentials.collections.EncryptionKey, Credentials.collections.KeyRecovery, users, groups].forEach(c => {
-    c.synchronize(...services);
-  });
+//Object.values(Credentials.collections).forEach(c => c.debug = true); users.debug = groups.debug = true;
+Credentials.synchronize(...services).then(() => { // Do not block loading for this. There is code that needs App to be instantiated/set.
+  users.synchronize(...services);
+  groups.synchronize(...services);
 });
 
 function getUserList() { return users.list(); }
