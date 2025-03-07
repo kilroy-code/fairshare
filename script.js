@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 import { Credentials, MutableCollection, ImmutableCollection, Collection } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
@@ -1101,12 +1101,50 @@ class FairshareCreateGroup extends MDElement {
 }
 FairshareCreateGroup.register();
 
+async function showRaw(collection, tag) {
+  App.alert(`<pre>${JSON.stringify(Collection.maybeInflate(await collection.get(tag)), null, 2)}</pre>`);
+}
+async function showSignature(collection, tag) {
+  App.alert(`<pre>${JSON.stringify(await collection.retrieve({tag: tag}), (key, value) => (key === 'payload') ? `<${value.length} bytes>` : value, 2)}</pre>`);
+}
+
+class FairshareUserProfile extends UserProfile {
+  get template() {
+    return `
+       <edit-user>
+        <p>You can change your user name and picture.</i></p>
+        <p slot="securityInstructions">You can leave the security answer blank to leave it unchanged, or you can change the question and answer. (We cannot show you the current answer because we don't know it!)</p>
+        <div slot="extra">
+         <hr/>
+         <md-outlined-button id="raw">show currently stored</md-outlined-button>
+         <md-outlined-button id="signature">show validated</md-outlined-button>
+       <div>
+       </edit-user>`;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.shadow$('#raw').onclick = async () => showRaw(users, App.user);
+    this.shadow$('#signature').onclick = async () => showSignature(users, App.user);
+  }
+}
+FairshareUserProfile.register();
+
 class FairshareGroupProfile extends MDElement {
   get template() {
     return `
        <edit-group>
          <p>You can change the group name, picture, tax rate, and daily stipend. <i>(These changes take effect when you click "Go". In future versions, an average of each vote will be used)</i></p>
+       <div slot="extra">
+         <hr/>
+         <md-outlined-button id="raw">show currently stored</md-outlined-button>
+         <md-outlined-button id="signature">show validated</md-outlined-button>
+       <div>
        </edit-group>`;
+  }
+  afterInitialize() {
+    super.afterInitialize();
+    this.shadow$('#raw').onclick = async () => showRaw(groups, App.group);
+    this.shadow$('#signature').onclick = async () => showSignature(groups, App.group);
   }
   async onaction(form) {
     await App.groupCollection.updateLiveRecord(this.findParentComponent(form).tag);
@@ -1303,6 +1341,7 @@ export class EditGroup extends MDElement {
                  <material-icon slot="icon">login</material-icon>
               </md-filled-button>
 	    </div>
+            <slot name="extra"></slot>
 	  </section>
      `;
   }

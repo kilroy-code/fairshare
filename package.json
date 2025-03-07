@@ -1,0 +1,34 @@
+{
+  "name": "fairshare",
+  "version": "0.1.0",
+  "description": "Cooperative currency and safe messaging.",
+  "main": "app.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/howard-stearns/fairshare2.git"
+  },
+  "keywords": [
+    "money",
+    "cooperative",
+    "currency",
+    "cryptography",
+    "p2p",
+    "relay",
+    "e2ee",
+    "privacy",
+    "safety"
+  ],
+  "author": "howard@ki1r0y.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/howard-stearns/fairshare2/issues"
+  },
+  "homepage": "https://github.com/howard-stearns/fairshare2#readme",
+  "dependencies": {
+    "@kilroy-code/flexstore": "^0.0.2",
+    "@kilroy-code/ui-components": "^0.0.16"
+  }
+}
