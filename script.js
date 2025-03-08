@@ -103,12 +103,19 @@ function addUnknown(collectionName) {
 users.onupdate = addUnknown('userCollection');
 groups.onupdate = addUnknown('groupCollection');
 
-const collectionSynchronizations = 
-      Credentials.synchronize(...services).then(() =>
-	// Do not block loading for this. There is code that needs App to be instantiated/set.
-	Promise.all([users.synchronize(...services),
-		     groups.synchronize(...services),
-		     media.synchronize(...services)]));
+function synchronizeCollections(service, connect = true) { // Synchronize all collections with the specified service, resolving when all have started.
+  console.log(connect ? 'connecting' : 'disconnecting', service);
+  if (connect) {
+    return Credentials.synchronize(service).then(() =>
+      Promise.all([users.synchronize(service),
+		   groups.synchronize(service),
+		   media.synchronize(service)]));
+  }
+  return Credentials.disconnect(service).then(() =>
+    Promise.all([users.disconnect(service),
+		 groups.disconnect(service),
+		 media.disconnect(service)]));
+}
 
 function getUserList() { return users.list(); }
 function getGroupList() { return groups.list(); }
@@ -281,11 +288,12 @@ class FairshareApp extends BasicApp {
       return setGroupData(tag, merged);
     };
   }
+  static initialSync = null;
   getPictureURL(string) {
     if (!string) return '';
     if (/^(data:|http|\.\/)/.test(string)) return string;
     // tag in media collection
-    return collectionSynchronizations
+    return FairshareApp.initialSync
       .then(() => media.retrieve({tag: string}))
       .then(verified => verified.text); // A data: url string.
   }
@@ -312,12 +320,14 @@ class FairshareApp extends BasicApp {
       if (response !== 'ok') return;
       const collections = Object.values(Credentials.collections).concat(users, groups, media);
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
+      console.log('Removing local databases:', ...collections.map(c => c.name));
       await Promise.all(collections.map(async c => {
 	await c.disconnect();
 	const persist = await c.persist;
 	persist.close();
 	await persist.destroy();
       }));
+      console.log('Cleared');
       localStorage.clear();
     });
     super.select(key);
@@ -915,19 +925,63 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
-    this.shadow$('#t1').addEventListener('click', () => window.open(this.wifi1));
-    this.shadow$('#t2').addEventListener('click', () => window.open(this.wifi2));
-    this.shadow$('#t0').addEventListener('click', () => window.open('mailto:howard.stearns@gmail.com'));
+    const relays = JSON.parse(localStorage.getItem('relays') || '[["Public server", "/"]]');
+    FairshareApp.initialSync = Promise.all(relays.map(([_, url, checked]) => (checked==='checked') && synchronizeCollections(url)));
+    relays.forEach(params => this.addRelay(...params));
+    this.addExpander();
   }
-  wifi1 = "WIFI:S:stearns;T:WPA;P:stearnsair;H:false;";
-  wifi2 = "wifi://:stearnsair@stearns";
+  get relaysElement() {
+    return this.shadow$('md-list');
+  }
+  addExpander() {
+    this.addRelay("Your label", 'URL of shared server or private rendevous', 'indeterminate', 'disabled');
+  }
+  addExpanderIfNeeded() { // And return the list of items NOT including the expander
+    const items = Array.from(this.relaysElement.children);
+    const last = items.pop();
+    if (!last.children[2].textContent.startsWith('URL of shared')) {
+      last.firstElementChild.checked = true;
+      last.firstElementChild.indeterminate = false;
+      last.firstElementChild.removeAttribute('disabled');
+      last.lastElementChild.removeAttribute('disabled');
+      items.push(last);
+      this.addExpander();
+    }
+    return items;
+  }
+  saveRelays() {
+    let data = [];
+    let items = this.addExpanderIfNeeded();
+    for (const child of items) {
+      const [checkbox, label, url] = child.children;
+      data.push([label.textContent, url.textContent, checkbox.checked ? 'checked' : undefined]);
+    }
+    localStorage.setItem('relays', JSON.stringify(data));
+  }
+  addRelay(label, url, state = '', disabled = '') {
+    this.relaysElement.insertAdjacentHTML('beforeend', `
+<md-list-item>
+  <md-checkbox slot="start" ${state || ''} ${disabled}></md-checkbox>
+  <span slot="headline" contenteditable="plaintext-only">${label}</span>
+  <span slot="supporting-text"  contenteditable="plaintext-only">${url}</span>
+  <md-icon-button slot="trailing-supporting-text" ${disabled}><material-icon>delete</material-icon></md-icon-button>
+</md-list-item>`);
+    const item = this.relaysElement.lastElementChild;
+    const [checkbox, text, location, remove] = item.children;
+    checkbox.oninput = event => {
+      const relay = event.target.parentElement.children[2].textContent;
+      synchronizeCollections(relay, event.target.checked);
+      this.saveRelays();
+    };
+    text.onblur = location.onblur = event => this.saveRelays();
+    remove.onclick = () => this.saveRelays(item.remove());
+  }
   get template() {
     return `
       <section>
-        <p>Experimental data transfer: If you have two devices with cameras, you can try the following with or without first killing your WAN/Internet access. (You do have to have some sort of local LAN network going, such as WIFI.)</p>
-<p>Test <a href="${this.wifi1}">one</a> or <a href="${this.wifi2}">two</a>, <a href="mailto:howard.stearns@gmail.com">mailto</a> or via javascript, <button id="t1">one</button> or <button id="t2">two</button> or test with  <button id="t0">mailto</button>.</p>
-<app-qrcode data="${this.wifi1}"></app-qrcode>
-<app-qrcode data="${this.wifi2}"></app-qrcode>
+        <md-list>
+        </md-list>
+        <p>Or face-to-face, <b>IFF</b> you're already on the same local network (e.g., a hotspot).</p>
         <p id="instructions">To start, press "Start transfer" on one of the devices:</p>
 
         <div class="column">
@@ -940,7 +994,7 @@ class FairshareSync extends MDElement {
           <p id="receiveInstructions" style="display:none"></p>
           <app-qrcode id="receiveCode" style="display:none"></app-qrcode>
           <slot name="receiveVideo"></slot>
-        </div>
+        </div
       </section>
     `;
   }
