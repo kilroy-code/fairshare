@@ -108,7 +108,11 @@ function synchronizeCollections(service, connect = true) { // Synchronize all co
   if (connect) {
     return Credentials.synchronize(service).then(() =>
       Promise.all([users.synchronize(service),
-		   groups.synchronize(service),
+		   groups.synchronize(service)
+		   .then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
+		     await groups.synchronized;
+		     App.FairShareTag = await groups.find({title: 'FairShare'});
+		   }),
 		   media.synchronize(service)]));
   }
   return Credentials.disconnect(service).then(() =>
@@ -160,7 +164,6 @@ class FairshareApp extends BasicApp {
     groupMenuButton.collection = new LiveCollection({
       records: groupMenuScreens
     });
-    groups.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag); // Once we're in production, we can hardcode this.
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     const users = new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
@@ -925,7 +928,7 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
-    const relays = JSON.parse(localStorage.getItem('relays') || '[["Public server", "/"]]');
+    const relays = JSON.parse(localStorage.getItem('relays') || '[["Public server", "http://localhost:3000/flexstore", "checked"]]');
     FairshareApp.initialSync = Promise.all(relays.map(([_, url, checked]) => (checked==='checked') && synchronizeCollections(url)));
     relays.forEach(params => this.addRelay(...params));
     this.addExpander();
