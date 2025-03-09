@@ -164,6 +164,9 @@ class FairshareApp extends BasicApp {
     groupMenuButton.collection = new LiveCollection({
       records: groupMenuScreens
     });
+    // See assignment in synchronizeCollections(). This one covers the case where
+    // synchronization has been turned off.
+    if (!groups.synchronizers.size) groups.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag);
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     const users = new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
