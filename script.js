@@ -244,7 +244,6 @@ class FairshareApp extends BasicApp {
   async createUserTag(editUserComponent) { // For (AppFirstuse >) CreateUser > EditUser
     const prompt = editUserComponent.questionElement.value;
     Credentials.setAnswer(prompt, editUserComponent.answerElement.value);
-
     const invitation = App.url.searchParams.get('invitation');
     if (invitation) {
       return await Credentials.claimInvitation(invitation, prompt);
@@ -275,13 +274,13 @@ class FairshareApp extends BasicApp {
     const hash = await Credentials.hashText(picture);
     const tag = Credentials.encodeBase64url(hash);
     if (await media.get(tag)) return tag;
-    return await media.store(picture, {owner: ''});
+    return await media.store(picture, {tag, ...options});
   }
   get setUser() { // TODO: change these two names (one in ui-components), to something implying that data will be merged and saved. (Do they really have to be rules?)
     return async (tag, newData) => {
       const oldData = this.userCollection[tag];
       const merged = this.mergeData(oldData, newData);
-      merged.picture = await this.mediaTag(merged.picture, {owner: ''});
+      merged.picture = await this.mediaTag(merged.picture, {owner: '', author: tag});
       return setUserData(tag, merged);
     };
   }
