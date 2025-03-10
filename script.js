@@ -930,7 +930,7 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
-    const relays = JSON.parse(localStorage.getItem('relays') || '[["Public server", "http://localhost:3000/flexstore", "checked"]]');
+    const relays = JSON.parse(localStorage.getItem('relays') || 'null') || [["Public server", new URL("/flexstore", location).href, "checked"]];
     FairshareApp.initialSync = Promise.all(relays.map(([_, url, checked]) => (checked==='checked') && synchronizeCollections(url)));
     relays.forEach(params => this.addRelay(...params));
     this.addExpander();
