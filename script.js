@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 import { Credentials, MutableCollection, ImmutableCollection, Collection } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
@@ -243,7 +243,8 @@ class FairshareApp extends BasicApp {
   }
   async createUserTag(editUserComponent) { // For (AppFirstuse >) CreateUser > EditUser
     const prompt = editUserComponent.questionElement.value;
-    Credentials.setAnswer(prompt, editUserComponent.answerElement.value);
+    const answer = editUserComponent.answerElement.value;
+    Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
     const invitation = App.url.searchParams.get('invitation');
     if (invitation) {
       return await Credentials.claimInvitation(invitation, prompt);
@@ -332,6 +333,7 @@ class FairshareApp extends BasicApp {
 	persist.close();
 	await persist.destroy();
       }));
+      await Credentials.clear(); // Clear cached keys in the vault.
       console.log('Cleared');
       localStorage.clear();
     });
@@ -425,7 +427,7 @@ class FairshareAuthorizeUser extends AuthorizeUser {
   onaction() { // Capture q/a now, while we have 'this', in case super proceedes to adopt.
     const prompt = this.userRecord.q0;
     const answer = this.answerElement.value;
-    Credentials.setAnswer(prompt, answer);
+    Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
     super.onaction();
   }
   static async adopt(tag) { // Create and add a device tag using q/a, and "wear" the new tag so we can author the user item changes in super.
@@ -437,6 +439,16 @@ class FairshareAuthorizeUser extends AuthorizeUser {
   }
 }
 FairshareAuthorizeUser.register();
+
+class FairshareSwitchUser extends SwitchUser {
+  select(tag) { // Before switching users, switch the group to one of theirs if necessary, so that the usr doesn't try adopt.
+    if (!App.userCollection[tag].groups.includes(App.group)) {
+      App.resetUrl({group: App.FairShareTag});
+    }
+    super.select(tag);
+  }
+}
+FairshareSwitchUser.register();
 
 class FairshareOpener extends MDElement {
 }
@@ -1140,6 +1152,9 @@ FairshareInvest.register();
 
 
 class FairshareCreateUser extends CreateUser {
+  activate() { // Creating a new user should always put them in the FairShare group.
+    App.resetUrl({group: App.FairShareTag});
+  }
   async onaction(form) {
     await super.onaction(form);
     await FairshareGroups.adopt(App.FairShareTag);
