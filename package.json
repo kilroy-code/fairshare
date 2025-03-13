@@ -1,10 +1,10 @@
 {
   "name": "fairshare",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Cooperative currency and safe messaging.",
   "main": "app.html",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jasmine"
   },
   "repository": {
     "type": "git",
@@ -28,10 +28,11 @@
   },
   "homepage": "https://github.com/howard-stearns/fairshare2#readme",
   "dependencies": {
-    "@kilroy-code/flexstore": "^0.0.6",
+    "@kilroy-code/flexstore": "^0.0.8",
     "@kilroy-code/ui-components": "^0.0.17"
   },
   "devDependencies": {
+    "jasmine": "^5.3.1",
     "qr-scanner": "^1.4.2"
   }
 }
