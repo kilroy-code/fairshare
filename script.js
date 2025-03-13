@@ -338,7 +338,9 @@ class FairshareApp extends BasicApp {
       console.log('Cleared');
       localStorage.clear();
     });
-    if (key.startsWith('Run ')) return window.open("test.html", "_blank");
+    // TODO: there is at least one menu click handler that is going down this path without being for screens. It would be
+    // nice if that didn't propogate here.
+    if (key?.startsWith('Run ')) return window.open("test.html", "_blank");
     super.select(key);
     return null;
   }
@@ -945,7 +947,7 @@ class FairshareSync extends MDElement {
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
     const relays = JSON.parse(localStorage.getItem('relays') || 'null') || [["Public server", new URL("/flexstore", location).href, "checked"]];
-    relays.forEach(params => this.updateRelay(this.addRelay(...params)));
+    FairshareApp.initialSync = Promise.all(relays.map(params => this.updateRelay(this.addRelay(...params))));
     this.addExpander();
   }
   get relaysElement() {
