@@ -103,7 +103,8 @@ function addUnknown(collectionName) {
 users.onupdate = addUnknown('userCollection');
 groups.onupdate = addUnknown('groupCollection');
 
-function synchronizeCollections(service, connect = true) { // Synchronize all collections with the specified service, resolving when all have started.
+//Object.values(Credentials.collections).concat(users, groups).forEach(c => c.debug = true);
+function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service);
   if (connect) {
     return Credentials.synchronize(service).then(() =>
@@ -337,6 +338,7 @@ class FairshareApp extends BasicApp {
       console.log('Cleared');
       localStorage.clear();
     });
+    if (key.startsWith('Run ')) return window.open("test.html", "_blank");
     super.select(key);
     return null;
   }
@@ -943,8 +945,7 @@ class FairshareSync extends MDElement {
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
     const relays = JSON.parse(localStorage.getItem('relays') || 'null') || [["Public server", new URL("/flexstore", location).href, "checked"]];
-    FairshareApp.initialSync = Promise.all(relays.map(([_, url, checked]) => (checked==='checked') && synchronizeCollections(url)));
-    relays.forEach(params => this.addRelay(...params));
+    relays.forEach(params => this.updateRelay(this.addRelay(...params)));
     this.addExpander();
   }
   get relaysElement() {
@@ -960,7 +961,7 @@ class FairshareSync extends MDElement {
       last.firstElementChild.checked = true;
       last.firstElementChild.indeterminate = false;
       last.firstElementChild.removeAttribute('disabled');
-      last.lastElementChild.removeAttribute('disabled');
+      last.lastElementChild.lastElementChild.removeAttribute('disabled');
       items.push(last);
       this.addExpander();
     }
@@ -975,23 +976,52 @@ class FairshareSync extends MDElement {
     }
     localStorage.setItem('relays', JSON.stringify(data));
   }
+  async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
+    const [checkbox, label, urlElement, trailing] = relayElement.children;
+    const [packets, ice] = trailing.children;
+    const url = urlElement.textContent;
+    await synchronizeCollections(url, checkbox.checked);
+    const peer = users.synchronizers.get(url)?.connection.peer;
+    if (!peer) {
+      console.log({relayElement, urlElement, url, packets, ice});
+      packets.textContent = ice.textContent = '';
+      return;
+    }
+    // TODO: Make these properties of a synchronizer.
+    const stats = await peer.getStats(); // users being representative
+    let transport;
+    for (const report of stats.values()) {
+      if (report.type === 'transport') transport = report;
+    }
+    const candidatePair = stats.get(transport.selectedCandidatePairId);
+    const remote = stats.get(candidatePair.remoteCandidateId);
+    const {protocol, candidateType} = remote;
+    packets.textContent = protocol;
+    ice.textContent = candidateType;
+    console.log({url, stats, transport, candidatePair, remote, protocol, candidateType});
+  }
   addRelay(label, url, state = '', disabled = '') {
     this.relaysElement.insertAdjacentHTML('beforeend', `
 <md-list-item>
   <md-checkbox slot="start" ${state || ''} ${disabled}></md-checkbox>
   <span slot="headline" contenteditable="plaintext-only">${label}</span>
   <span slot="supporting-text"  contenteditable="plaintext-only">${url}</span>
-  <md-icon-button slot="trailing-supporting-text" ${disabled}><material-icon>delete</material-icon></md-icon-button>
+  <span slot="trailing-supporting-text">
+   <span></span>
+   <span></span>
+   <md-icon-button  ${disabled}><material-icon>delete</material-icon></md-icon-button>
+  </span>
 </md-list-item>`);
     const item = this.relaysElement.lastElementChild;
-    const [checkbox, text, location, remove] = item.children;
-    checkbox.oninput = event => {
-      const relay = event.target.parentElement.children[2].textContent;
-      synchronizeCollections(relay, event.target.checked);
+    const [checkbox, text, location, trailing] = item.children;
+    const [remove] = trailing.children;
+    checkbox.oninput = async event => {
+      await this.updateRelay(event.target.parentElement);
       this.saveRelays();
     };
     text.onblur = location.onblur = event => this.saveRelays();
     remove.onclick = () => this.saveRelays(item.remove());
+    return item;
   }
   get template() {
     return `
