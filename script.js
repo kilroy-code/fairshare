@@ -983,24 +983,9 @@ class FairshareSync extends MDElement {
     const [packets, ice] = trailing.children;
     const url = urlElement.textContent;
     await synchronizeCollections(url, checkbox.checked);
-    const peer = users.synchronizers.get(url)?.connection.peer;
-    if (!peer) {
-      console.log({relayElement, urlElement, url, packets, ice});
-      packets.textContent = ice.textContent = '';
-      return;
-    }
-    // TODO: Make these properties of a synchronizer.
-    const stats = await peer.getStats(); // users being representative
-    let transport;
-    for (const report of stats.values()) {
-      if (report.type === 'transport') transport = report;
-    }
-    const candidatePair = stats.get(transport.selectedCandidatePairId);
-    const remote = stats.get(candidatePair.remoteCandidateId);
-    const {protocol, candidateType} = remote;
-    packets.textContent = protocol;
-    ice.textContent = candidateType;
-    console.log({url, stats, transport, candidatePair, remote, protocol, candidateType});
+    const synchronizer = users.synchronizers.get(url); // users being representative
+    packets.textContent = synchronizer?.protocol || '';
+    ice.textContent = synchronizer?.candidateType || '';
   }
   addRelay(label, url, state = '', disabled = '') {
     this.relaysElement.insertAdjacentHTML('beforeend', `
