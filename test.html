@@ -43,15 +43,15 @@
     </script>
 
     <script type="module">
+      import "../@kilroy-code/flexstore/spec/synchronizerSpec.mjs";
       import "../@ki1r0y/distributed-security/dist/securitySpec-bundle.mjs";
       import "../@kilroy-code/flexstore/spec/flexstoreSpec.mjs";
-      import "../@kilroy-code/flexstore/spec/synchronizerSpec.mjs";
       import "../@kilroy-code/rules/spec/spec.mjs";
       import "../@kilroy-code/ui-components/spec/CollectionTransformSpec.mjs";
       import "../@kilroy-code/ui-components/spec/MutableCollectionSpec.mjs";
     </script>
   </head>
   <body>
-    <script>addEventListener('load', () => jasmine.getEnv().execute());</script>
+    <script>addEventListener('load', () => setTimeout(() => jasmine.getEnv().execute(), 1e3));</script> <!-- Delay for safari -->
   </body>
 </html>

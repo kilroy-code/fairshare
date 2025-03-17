@@ -107,19 +107,23 @@ groups.onupdate = addUnknown('groupCollection');
 function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service);
   if (connect) {
-    return Credentials.synchronize(service).then(() =>
-      Promise.all([users.synchronize(service),
-		   groups.synchronize(service)
-		   .then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
-		     await groups.synchronized;
-		     App.FairShareTag = await groups.find({title: 'FairShare'});
-		   }),
-		   media.synchronize(service)]));
+    return Promise.all([
+      Credentials.synchronize(service),
+      users.synchronize(service),
+      groups.synchronize(service)
+	.then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
+	  await groups.synchronized;
+	  App.FairShareTag = await groups.find({title: 'FairShare'});
+	}),
+      media.synchronize(service)
+    ]);
   }
-  return Credentials.disconnect(service).then(() =>
-    Promise.all([users.disconnect(service),
-		 groups.disconnect(service),
-		 media.disconnect(service)]));
+  return Promise.all([
+    Credentials.disconnect(service),
+    users.disconnect(service),
+    groups.disconnect(service),
+    media.disconnect(service)
+  ]);
 }
 
 function getUserList() { return users.list(); }
