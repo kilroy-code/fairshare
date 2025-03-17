@@ -173,6 +173,11 @@ class FairshareApp extends BasicApp {
     // synchronization has been turned off.
     if (!groups.synchronizers.size) groups.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag);
   }
+  directedToFirstUse() {
+    if (!App.getParameter('invitation')) return false;
+    App.resetUrl({screen: 'First Use'});
+    return true;
+  }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     const users = new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
     users['0'] = {title: 'New user'}; // Hack
@@ -604,10 +609,6 @@ class FairshareShare extends AppShare {
 FairshareShare.register();
 
 class FairshareFirstuse extends AppFirstuse {
-  activate() {
-    super.activate();
-    if (!App.getParameter('invitation')) App.resetUrl({screen: 'Add existing account'});
-  }
 }
 FairshareFirstuse.register();
 
