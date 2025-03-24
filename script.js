@@ -8,6 +8,12 @@ const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = 
 // Cleanup todo:
 // - Set App.mumble vs App.resetUrl. Which to use? Be consistent.
 
+const checkSafari = setTimeout(() => {
+  App.alert("There is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug is fixed in Safari Technology Preview 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.",
+	    "Webworker Bug!");
+}, 6e3);
+Credentials.ready.then(ready => ready && clearTimeout(checkSafari));
+
 class User { // A single user, which must be one that the human has authorized on this machine.
   constructor(properties) { Object.assign(this, properties); }
   isLiveRecord = true;
