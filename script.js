@@ -1279,6 +1279,9 @@ class FairshareGroupProfile extends MDElement {
     // This next casues a warning if the screen is not actually being shown:
     // Invalid keyframe value for property transform: translateX(0px) translateY(NaNpx) scale(NaN)
     edit.usernameElement.value = title;
+    // Disable editing of the FairShare title, as App.FairShareTag depends on it being constant.
+    edit.usernameElement.toggleAttribute('disabled', (edit.owner === App.FairShareTag));
+
     edit.shadow$('#currentRate').textContent = edit.rateElement.value = rate;
     edit.shadow$('#currentStipend').textContent = edit.stipendElement.value = stipend;
 
