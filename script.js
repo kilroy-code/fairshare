@@ -96,11 +96,13 @@ const groups = new MutableCollection({name: 'social.fairshare.groups'});
 const media = new ImmutableCollection({name: 'social.fairshare.media'});
 Object.assign(window, {Credentials, MutableCollection, Collection, groups, users, media, Group, User});
 function addUnknown(collectionName) {
-  return event => {
+  return async event => {
     const tag = event.detail.tag;
     const collection = App[collectionName];
     const live = collection.liveTags;
-    if (live.includes(tag)) return collection.updateLiveRecord(tag, event.detail.json);
+    // The 'update' event machinery cannot decrypt payloads for us, because the data might not be ours.
+    // However, if it is one of our liveTags, then we certainly can (and must) decrypt it.
+    if (live.includes(tag)) return collection.updateLiveRecord(tag, (await Collection.ensureDecrypted(event.detail)).json);
     const known = collection.knownTags;
     if (!known.includes(tag)) collection.updateKnownTags([...known, tag]);
     return null;
