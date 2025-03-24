@@ -131,9 +131,11 @@ function getGroupList() { return groups.list(); }
 async function getUserData(tag)  { return (await users.retrieve({tag}))?.json || ''; } // Not undefined.
 async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json || ''; }
 // Users are only ever written by the owner, even if a different persona is current. The tag is the user's individual key tag.
-function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: ''}); }
+// TODO: Encrypt only private data, by the owner tag. (Encrypting by FairSharTag is just a temporary demonstration of encryption,
+// until we split up the public directory and the private data.)
+function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: '', encryption: App.FairShareTag}); }
 // Groups are written by their member tag on behalf of the whole-group owner (which they are a member of).
-function setGroupData(tag, data) { return groups.store(data, {tag}); }
+function setGroupData(tag, data) { return groups.store(data, {tag, encryption: App.FairShareTag}); }
 async function getUserModel(tag) {
   // TODO: listen for updates
   const data = await getUserData(tag);
@@ -951,7 +953,7 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
-    const relays = JSON.parse(localStorage.getItem('relays') || 'null') || [["Public server", new URL("/flexstore", location).href, "checked"]];
+    const relays = App.getLocal('relays', [["Public server", new URL("/flexstore", location).href, "checked"]]);
     FairshareApp.initialSync = Promise.all(relays.map(params => this.updateRelay(this.addRelay(...params))));
     this.addExpander();
   }
@@ -1201,7 +1203,14 @@ async function showRaw(collection, tag) {
   App.alert(`<pre>${JSON.stringify(Collection.maybeInflate(await collection.get(tag)), null, 2)}</pre>`);
 }
 async function showSignature(collection, tag) {
-  App.alert(`<pre>${JSON.stringify(await collection.retrieve({tag: tag}), (key, value) => (key === 'payload') ? `<${value.length} bytes>` : value, 2)}</pre>`);
+  App.alert(`<pre>${JSON.stringify(await collection.retrieve({tag: tag, decrypt: false}),
+                                  (key, value) => (['payload'].includes(key)) ? `<${value.length} bytes>` : value,
+                                  2)}</pre>`);
+}
+async function showDecrypted(collection, tag) {
+  App.alert(`<pre>${JSON.stringify(await collection.retrieve({tag: tag}),
+                                  (key, value) => (['payload', 'plaintext'].includes(key)) ? `<${value.length} bytes>` : value,
+                                  2)}</pre>`);
 }
 
 class FairshareUserProfile extends UserProfile {
@@ -1214,6 +1223,7 @@ class FairshareUserProfile extends UserProfile {
          <hr/>
          <md-outlined-button id="raw">show currently stored</md-outlined-button>
          <md-outlined-button id="signature">show validated</md-outlined-button>
+         <md-outlined-button id="decrypted">show decrypted</md-outlined-button>
        <div>
        </edit-user>`;
   }
@@ -1221,6 +1231,7 @@ class FairshareUserProfile extends UserProfile {
     super.afterInitialize();
     this.shadow$('#raw').onclick = async () => showRaw(users, App.user);
     this.shadow$('#signature').onclick = async () => showSignature(users, App.user);
+    this.shadow$('#decrypted').onclick = async () => showDecrypted(users, App.user);
   }
 }
 FairshareUserProfile.register();
@@ -1234,6 +1245,7 @@ class FairshareGroupProfile extends MDElement {
          <hr/>
          <md-outlined-button id="raw">show currently stored</md-outlined-button>
          <md-outlined-button id="signature">show validated</md-outlined-button>
+         <md-outlined-button id="decrypted">show decrypted</md-outlined-button>
        <div>
        </edit-group>`;
   }
@@ -1241,6 +1253,7 @@ class FairshareGroupProfile extends MDElement {
     super.afterInitialize();
     this.shadow$('#raw').onclick = async () => showRaw(groups, App.group);
     this.shadow$('#signature').onclick = async () => showSignature(groups, App.group);
+    this.shadow$('#decrypted').onclick = async () => showDecrypted(groups, App.group);
   }
   async onaction(form) {
     await App.groupCollection.updateLiveRecord(this.findParentComponent(form).tag);
