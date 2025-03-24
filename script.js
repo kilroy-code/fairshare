@@ -141,7 +141,7 @@ async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json |
 // until we split up the public directory and the private data.)
 function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: '', encryption: App.FairShareTag}); }
 // Groups are written by their member tag on behalf of the whole-group owner (which they are a member of).
-function setGroupData(tag, data) { return groups.store(data, {tag, encryption: App.FairShareTag}); }
+function setGroupData(tag, data) { return groups.store(data, {tag, encryption: (tag !== App.FairShareTag) && App.FairShareTag}); }
 async function getUserModel(tag) {
   // TODO: listen for updates
   const data = await getUserData(tag);
