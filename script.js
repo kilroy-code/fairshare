@@ -998,6 +998,12 @@ class FairshareSync extends MDElement {
     const url = urlElement.textContent;
     await synchronizeCollections(url, checkbox.checked);
     const synchronizer = users.synchronizers.get(url); // users being representative
+    synchronizer && synchronizer.closed.then(() => {
+      checkbox.checked = false;
+      synchronizeCollections(url, false);
+      packets.textContent = ice.textContent = '';
+      this.saveRelays();
+    });
     packets.textContent = synchronizer?.protocol || '';
     ice.textContent = synchronizer?.candidateType || '';
   }
