@@ -90,7 +90,6 @@ Rule.rulify(Group.prototype);
   - Updates will only be seen (with encrypted conent and open signatures) for those connected to the specific group/collection being updated.
   - Groups may decide to not list in the directory, and/or to not synchronize their data to a public relay.
 */
-const services = [new URL('/flexstore', location).href];
 const users = new MutableCollection({name: 'social.fairshare.users'});
 const groups = new MutableCollection({name: 'social.fairshare.groups'});
 const media = new ImmutableCollection({name: 'social.fairshare.media'});
@@ -141,7 +140,7 @@ async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json |
 // Users are only ever written by the owner, even if a different persona is current. The tag is the user's individual key tag.
 // TODO: Encrypt only private data, by the owner tag. (Encrypting by FairSharTag is just a temporary demonstration of encryption,
 // until we split up the public directory and the private data.)
-function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: '', encryption: App.FairShareTag}); }
+function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: ''}); }
 // Groups are written by their member tag on behalf of the whole-group owner (which they are a member of).
 function setGroupData(tag, data) { return groups.store(data, {tag, encryption: (tag !== App.FairShareTag) && App.FairShareTag}); }
 async function getUserModel(tag) {
@@ -961,7 +960,7 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     this.send.addEventListener('click', async event => await this.lanSend(event));
     this.receive.addEventListener('click', async event => await this.lanReceive(event));
-    const relays = App.getLocal('relays', [["Public server", new URL("/flexstore", location).href, "checked"]]);
+    const relays = App.getLocal('relays', [["Public server", new URL("/flexstore/sync", location).href, "checked"]]);
     FairshareApp.initialSync = Promise.all(relays.map(params => this.updateRelay(this.addRelay(...params))));
     this.addExpander();
   }
