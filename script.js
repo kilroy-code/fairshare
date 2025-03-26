@@ -665,8 +665,6 @@ class FairshareSync extends MDElement {
   get instructions() { return this.shadow$('#instructions'); }  
   get sendInstructions() { return this.shadow$('#sendInstructions'); }
   get receiveInstructions() { return this.shadow$('#receiveInstructions'); }  
-  get sender() { return new PromiseWebRTC({label: 'sender'}); }
-  get receiver() { return new PromiseWebRTC({label: 'receiver'}); }
   hide(element) { element.style.display = 'none'; }
   show(element) {
     element.style.display = '';
@@ -698,38 +696,8 @@ class FairshareSync extends MDElement {
       scanner.start();
     });
   }
-  testMessageSize = 16 * 1024; // See https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Using_data_channels#concerns_with_large_messages
-  nTestMessages = (10 * 1024 * 1024) / (16 * 1024); // 10 MB
-  makeTestMessage(length = this.testMessageSize) {
-    return Array.from({length}, (_, index) => index & 1).join('');
-  }
-  generateTestDataHandler(element, onFinished = null) {
-    let nReceived = 0;
-    let initialMessage;
-    let totalBytes = 0;
-    const start = Date.now();
-    return event => {
-      totalBytes += event.data.length;
-      nReceived += 1;
-      if (!initialMessage) {
-	initialMessage = event.data;
-	this.updateText(element, `Received "${event.data}".`);
-      } else {
-	const elapsed = Date.now() - start;
-	const message = `${initialMessage} Sent and received ${(totalBytes / (1024 * 1024)).toFixed()} Mbytes in ${elapsed.toLocaleString()} ms (${(totalBytes / (1024 * 1024 * elapsed/1000)).toFixed(1)} MB/s).`;
-	this.updateText(element, message);
-      }
-      if (onFinished && (nReceived > this.nTestMessages)) {
-	onFinished();
-      }
-    };
-  }
-  promiseDataHandled(data, element) { // Sets data.onmessage like generateTestDataHandler, but resolves when all data is in.
-    return new Promise(resolve => {
-      data.onmessage = this.generateTestDataHandler(element, resolve);
-    });
-  }
   async lanSend() {
+    const senderService = 'signals';
     if (!this.send.hasAttribute('awaitScan')) {
       this.hide(this.instructions);
       if (!LOCAL_TEST) {
@@ -737,11 +705,14 @@ class FairshareSync extends MDElement {
 	this.receive.toggleAttribute('disabled', true);
       }
       this.send.toggleAttribute('disabled', true);
-      this.sendDataPromise = this.sender.createDataChannel(); // Kicks off negotiation.
+
+      users.debug = true;
+      await users.synchronize(senderService); // Kick off negotiation for sender's users.
+      this.sender = users.synchronizers.get(senderService);
 
       this.updateText(this.sendInstructions, 'Press "Start scanning" on the other device, and use it to read this qr code:');
       this.sendCode.size = this.shadow$('.column').offsetWidth;
-      this.sendCode.sendObject(await this.sender.signals);
+      this.sendCode.sendObject(await this.sender.connection.signals);
       setTimeout(() => this.send.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
 
       this.show(this.sendCode);
@@ -756,24 +727,7 @@ class FairshareSync extends MDElement {
       const scan = await this.scan(this.sendVideo.querySelector('video'),
 				   _ => _,
 				   LOCAL_TEST && this.receiveCode);
-      this.sender.signals = scan;
-
-      const data = await this.sendDataPromise;
-      const received = this.promiseDataHandled(data, this.sendInstructions);
-      this.hide(this.sendVideo);
-      data.send(`Simulated history forked from initiator ${App.user}.`);
-      const message = this.makeTestMessage();
-      const drained = new Promise(resolve => {	
-	data.onbufferedamountlow = resolve;
-      });
-      for (let i = 0; i < this.nTestMessages; i++) data.send(message);
-      await Promise.all([received, drained]);
-      setTimeout(() => {
-	this.sender.close();
-	this.send.toggleAttribute('awaitScan', false);
-	this.updateText(this.send, "Start transfer");
-	this.receive.toggleAttribute('disabled', false);
-      }, 2e3);
+      this.sender.completeSignalsSynchronization(scan);
     }
   }
   async lanReceive() {
@@ -783,9 +737,6 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendInstructions);
 	this.send.toggleAttribute('disabled', true);
       }
-      this.receiveDataPromise = new Promise(resolve => {
-	this.receiver.peer.ondatachannel = event => resolve(event.channel);
-      });
 
       this.receive.toggleAttribute('disabled', true);
       this.show(this.receiveVideo);
@@ -800,30 +751,20 @@ class FairshareSync extends MDElement {
       const scan = await this.scan(this.receiveVideo.querySelector('video'),
 				   () => unscrolled && !(unscrolled=false) && this.receiveInstructions.scrollIntoView({block: 'start', behavior: 'smooth'}),
 				   LOCAL_TEST && this.sendCode);
-      this.receiver.signals = scan;
+      await users.synchronize(scan);
+      const receiver = users.synchronizers.get(scan);
+      receiver.connection.signals = scan;
 
       this.updateText(this.receiveInstructions, 'Press "Receive other code" on the other device, and use it to read this qr code:');
       this.receiveCode.size = this.shadow$('.column').offsetWidth;
-      this.receiveCode.sendObject(await this.receiver.signals);
+      this.receiveCode.sendObject(await receiver.connection.signals);
       this.hide(this.receiveVideo);
       this.show(this.receiveCode);
     
-      const data = await this.receiveDataPromise;
-      const received = this.promiseDataHandled(data, this.receiveInstructions);
-      this.hide(this.receiveCode);
-      data.send(`Simulated history forked from receiver ${App.user}.`);
-      const message = this.makeTestMessage();
-      const drained = new Promise(resolve => {
-	data.onbufferedamountlow = resolve;
-	setTimeout(resolve, 10e3); // Because the former doesn't always work well on iphone when other end initiated data channel.
-      });
-      for (let i = 0; i < this.nTestMessages; i++) data.send(message);
-      await Promise.all([received, drained]);
       setTimeout(() => {
 	this.receive.toggleAttribute('awaitScan', true);
 	this.updateText(this.receive, "Start scanning");
 	this.send.toggleAttribute('disabled', false);
-	this.receiver.close();
       }, 2e3);
     }
   }
