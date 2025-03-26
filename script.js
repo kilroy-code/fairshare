@@ -963,6 +963,28 @@ class FairshareSync extends MDElement {
     const relays = App.getLocal('relays', [["Public server", new URL("/flexstore/sync", location).href, "checked"]]);
     FairshareApp.initialSync = Promise.all(relays.map(params => this.updateRelay(this.addRelay(...params))));
     this.addExpander();
+    this.shadow$('[href="#"]').onclick = () => {
+      this.ssidElement.value = localStorage.getItem('ssid') || '';
+      this.hotPassElement.value = localStorage.getItem('hotPass') || '';
+      this.shadow$('#hotspotCredentialsDialog').show();
+    }
+    this.shadow$('#hotspotCredentialsForm').onsubmit = () => this.saveHotspotCredentials();
+  }
+  get ssidElement() {
+    return this.shadow$('#ssid');
+  }
+  get hotPassElement() {
+    return this.shadow$('#hotPass');
+  }
+  get url() { // Picked up by hotspotCode
+    return '';
+  }
+  saveHotspotCredentials() {
+    console.log('here');
+    localStorage.setItem('ssid', this.ssidElement.value);
+    localStorage.setItem('hotPass', this.hotPassElement.value);
+    this.shadow$('#hotspotCode').data = `WIFI:S:${this.ssidElement.value};T:WPA;P:${this.hotPassElement.value};;`;
+    this.shadow$('#hotspotQRDialog').show();
   }
   get relaysElement() {
     return this.shadow$('md-list');
@@ -1035,7 +1057,7 @@ class FairshareSync extends MDElement {
       <section>
         <md-list>
         </md-list>
-        <p>Or face-to-face, <b>IFF</b> you're already on the same local network (e.g., a hotspot).</p>
+        <p>Or face-to-face, <b>IFF</b> you're already on the same local network (e.g., a <a href="#">hotspot</a>).</p>
         <p id="instructions">To start, press "Start transfer" on one of the devices:</p>
 
         <div class="column">
@@ -1048,7 +1070,26 @@ class FairshareSync extends MDElement {
           <p id="receiveInstructions" style="display:none"></p>
           <app-qrcode id="receiveCode" style="display:none"></app-qrcode>
           <slot name="receiveVideo"></slot>
-        </div
+        </div>
+        <md-dialog id="hotspotCredentialsDialog">
+          <div slot="headline">Tether another device to this one</div>
+          <form class="column" slot="content" id="hotspotCredentialsForm" method="dialog">
+            <md-outlined-text-field id="ssid" label="Your device/network name"></md-outlined-text-field>
+            <md-outlined-text-field id="hotPass" label="Password"></md-outlined-text-field>
+          </form>
+          <div slot="actions">
+            <md-text-button form="hotspotCredentialsForm" value="ok" type="submit">Save, and show QR code</md-text-button>
+          </div>
+        </md-dialog>
+        <md-dialog id="hotspotQRDialog">
+          <div slot="headline">Scan this with the other user's camera app</div>
+          <form class="column" slot="content" id="hotspotQRForm" method="dialog">
+            <app-qrcode id="hotspotCode"></app-qrcode>
+          </form>
+          <div slot="actions">
+            <md-text-button form="hotspotQRForm" value="ok" type="submit">ok</md-text-button>
+          </div>
+        </md-dialog>
       </section>
     `;
   }
