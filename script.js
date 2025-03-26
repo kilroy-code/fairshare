@@ -654,15 +654,12 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
-const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
   get sendVideo() { return this.shadow$('slot[name="sendVideo"]').assignedElements()[0]; }
   get receiveVideo() { return this.shadow$('slot[name="receiveVideo"]').assignedElements()[0]; }
-  get send() { return this.shadow$('#send'); }
-  get receive() { return  this.shadow$('#receive'); }
-  get instructions() { return this.shadow$('#instructions'); }  
   get sendInstructions() { return this.shadow$('#sendInstructions'); }
   get receiveInstructions() { return this.shadow$('#receiveInstructions'); }  
   hide(element) { element.style.display = 'none'; }
@@ -673,6 +670,14 @@ class FairshareSync extends MDElement {
   updateText(element, text) {
     this.show(element);
     element.textContent = text;
+  }
+  showCode(element, data) { // Show data on the qr code display specified by element.
+    element.size = this.shadow$('.column').offsetWidth;
+    element.sendObject(data);
+    this.show(element);
+  }
+  scrollElement(element) { // Scroll element into view.
+    setTimeout(() => element.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
   }
   async scan(view, onDecodeError = _ => _, localTestQrCode = null) { // Scan the code at view, unless a local app-qrcode is supplied to read directly.
     // Returns a promise for the JSON-parsed scanned string
@@ -696,83 +701,13 @@ class FairshareSync extends MDElement {
       scanner.start();
     });
   }
-  async lanSend() {
-    const senderService = 'signals';
-    if (!this.send.hasAttribute('awaitScan')) {
-      this.hide(this.instructions);
-      if (!LOCAL_TEST) {
-	this.hide(this.receiveInstructions);
-	this.receive.toggleAttribute('disabled', true);
-      }
-      this.send.toggleAttribute('disabled', true);
-
-      users.debug = true;
-      await users.synchronize(senderService); // Kick off negotiation for sender's users.
-      this.sender = users.synchronizers.get(senderService);
-
-      this.updateText(this.sendInstructions, 'Press "Start scanning" on the other device, and use it to read this qr code:');
-      this.sendCode.size = this.shadow$('.column').offsetWidth;
-      this.sendCode.sendObject(await this.sender.connection.signals);
-      setTimeout(() => this.send.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
-
-      this.show(this.sendCode);
-      this.send.toggleAttribute('awaitScan', true);
-      this.updateText(this.send, "Receive other code");
-    } else {
-      this.send.toggleAttribute('disabled', true);
-      this.hide(this.sendCode);
-      this.show(this.sendVideo);
-      this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
-
-      const scan = await this.scan(this.sendVideo.querySelector('video'),
-				   _ => _,
-				   LOCAL_TEST && this.receiveCode);
-      this.sender.completeSignalsSynchronization(scan);
-    }
-  }
-  async lanReceive() {
-    if (this.receive.hasAttribute('awaitScan')) {
-      this.hide(this.instructions);
-      if (!LOCAL_TEST) {
-	this.hide(this.sendInstructions);
-	this.send.toggleAttribute('disabled', true);
-      }
-
-      this.receive.toggleAttribute('disabled', true);
-      this.show(this.receiveVideo);
-      this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
-
-      this.receive.toggleAttribute('awaitScan', false);
-      this.updateText(this.receive, "Continue after scanning on other device");
-      if (!LOCAL_TEST) setTimeout(() => this.lanReceive());
-    } else {
-      this.receive.toggleAttribute('disabled', true);
-      let unscrolled = true;
-      const scan = await this.scan(this.receiveVideo.querySelector('video'),
-				   () => unscrolled && !(unscrolled=false) && this.receiveInstructions.scrollIntoView({block: 'start', behavior: 'smooth'}),
-				   LOCAL_TEST && this.sendCode);
-      await users.synchronize(scan);
-      const receiver = users.synchronizers.get(scan);
-      receiver.connection.signals = scan;
-
-      this.updateText(this.receiveInstructions, 'Press "Receive other code" on the other device, and use it to read this qr code:');
-      this.receiveCode.size = this.shadow$('.column').offsetWidth;
-      this.receiveCode.sendObject(await receiver.connection.signals);
-      this.hide(this.receiveVideo);
-      this.show(this.receiveCode);
-    
-      setTimeout(() => {
-	this.receive.toggleAttribute('awaitScan', true);
-	this.updateText(this.receive, "Start scanning");
-	this.send.toggleAttribute('disabled', false);
-      }, 2e3);
-    }
-  }
   afterInitialize() {
     super.afterInitialize();
-    this.send.addEventListener('click', async event => await this.lanSend(event));
-    this.receive.addEventListener('click', async event => await this.lanReceive(event));
-    const relays = App.getLocal('relays', [["Public server", new URL("/flexstore/sync", location).href, "checked"]]);
+    const relays = App.getLocal('relays', [
+      ["Public server", new URL("/flexstore/sync", location).href, "checked"],
+      ["Private LAN - Lead", "generate QR code on hotspot"],
+      ["Private LAN - Follow", "scan QR code on hotspot"]
+    ]);
     FairshareApp.initialSync = Promise.all(relays.map(params => this.updateRelay(this.addRelay(...params))));
     this.addExpander();
     this.shadow$('[href="#"]').onclick = () => {
@@ -828,8 +763,71 @@ class FairshareSync extends MDElement {
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
     const [checkbox, label, urlElement, trailing] = relayElement.children;
     const [packets, ice] = trailing.children;
-    const url = urlElement.textContent;
-    await synchronizeCollections(url, checkbox.checked);
+    let url = urlElement.textContent;
+    const inFlight = relayElement.inFlight;
+    relayElement.inFlight = false;
+
+    // These two wacky special cases are for LAN connections by QR code.
+    if (label.textContent.includes('Lead')) {
+      url = 'signals';
+      if (inFlight) { // Already started. Finish up by receiving the peer's code.
+	checkbox.checked = true;
+	this.hide(this.sendCode);
+	this.show(this.sendVideo);
+	this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
+	const scan = await this.scan(this.sendVideo.querySelector('video'),
+				     _ => _,
+				     LOCAL_TEST && this.receiveCode);
+	await this.sender.completeSignalsSynchronization(scan);
+	this.hide(this.sendInstructions);
+	this.hide(this.sendVideo);
+      } else if (checkbox.checked) { // Kick off negotiation for sender's users.
+	await users.synchronize(url);
+	this.sender = users.synchronizers.get(url);
+
+	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
+	this.showCode(this.sendCode, await this.sender.connection.signals);
+	this.scrollElement(this.sendCode);
+
+	relayElement.inFlight = checkbox.indeterminate = true;
+      } else { // Disconnect
+	await users.disconnect(url);
+	this.hide(this.sendInstructions);
+	this.hide(this.sendCode);
+	this.hide(this.sendVideo);
+      }
+    } else if (label.textContent.includes('Follow')) {
+      if (inFlight) { // Display answer code to peer.
+	checkbox.checked = true;
+	url = await this.scan(this.receiveVideo.querySelector('video'),
+			      _ => _,
+			      LOCAL_TEST && this.sendCode);
+	await users.synchronize(url);
+	const receiver = users.synchronizers.get(url);
+	this.updateText(this.receiveInstructions, 'Press the minus sign on "Private LAN - Lead" on the other device, and use it to read this qr code:');
+	this.showCode(this.receiveCode, await receiver.connection.signals);
+	this.hide(this.receiveVideo);
+	this.show(this.receiveCode);
+	await receiver.startedSynchronization;
+	this.hide(this.receiveInstructions);
+	this.hide(this.receiveCode);
+      } else if (checkbox.checked) { // Scan code.
+	this.show(this.receiveVideo);
+	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
+	this.scrollElement(this.receiveVideo);
+	relayElement.inFlight = checkbox.indeterminate = true;
+	if (!LOCAL_TEST) setTimeout(() => this.updateRelay(relayElement));
+      } else { // Disconnect
+	url = users.services.find(service => Array.isArray(service));
+	await users.disconnect(url);
+	this.hide(this.receiveInstructions);
+	this.hide(this.receiveCode);
+	this.hide(this.receiveVideo);
+      }
+
+    } else {
+      await synchronizeCollections(url, checkbox.checked);
+    }
     const synchronizer = users.synchronizers.get(url); // users being representative
     synchronizer && synchronizer.closed.then(() => {
       if (!checkbox.checked) return; // Manually cleared. We're all good.
@@ -870,16 +868,13 @@ class FairshareSync extends MDElement {
       <section>
         <md-list>
         </md-list>
-        <p>Or face-to-face, <b>IFF</b> you're already on the same local network (e.g., a <a href="#">hotspot</a>).</p>
-        <p id="instructions">To start, press "Start transfer" on one of the devices:</p>
+        <p><a href="#">Share your hotspot</a></p>
 
         <div class="column">
-          <md-filled-button id="send">Start transfer</md-filled-button>
           <p id="sendInstructions"></p>
           <app-qrcode id="sendCode" style="display:none"></app-qrcode>
           <slot name="sendVideo"></slot>          
 
-          <md-filled-button id="receive" awaitScan>Start scanning</md-filled-button>
           <p id="receiveInstructions" style="display:none"></p>
           <app-qrcode id="receiveCode" style="display:none"></app-qrcode>
           <slot name="receiveVideo"></slot>
