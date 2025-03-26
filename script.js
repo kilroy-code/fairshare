@@ -1,6 +1,6 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
-import { Credentials, MutableCollection, ImmutableCollection, Collection } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, ImmutableCollection, Collection, WebRTC } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
@@ -654,7 +654,7 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
-class WebRTC {
+class XWebRTC {
   constructor({label = '', rtcConfiguration = {}} = {}) {
     this.label = label;
     this.configuration = rtcConfiguration;
@@ -754,7 +754,7 @@ class WebRTC {
     this.log('sending', type, type.length, JSON.stringify(message).length);
   }
 }
-class LocalWebRTC extends WebRTC {
+class LocalWebRTC extends XWebRTC {
   // 0. Something trigger negotiation on peer1 (such as creating a peer1.createDataChannel()). 
   // 1. peer1.signals resolves with <signal1> POJO to be conveyed to peer2.
   // 2. Set peer2.signals = <signal1>.
@@ -783,7 +783,7 @@ class LocalWebRTC extends WebRTC {
   }
 }
 
-const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
@@ -967,7 +967,7 @@ class FairshareSync extends MDElement {
       this.ssidElement.value = localStorage.getItem('ssid') || '';
       this.hotPassElement.value = localStorage.getItem('hotPass') || '';
       this.shadow$('#hotspotCredentialsDialog').show();
-    }
+    };
     this.shadow$('#hotspotCredentialsForm').onsubmit = () => this.saveHotspotCredentials();
   }
   get ssidElement() {
@@ -980,7 +980,6 @@ class FairshareSync extends MDElement {
     return '';
   }
   saveHotspotCredentials() {
-    console.log('here');
     localStorage.setItem('ssid', this.ssidElement.value);
     localStorage.setItem('hotPass', this.hotPassElement.value);
     this.shadow$('#hotspotCode').data = `WIFI:S:${this.ssidElement.value};T:WPA;P:${this.hotPassElement.value};;`;
@@ -1010,7 +1009,7 @@ class FairshareSync extends MDElement {
     let items = this.addExpanderIfNeeded();
     for (const child of items) {
       const [checkbox, label, url] = child.children;
-      data.push([label.textContent, url.textContent, checkbox.checked ? 'checked' : undefined]);
+      data.push([label.textContent, url.textContent, checkbox.checked ? 'checked' : null]);
     }
     localStorage.setItem('relays', JSON.stringify(data));
   }
@@ -1021,10 +1020,12 @@ class FairshareSync extends MDElement {
     await synchronizeCollections(url, checkbox.checked);
     const synchronizer = users.synchronizers.get(url); // users being representative
     synchronizer && synchronizer.closed.then(() => {
-      checkbox.checked = false;
-      synchronizeCollections(url, false);
-      packets.textContent = ice.textContent = '';
-      this.saveRelays();
+      if (!checkbox.checked) return; // Manually cleared. We're all good.
+      checkbox.checked = false; // Otherwise, make everything match.
+      setTimeout(() => {
+	this.updateRelay(relayElement);
+	this.saveRelays();
+      });
     });
     packets.textContent = synchronizer?.protocol || '';
     ice.textContent = synchronizer?.candidateType || '';
