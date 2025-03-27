@@ -762,6 +762,7 @@ class FairshareSync extends MDElement {
     if (label.textContent.includes('Lead')) {
       url = 'signals';
       if (inFlight) { // Already started. Finish up by receiving the peer's code.
+	checkbox.indeterminate = false;
 	checkbox.checked = true;
 	this.hide(this.sendCode);
 	this.show(this.sendVideo);
@@ -789,10 +790,11 @@ class FairshareSync extends MDElement {
       }
     } else if (label.textContent.includes('Follow')) {
       if (inFlight) { // Display answer code to peer.
-	checkbox.checked = true;
 	url = await this.scan(this.receiveVideo.querySelector('video'),
 			      _ => _,
 			      LOCAL_TEST && this.sendCode);
+	checkbox.indeterminate = false;
+	checkbox.checked = true;
 	await users.synchronize(url);
 	const receiver = users.synchronizers.get(url);
 	this.updateText(this.receiveInstructions, 'Press the minus sign on "Private LAN - Lead" on the other device, and use it to read this qr code:');
