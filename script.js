@@ -163,7 +163,7 @@ class FairshareApp extends BasicApp {
     // So we're doing that here, and relying on content not dependening on anything that would cause us to re-fire.
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
-    this.updateLiveFromLocal('userCollection');
+    this.userCollection.updateLiveTags(this.getLocal(this.localKey(users), []));
   }
   afterInitialize() {
     super.afterInitialize();
@@ -193,7 +193,7 @@ class FairshareApp extends BasicApp {
     return users;
   }
   get liveUsersEffect() { // If this.userCollection.liveTags changes, write the list to localStorage for future visits.
-    return this.setLocalLive('userCollection');
+    return this.setLocal(this.localKey(users), this.userCollection.liveTags);
   }
   getUserTitle(key = App.user) { // Name of the specified user.
     return this.userCollection[key]?.title || key;
@@ -248,18 +248,6 @@ class FairshareApp extends BasicApp {
   get amount() {
     return parseFloat(this.getParameter('amount') || '0');
   }
-  setLocalLive(collectionName) {
-    const currentData = this[collectionName].liveTags;
-    return this.setLocal(collectionName, currentData);
-  }
-  getLocalLive(collectionName) {
-    return this.getLocal(collectionName, []);
-  }
-  updateLiveFromLocal(collectionName) {
-    let stored = this.getLocalLive(collectionName);
-    const collection = this[collectionName];
-    return collection.updateLiveTags(stored);
-  }
   async createUserTag(editUserComponent) { // For (AppFirstuse >) CreateUser > EditUser
     const prompt = editUserComponent.questionElement.value;
     const answer = editUserComponent.answerElement.value;
@@ -271,6 +259,9 @@ class FairshareApp extends BasicApp {
     const tag = await Credentials.createAuthor(prompt);
     await FairshareGroups.addToOwner(tag);
     return tag;
+  }
+  localKey(collection) {
+    return `${collection.name}:${collection.dbVersion}`;
   }
   setLocal(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
@@ -758,7 +749,7 @@ class FairshareSync extends MDElement {
       const [checkbox, label, url] = child.children;
       data.push([label.textContent, url.textContent, checkbox.checked ? 'checked' : null]);
     }
-    localStorage.setItem('relays', JSON.stringify(data));
+    App.setLocal('relays', data);
   }
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
     const [checkbox, label, urlElement, trailing] = relayElement.children;
