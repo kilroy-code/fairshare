@@ -637,8 +637,8 @@ class FairsharePayme extends AppShare {
   }
   get description() {
     return App.amount ?
-      `Please pay ${App.amount} ${App.group} to ${App.user}.` :
-      `Please pay ${App.group} to ${App.user}.`;
+      `\nPlease pay ${App.amount} ${App.getGroupTitle()} to ${App.getUserTitle()}.` :
+      `\nPlease pay ${App.getGroupTitle()} to ${App.getUserTitle()}.`;
   }
   get picture() {
     return App.getPictureURL(App.userCollection[App.user]?.picture);
