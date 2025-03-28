@@ -1,6 +1,6 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser, AppQrcode } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
-import { Credentials, MutableCollection, ImmutableCollection, Collection, WebRTC, PromiseWebRTC } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, WebRTC, PromiseWebRTC } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
@@ -89,11 +89,11 @@ Rule.rulify(Group.prototype);
 
   The protocol doesn't actually require a user or group to be listed in the public collections, but the app doesn't currently support that.
 */
-const usersPublic = new MutableCollection({name: 'social.fairshare.users.public'});
-const usersPrivate = new MutableCollection({name: 'social.fairshare.users.private'});
-const groupsPublic = new MutableCollection({name: 'social.fairshare.group.public'});
-const groupsPrivate = new MutableCollection({name: 'social.fairshare.groups.private'});
-const media = new ImmutableCollection({name: 'social.fairshare.media'});
+const usersPublic   = new MutableCollection(  {name: 'social.fairshare.users.public'});
+const usersPrivate  = new MutableCollection(  {name: 'social.fairshare.users.private'});
+const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.group.public'});
+const groupsPrivate = new VersionedCollection({name: 'social.fairshare.groups.private'});
+const media         = new ImmutableCollection({name: 'social.fairshare.media'});
 
 Object.assign(window, {Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User}); // For debugging in console.
 
@@ -130,7 +130,7 @@ function synchronizeCollections(service, connect = true) { // Synchronize ALL co
 	  App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
 	}),
       usersPrivate.synchronize(service),
-      usersPrivate.synchronize(service),
+      groupsPrivate.synchronize(service),
       media.synchronize(service)
     ]);
   }
@@ -151,11 +151,10 @@ async function getGroupData(tag) { return (await groupsPublic.retrieve({tag}))?.
 
 async function setCombinedData(publicCollection, privateCollection, tag, data, author = Credentials.author) { // Split data into public and private parts, and save them with appropriate owner/encryption.
   const {title, picture = '', ...rest} = data;
-  console.log({publicCollection, privateCollection, tag, title, picture, rest, author});
-  const pub = await publicCollection.store({title, picture}, {tag, author, owner: tag, encryption: ''}); // author will be Credentials.author
-  console.log('public:', pub);
-  const priv = await privateCollection.store(rest, {tag, author, owner: tag, encryption: tag});
-  console.log('private:', priv);
+  return Promise.all([
+    publicCollection.store({title, picture}, {tag, author, owner: tag, encryption: ''}), // author will be Credentials.author
+    privateCollection.store(rest, {tag, author, owner: tag, encryption: tag})
+  ]);
 }
 function setUserData(tag, data)  { return setCombinedData(usersPublic, usersPrivate, tag, data, tag); }
 function setGroupData(tag, data) { return setCombinedData(groupsPublic, groupsPrivate, tag, data); }
