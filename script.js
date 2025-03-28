@@ -70,7 +70,7 @@ Rule.rulify(Group.prototype);
   The app maintains a LiveCollection for Users and another for Groups.
 
   The known tags of each is populated from a server at startup, calling LiveCollection.updateKnownTags.
-  This causes the collection to start asking the server for a POJO record of the import public data (e.g., title, picture) for each known tag using getUserData/getGroupData.
+  This causes the collection to start asking the server for a POJO record of the public data (e.g., title, picture) for each known tag using getUserData/getGroupData.
   These POJOs are kept in collection[tag].
 
   When we want to instead get a rule-based live model (a User or Group), the LiveCollection pulls this in with getUserModel/getGroupModel.
@@ -78,23 +78,26 @@ Rule.rulify(Group.prototype);
   App.setGroup/setUser are called to persist whole updated records, using setUserData/setGroupData, always on a tag for which we have a live model.
   The set of such live tags is updated with LiveCollection.updateLiveTags:
     The list of Users live tags are persisted in localStorage, and added to whenever we create or authorize a new user.
-    The list of Group live tags is enumerated for each user, and added to whenver we create or join a new group.
+    The list of Group live tags is enumerated for each user, and added to whenever we create or join a new group.
 
-  As a first step in using Flexstore, there will be "social.fairshare.users" and "social.fairshare.groups" collections.
-  Getting a live model will consist of adding an event handler for the specific tag.
-  That will mean that anyone connected will get an update about any changes to any group or user, which will usually be ignored.
-  A minor(?) next step is to pull pictures out into a media collection.
-  Next, the user and group collections will just be the directories with the public info about public groups, and the real data will be in a
-  separate collection specific to the group:
-  - Items will be encrypted for the group audience only.
-  - Updates will only be seen (with encrypted conent and open signatures) for those connected to the specific group/collection being updated.
-  - Groups may decide to not list in the directory, and/or to not synchronize their data to a public relay.
+  The public user and public group data are kept unencrypted in the "social.fairshare.users.public" and "social.fairshare.groups.public" collections.
+  This is what getuserData/getGroupData pulls in.
+
+  The private data are kept encrypted by their owners in the "social.fairshare.users.private" and "social.fairshare.groups.private" collections.
+  The entire content of these items is encrypted (e.g., not just particular field values). This makes sense because only the owners would
+  have any need to pull in such data in the first place.
+
+  The protocol doesn't actually require a user or group to be listed in the public collections, but the app doesn't currently support that.
 */
-const users = new MutableCollection({name: 'social.fairshare.users'});
-const groups = new MutableCollection({name: 'social.fairshare.groups'});
+const usersPublic = new MutableCollection({name: 'social.fairshare.users.public'});
+const usersPrivate = new MutableCollection({name: 'social.fairshare.users.private'});
+const groupsPublic = new MutableCollection({name: 'social.fairshare.group.public'});
+const groupsPrivate = new MutableCollection({name: 'social.fairshare.groups.private'});
 const media = new ImmutableCollection({name: 'social.fairshare.media'});
-Object.assign(window, {Credentials, MutableCollection, Collection, groups, users, media, Group, User});
-function addUnknown(collectionName) {
+
+Object.assign(window, {Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User}); // For debugging in console.
+
+function addUnknown(collectionName) { // Return an update event handler for the specified collection.
   return async event => {
     const tag = event.detail.tag;
     const collection = App[collectionName];
@@ -102,13 +105,15 @@ function addUnknown(collectionName) {
     // The 'update' event machinery cannot decrypt payloads for us, because the data might not be ours.
     // However, if it is one of our liveTags, then we certainly can (and must) decrypt it.
     if (live.includes(tag)) return collection.updateLiveRecord(tag, (await Collection.ensureDecrypted(event.detail)).json);
-    const known = collection.knownTags;
-    if (!known.includes(tag)) collection.updateKnownTags([...known, tag]);
+    // Otherwise make sure it is known and current.
+    collection.updateKnownTags([...collection.knownTags, tag]);
     return null;
   };
 }
-users.onupdate = addUnknown('userCollection');
-groups.onupdate = addUnknown('groupCollection');
+usersPublic.onupdate = addUnknown('userCollection');
+usersPrivate.onupdate = addUnknown('userCollection');
+groupsPublic.onupdate = addUnknown('groupCollection');
+groupsPrivate.onupdate = addUnknown('groupCollection');
 
 //Object.values(Credentials.collections).concat(users, groups).forEach(c => c.debug = true);
 function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
@@ -116,42 +121,53 @@ function synchronizeCollections(service, connect = true) { // Synchronize ALL co
   if (connect) {
     return Promise.all([
       Credentials.synchronize(service),
-      users.synchronize(service),
-      groups.synchronize(service)
+      usersPublic.synchronize(service),
+      groupsPublic.synchronize(service)
 	.then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
-	  await groups.synchronized;
-	  App.FairShareTag = await groups.find({title: 'FairShare'});
+	  await groupsPublic.synchronized;
+	  App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
 	}),
+      usersPrivate.synchronize(service),
+      usersPrivate.synchronize(service),
       media.synchronize(service)
     ]);
   }
   return Promise.all([
     Credentials.disconnect(service),
-    users.disconnect(service),
-    groups.disconnect(service),
+    usersPublic.disconnect(service),
+    usersPrivate.disconnect(service),
+    groupsPublic.disconnect(service),
+    groupsPrivate.disconnect(service),
     media.disconnect(service)
   ]);
 }
 
-function getUserList() { return users.list(); }
-function getGroupList() { return groups.list(); }
-async function getUserData(tag)  { return (await users.retrieve({tag}))?.json || ''; } // Not undefined.
-async function getGroupData(tag) { return (await groups.retrieve({tag}))?.json || ''; }
-// Users are only ever written by the owner, even if a different persona is current. The tag is the user's individual key tag.
-// TODO: Encrypt only private data, by the owner tag. (Encrypting by FairSharTag is just a temporary demonstration of encryption,
-// until we split up the public directory and the private data.)
-function setUserData(tag, data)  { return users.store(data, {tag, author: tag, owner: ''}); }
-// Groups are written by their member tag on behalf of the whole-group owner (which they are a member of).
-function setGroupData(tag, data) { return groups.store(data, {tag, encryption: (tag !== App.FairShareTag) && App.FairShareTag}); }
+function getUserList() { return usersPublic.list(); }
+function getGroupList() { return groupsPublic.list(); }
+async function getUserData(tag)  { return (await usersPublic.retrieve({tag}))?.json || ''; } // Not undefined.
+async function getGroupData(tag) { return (await groupsPublic.retrieve({tag}))?.json || ''; }
+
+async function setCombinedData(publicCollection, privateCollection, tag, data, author = Credentials.author) { // Split data into public and private parts, and save them with appropriate owner/encryption.
+  const {title, picture = '', ...rest} = data;
+  console.log({publicCollection, privateCollection, tag, title, picture, rest, author});
+  const pub = await publicCollection.store({title, picture}, {tag, author, owner: tag, encryption: ''}); // author will be Credentials.author
+  console.log('public:', pub);
+  const priv = await privateCollection.store(rest, {tag, author, owner: tag, encryption: tag});
+  console.log('private:', priv);
+}
+function setUserData(tag, data)  { return setCombinedData(usersPublic, usersPrivate, tag, data, tag); }
+function setGroupData(tag, data) { return setCombinedData(groupsPublic, groupsPrivate, tag, data); }
+
+async function getCombinedData(publicCollection, privateCollection, tag) { // Get public and private data, and combine them.
+  const [publicRecord, privateRecord] = await Promise.all([publicCollection.retrieve({tag}),
+							   privateCollection.retrieve({tag})]);
+  return Object.assign({}, publicRecord?.json || {}, privateRecord?.json || {});
+}
 async function getUserModel(tag) {
-  // TODO: listen for updates
-  const data = await getUserData(tag);
-  return new User(data);
+  return new User(await getCombinedData(usersPublic, usersPrivate, tag));
 }
 async function getGroupModel(tag) {
-  // TODO: listen for updates
-  const data = await getGroupData(tag);
-  return new Group(data);
+  return new Group(await getCombinedData(groupsPublic, groupsPrivate, tag));
 }
 
 class FairshareApp extends BasicApp {
@@ -163,7 +179,7 @@ class FairshareApp extends BasicApp {
     // So we're doing that here, and relying on content not dependening on anything that would cause us to re-fire.
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
-    this.userCollection.updateLiveTags(this.getLocal(this.localKey(users), []));
+    this.userCollection.updateLiveTags(this.getLocal(this.localKey(usersPrivate), []));
   }
   afterInitialize() {
     super.afterInitialize();
@@ -180,7 +196,7 @@ class FairshareApp extends BasicApp {
     });
     // See assignment in synchronizeCollections(). This one covers the case where
     // synchronization has been turned off.
-    if (!groups.synchronizers.size) groups.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag);
+    if (!groupsPublic.synchronizers.size) groupsPublic.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag);
   }
   directedToFirstUse() {
     if (!App.getParameter('invitation')) return false;
@@ -193,7 +209,7 @@ class FairshareApp extends BasicApp {
     return users;
   }
   get liveUsersEffect() { // If this.userCollection.liveTags changes, write the list to localStorage for future visits.
-    return this.setLocal(this.localKey(users), this.userCollection.liveTags);
+    return this.setLocal(this.localKey(usersPrivate), this.userCollection.liveTags);
   }
   getUserTitle(key = App.user) { // Name of the specified user.
     return this.userCollection[key]?.title || key;
@@ -329,27 +345,30 @@ class FairshareApp extends BasicApp {
   get payeeEffect() {
     return this.resetUrl({payee: this.payee});
   }
-  select(key) {
+  select(key) { // First some special cases, and then the screen selection from our ui-components superclass.
     if (key === 'Group actions...') return this.$('#groupMenuButton').button.click();
     if (key === 'User actions...') return this.$('#user').button.click();
+
     if (key === 'Panic-Button...') return App.confirm('Delete all local data from this browser? (You will then need to "Add existing account" to reclaim your data from a relay.)', "Panic!").then(async response => {
       if (response !== 'ok') return;
-      const collections = Object.values(Credentials.collections).concat(users, groups, media);
+      const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, media);
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
       console.log('Removing local databases:', ...collections.map(c => c.name));
+      localStorage.clear();
+      await Credentials.clear(); // Clear cached keys in the vault.
       await Promise.all(collections.map(async c => {
 	await c.disconnect();
 	const persist = await c.persist;
 	persist.close();
 	await persist.destroy();
       }));
-      await Credentials.clear(); // Clear cached keys in the vault.
       console.log('Cleared');
-      localStorage.clear();
     });
+
     // TODO: there is at least one menu click handler that is going down this path without being for screens. It would be
     // nice if that didn't propogate here.
     if (key?.startsWith('Run ')) return window.open("test.html", "_blank");
+
     super.select(key);
     return null;
   }
@@ -779,8 +798,8 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendVideo);
 
       } else if (checkbox.checked) { // Kick off negotiation for sender's users.
-	await users.synchronize(url);
-	this.sender = users.synchronizers.get(url);
+	await usersPublic.synchronize(url);
+	this.sender = usersPublic.synchronizers.get(url);
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
 	this.showCode(this.sendCode, await this.sender.connection.signals);
@@ -789,7 +808,7 @@ class FairshareSync extends MDElement {
 	relayElement.inFlight = 'waiting';
 	checkbox.indeterminate = true;
       } else { // Disconnect
-	await users.disconnect(url);
+	await usersPublic.disconnect(url);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendCode);
 	this.hide(this.sendVideo);
@@ -800,8 +819,8 @@ class FairshareSync extends MDElement {
 	console.log('starting inflight', url);
 	checkbox.indeterminate = false;
 	checkbox.checked = true;
-	await users.synchronize(url);
-	const receiver = users.synchronizers.get(url);
+	await usersPublic.synchronize(url);
+	const receiver = usersPublic.synchronizers.get(url);
 	this.updateText(this.receiveInstructions, 'Press the minus sign on "Private LAN - Lead" on the other device, and use it to read this qr code:');
 	this.showCode(this.receiveCode, await receiver.connection.signals);
 	this.hide(this.receiveVideo);
@@ -824,7 +843,7 @@ class FairshareSync extends MDElement {
 	setTimeout(() => this.updateRelay(relayElement)); // continue next tick
       } else { // Disconnect
 	console.log('disconnect', url);
-	await users.disconnect(url);
+	await usersPublic.disconnect(url);
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
 	this.hide(this.receiveVideo);
@@ -833,7 +852,7 @@ class FairshareSync extends MDElement {
     } else {
       await synchronizeCollections(url, checkbox.checked);
     }
-    const synchronizer = users.synchronizers.get(url); // users being representative
+    const synchronizer = usersPublic.synchronizers.get(url); // users being representative
     synchronizer && synchronizer.closed.then(() => {
       if (!checkbox.checked) return; // Manually cleared. We're all good.
       checkbox.checked = false; // Otherwise, make everything match.
@@ -1096,9 +1115,9 @@ class FairshareUserProfile extends UserProfile {
   }
   afterInitialize() {
     super.afterInitialize();
-    this.shadow$('#raw').onclick = async () => showRaw(users, App.user);
-    this.shadow$('#signature').onclick = async () => showSignature(users, App.user);
-    this.shadow$('#decrypted').onclick = async () => showDecrypted(users, App.user);
+    this.shadow$('#raw').onclick = async () => showRaw(usersPrivate, App.user);
+    this.shadow$('#signature').onclick = async () => showSignature(usersPrivate, App.user);
+    this.shadow$('#decrypted').onclick = async () => showDecrypted(usersPrivate, App.user);
   }
 }
 FairshareUserProfile.register();
@@ -1118,9 +1137,9 @@ class FairshareGroupProfile extends MDElement {
   }
   afterInitialize() {
     super.afterInitialize();
-    this.shadow$('#raw').onclick = async () => showRaw(groups, App.group);
-    this.shadow$('#signature').onclick = async () => showSignature(groups, App.group);
-    this.shadow$('#decrypted').onclick = async () => showDecrypted(groups, App.group);
+    this.shadow$('#raw').onclick = async () => showRaw(groupsPrivate, App.group);
+    this.shadow$('#signature').onclick = async () => showSignature(groupsPrivate, App.group);
+    this.shadow$('#decrypted').onclick = async () => showDecrypted(groupsPrivate, App.group);
   }
   async onaction(form) {
     await App.groupCollection.updateLiveRecord(this.findParentComponent(form).tag);
