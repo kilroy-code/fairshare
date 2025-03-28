@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser } from '@kilroy-code/ui-components';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser, AppQrcode } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
 import { Credentials, MutableCollection, ImmutableCollection, Collection, WebRTC, PromiseWebRTC } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
@@ -672,10 +672,14 @@ class FairshareSync extends MDElement {
   }
   async scan(view, onDecodeError = _ => _, localTestQrCode = null) { // Scan the code at view, unless a local app-qrcode is supplied to read directly.
     // Returns a promise for the JSON-parsed scanned string
+    function decompress(data) {
+      return AppQrcode.decompressObject(data);
+    }
     if (localTestQrCode) {
+      await new Promise(resolve => setTimeout(resolve, 4e3)); // Simulate scanning time.
       const generator = await localTestQrCode.generator;
       const blob = await generator.getRawData('svg');
-      return JSON.parse(await QrScanner.scanImage(blob));
+      return await decompress(await QrScanner.scanImage(blob));
     }
     return new Promise(resolve => {
       let gotError = false;
@@ -683,7 +687,7 @@ class FairshareSync extends MDElement {
 				    result => {
 				      scanner.stop();
 				      scanner.destroy();
-				      resolve(JSON.parse(result.data));
+				      resolve(decompress(result.data));
 				    }, {
 				      onDecodeError,
 				      highlightScanRegion: true,
@@ -762,17 +766,18 @@ class FairshareSync extends MDElement {
     if (label.textContent.includes('Lead')) {
       url = 'signals';
       if (inFlight) { // Already started. Finish up by receiving the peer's code.
-	checkbox.indeterminate = false;
-	checkbox.checked = true;
 	this.hide(this.sendCode);
 	this.show(this.sendVideo);
 	this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
+	checkbox.checked = true;
 	const scan = await this.scan(this.sendVideo.querySelector('video'),
 				     _ => _,
 				     LOCAL_TEST && this.receiveCode);
+	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
 	await this.sender.completeSignalsSynchronization(scan);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
+
       } else if (checkbox.checked) { // Kick off negotiation for sender's users.
 	await users.synchronize(url);
 	this.sender = users.synchronizers.get(url);
@@ -781,7 +786,8 @@ class FairshareSync extends MDElement {
 	this.showCode(this.sendCode, await this.sender.connection.signals);
 	this.scrollElement(this.sendCode);
 
-	relayElement.inFlight = checkbox.indeterminate = true;
+	relayElement.inFlight = 'waiting';
+	checkbox.indeterminate = true;
       } else { // Disconnect
 	await users.disconnect(url);
 	this.hide(this.sendInstructions);
@@ -789,10 +795,9 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendVideo);
       }
     } else if (label.textContent.includes('Follow')) {
+      url = relayElement.url;
       if (inFlight) { // Display answer code to peer.
-	url = await this.scan(this.receiveVideo.querySelector('video'),
-			      _ => _,
-			      LOCAL_TEST && this.sendCode);
+	console.log('starting inflight', url);
 	checkbox.indeterminate = false;
 	checkbox.checked = true;
 	await users.synchronize(url);
@@ -809,9 +814,16 @@ class FairshareSync extends MDElement {
 	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
 	this.scrollElement(this.receiveVideo);
 	relayElement.inFlight = checkbox.indeterminate = true;
-	if (!LOCAL_TEST) setTimeout(() => this.updateRelay(relayElement));
+	console.log('scanning');
+	checkbox.indeterminate = true;
+	relayElement.url = await this.scan(this.receiveVideo.querySelector('video'),
+					   _ => _,
+					   LOCAL_TEST && this.sendCode);
+	console.log('scanned, checked:', checkbox.checked, checkbox.indeterminate, relayElement.url);
+	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
+	setTimeout(() => this.updateRelay(relayElement)); // continue next tick
       } else { // Disconnect
-	url = users.services.find(service => Array.isArray(service));
+	console.log('disconnect', url);
 	await users.disconnect(url);
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
