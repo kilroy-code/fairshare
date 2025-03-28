@@ -105,8 +105,10 @@ function addUnknown(collectionName) { // Return an update event handler for the 
     // The 'update' event machinery cannot decrypt payloads for us, because the data might not be ours.
     // However, if it is one of our liveTags, then we certainly can (and must) decrypt it.
     if (live.includes(tag)) return collection.updateLiveRecord(tag, (await Collection.ensureDecrypted(event.detail)).json);
-    // Otherwise make sure it is known and current.
-    collection.updateKnownTags([...collection.knownTags, tag]);
+    const known = collection.knownTags;
+    if (!known.includes(tag)) return collection.updateKnownTags([...known, tag]); // Adding a new knownTag
+    // Otherwise just update the record without adding a new one.
+    collection[tag] = collection.getRecord(tag); // TODO: there should be an updateKnownRecord(tag) method in LiveCollection.
     return null;
   };
 }
