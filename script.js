@@ -225,7 +225,7 @@ class FairshareApp extends BasicApp {
   }
   get groupRecord() {
     const {group, groupCollection} = this;
-    return groupCollection[group] || null;
+    return group ? groupCollection.updateKnownRecord(group) : null;
   }
   getGroupTitle(key = App.group) { // Callers of this will become more complicated when key is a guid.
     return this.groupCollection[key]?.title || key;
@@ -321,7 +321,9 @@ class FairshareApp extends BasicApp {
     return Credentials.author = this.user || '';
   }
   get userRecordEffect() {
-    return this.groupCollection.updateLiveTags(this.userRecord?.groups || []); // Ensures that there are named rules for each group.
+    const {userRecord, groupCollection} = this;
+    const groups = userRecord?.groups;
+    return groupCollection.updateLiveTags(groups || []); // Ensures that there are named rules for each group.
   }
   get groupRecordEffect() {
     return Credentials.owner = this.groupRecord?.owner || '';
