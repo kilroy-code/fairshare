@@ -206,6 +206,11 @@ class FairshareApp extends BasicApp {
     App.resetUrl({screen: 'First Use'});
     return true;
   }
+  noCurrentUser() {
+    App.alert("You must either authorize as an existing user, or obtain an invitation from a member.",
+	      "No authorized user");
+    App.resetUrl({screen: 'Add existing account'});
+  }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     const users = new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
     users['0'] = {title: 'New user'}; // Hack
@@ -362,6 +367,7 @@ class FairshareApp extends BasicApp {
     // nice if that didn't propogate here.
     if (key?.startsWith('Run ')) return window.open("test.html", "_blank");
 
+    if (!this.user) return this.noCurrentUser();
     super.select(key);
     return null;
   }
