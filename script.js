@@ -206,10 +206,10 @@ class FairshareApp extends BasicApp {
     App.resetUrl({screen: 'First Use'});
     return true;
   }
-  noCurrentUser() {
-    App.alert("You must either authorize as an existing user, or obtain an invitation from a member.",
-	      "No authorized user");
-    App.resetUrl({screen: 'Add existing account'});
+  noCurrentUser(heading = "No authorized user") {
+    App.alert("You must either authorize as an existing member, or obtain an unused invitation from a member.",
+	      heading);
+    App.resetUrl({screen: 'Add existing account', invitation: ''});
   }
   get userCollection() { // The FairshareApp constructor gets the liveTags locally, before anything else.
     const users = new LiveCollection({getRecord: getUserData, getLiveRecord: getUserModel});
@@ -260,8 +260,11 @@ class FairshareApp extends BasicApp {
     const prompt = editUserComponent.questionElement.value;
     const answer = editUserComponent.answerElement.value;
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
-    const invitation = App.url.searchParams.get('invitation');
+    const invitation = App.getParameter('invitation');
     if (invitation) {
+      // This is a bit crazy, but as a side effect of claiming and invtation, we must make sure that the invitation is removed
+      // from the url so that we don't get issues as a result of using a dead invitation.
+      App.resetUrl({invitation: ''});
       return await Credentials.claimInvitation(invitation, prompt);
     }
     const tag = await Credentials.createAuthor(prompt);
@@ -367,7 +370,7 @@ class FairshareApp extends BasicApp {
     // nice if that didn't propogate here.
     if (key?.startsWith('Run ')) return window.open("test.html", "_blank");
 
-    if (!this.user) return this.noCurrentUser();
+    if (!this.user && !this.getParameter('invitation')) return this.noCurrentUser();
     super.select(key);
     return null;
   }
@@ -624,8 +627,16 @@ class FairshareShare extends AppShare {
   }
 }
 FairshareShare.register();
-
 class FairshareFirstuse extends AppFirstuse {
+  get availabilityEffect() {
+    const users = App.userCollection.knownTags,
+	  invitation = App.getParameter('invitation');
+    if (invitation && users.includes(invitation)) {
+      App.noCurrentUser("Invitation has already been used");
+      return false;
+    }
+    return true;
+  }
 }
 FairshareFirstuse.register();
 
