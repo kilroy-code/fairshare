@@ -106,9 +106,11 @@ function addUnknown(collectionName) { // Return an update event handler for the 
     // However, if it is one of our liveTags, then we certainly can (and must) decrypt it.
     if (live.includes(tag)) return collection.updateLiveRecord(tag, (await Collection.ensureDecrypted(event.detail)).json);
     const known = collection.knownTags;
-    if (!known.includes(tag)) return collection.updateKnownTags([...known, tag]); // Adding a new knownTag
+    if (!known.includes(tag)) {
+      return collection.updateKnownTags([...known, tag]); // Adding a new knownTag
+    }
     // Otherwise just update the record without adding a new one.
-    collection[tag] = collection.getRecord(tag); // TODO: there should be an updateKnownRecord(tag) method in LiveCollection.
+    collection.updateKnownRecord(tag);
     return null;
   };
 }
@@ -150,9 +152,9 @@ async function getUserData(tag)  { return (await usersPublic.retrieve({tag}))?.j
 async function getGroupData(tag) { return (await groupsPublic.retrieve({tag}))?.json || ''; }
 
 async function setCombinedData(publicCollection, privateCollection, tag, data, author = Credentials.author) { // Split data into public and private parts, and save them with appropriate owner/encryption.
-  const {title, picture = '', ...rest} = data;
+  const {title, picture = '', q0, a0, ...rest} = data;
   return Promise.all([
-    publicCollection.store({title, picture}, {tag, author, owner: tag, encryption: ''}), // author will be Credentials.author
+    publicCollection.store({title, picture, q0, a0}, {tag, author, owner: tag, encryption: ''}), // author will be Credentials.author
     privateCollection.store(rest, {tag, author, owner: tag, encryption: tag})
   ]);
 }
@@ -219,8 +221,11 @@ class FairshareApp extends BasicApp {
     return new LiveCollection({getRecord: getGroupData, getLiveRecord: getGroupModel});
   }
   get group() {
-    let param = this.getParameter('group');
-    return param || this.FairShareTag;
+    return this.user && (this.getParameter('group') || this.userRecord?.groups?.[0]) || '';
+  }
+  get groupRecord() {
+    const {group, groupCollection} = this;
+    return groupCollection[group] || null;
   }
   getGroupTitle(key = App.group) { // Callers of this will become more complicated when key is a guid.
     return this.groupCollection[key]?.title || key;
@@ -233,25 +238,6 @@ class FairshareApp extends BasicApp {
       }
       return true;
     });
-  }
-  get groupRecord() {
-    let group = this.group;
-    const groups = this.userRecord?.groups;
-    if (!group || !groups) return null; // If either of the above changes, we'll recompute.
-    if (!groups.includes(group)) { // If we're not in the requested group...
-      const next = groups[0];
-      if (!next) return null; // New user.
-      console.info(`${this.userRecord.title} is not a member of ${this.getGroupTitle(group)}. Trying to adopt.`);
-      Credentials.author = this.user;
-      Credentials.owner = group;
-      FairshareGroups.adopt(group).catch(error => {
-	console.error(error);
-	this.resetUrl({group: next});
-      });
-      return null;
-    }
-    this.groupCollection.updateLiveTags(groups); // Ensures that there are named rules for each group.
-    return this.groupCollection[group];
   }
   get FairShareTag() {
     return ''; // Overrwritten at startup. Until then, empty.
@@ -334,6 +320,9 @@ class FairshareApp extends BasicApp {
   get userEffect() {
     return Credentials.author = this.user || '';
   }
+  get userRecordEffect() {
+    return this.groupCollection.updateLiveTags(this.userRecord?.groups || []); // Ensures that there are named rules for each group.
+  }
   get groupRecordEffect() {
     return Credentials.owner = this.groupRecord?.owner || '';
   }
@@ -352,10 +341,10 @@ class FairshareApp extends BasicApp {
 
     if (key === 'Panic-Button...') return App.confirm('Delete all local data from this browser? (You will then need to "Add existing account" to reclaim your data from a relay.)', "Panic!").then(async response => {
       if (response !== 'ok') return;
-      const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, media);
+      const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, media);
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
       console.log('Removing local databases:', ...collections.map(c => c.name));
-      localStorage.clear();
+      localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
       await Credentials.clear(); // Clear cached keys in the vault.
       await Promise.all(collections.map(async c => {
 	await c.disconnect();
@@ -363,6 +352,7 @@ class FairshareApp extends BasicApp {
 	persist.close();
 	await persist.destroy();
       }));
+      localStorage.clear(); // again, because disconnect tickles relays.
       console.log('Cleared');
     });
 
@@ -504,7 +494,7 @@ class FairshareGroups extends LiveList {
       App.alert(`No viable record found for ${groupTag}.`);
       return;
     }
-    App.groupCollection.addRecordRule(groupTag, groupRecord); 
+    App.groupCollection.updateKnownRecord(groupTag, groupRecord);
     groupRecord.getBalance(App.user); // For side-effect of entering an initial balance
     Credentials.owner = groupRecord.owner; // Will happen anyway on next tick, from changing group. But we need it now to save.
     await App.setGroup(groupTag, groupRecord); // Save with our presence.
@@ -513,7 +503,6 @@ class FairshareGroups extends LiveList {
     // Update persistent and live user data (which the user does have):
     await App.setUser(App.user, {groups});
     await App.userCollection.updateLiveRecord(App.user);
-
     App.resetUrl({group: groupTag, screen: App.defaultScreenTitle,
 		  payee: '', amount: '', invitation: ''}); // Clear N/A stuff.
   }
@@ -809,6 +798,7 @@ class FairshareSync extends MDElement {
 	relayElement.inFlight = 'waiting';
 	checkbox.indeterminate = true;
       } else { // Disconnect
+	if (!usersPublic.synchronizers.get(url)) return;
 	await usersPublic.disconnect(url);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendCode);
@@ -843,6 +833,7 @@ class FairshareSync extends MDElement {
 	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
 	setTimeout(() => this.updateRelay(relayElement)); // continue next tick
       } else { // Disconnect
+	if (!usersPublic.synchronizers.get(url)) return;
 	console.log('disconnect', url);
 	await usersPublic.disconnect(url);
 	this.hide(this.receiveInstructions);
@@ -1370,3 +1361,17 @@ export class EditGroup extends MDElement {
   }
 }
 EditGroup.register();
+
+class FairshareHistory extends MDElement { // WIP
+  get items() {
+    return [{from: App.user, text: "hello there"},
+	    {from: App.user, text: "goodbye"}];
+  }
+  get template() {
+    return `
+  <section>
+    <slot></slot>
+  </section>`;
+  }
+}
+FairshareHistory.register();
