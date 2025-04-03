@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>FairShare</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+      body { font-family: roboto; }
+    </style>
+  </head>
+  <body>
+    <h1>FairShare</h1>
+
+    <section>
+      <hr/>
+      <h2>Synopsis</h2>
+      <p>FairShare lets you share money and messages amongst a group of humans.</p>
+
+      <h3>Money</h3>
+      
+      <p>As a payment program, the group sets its own fees, which are then distributed to members.</p>
+      <p>You can join any number of groups, which each have their own currency. The members of the group vote on:
+	<ol>
+	  <li>allowing a candidate member, or ejecting an existing member</li>
+	  <li>the transaction fee for the group</li>
+	  <li>the amount of new money to mint and give to members as a basic daily income</li>
+	</ol>
+      </p>
+      <p>
+	You can pay people in your group directly, with the group's currency, and you will be charged the current average of the member's proposals for a transaction fee. The collected fee is taken out of circulation. Most groups will want to vote to make the fees offset the daily stipend.
+      </p>
+      <p>
+	You can pay people in other groups, too.
+      </p>
+      <p>
+	There is a video and a brief whitepaper at <a href="https://fairshare.social" target="fairshare">fairshare.social</a>.
+      </p>
+
+      <h3>Messages</h3>
+      <p>Part of maintaining a group of humans is being able to communicate. FairShare will support text, images, voice, and video among the people in the group, as well as offline messaging through operating system notifications.</p>
+      <p>The message history will also contain transactions, votes for membership and tax/payment rates (even if anonymous), and other activity important to the group.</p>
+
+      <h3>Security</h3>
+
+      <p>People increasingly need a safe haven in which they can conduct their activities among friends, free of manipulation by AI or outside observers. This requires end-to-end encryption, verified authenticity though cryptographic signatures, and durability against loss or censorship.</p>
+      <p>Some thoughts are collected <a href="https://github.com/kilroy-code/flexstore/blob/main/docs/risks.md">here</a>, based on the techology described below.</p>
+      
+    </section>
+
+    <section>
+      <hr/>
+      <h2>(Potential) Use Cases</h2>
+
+      <ul>
+	<li>A group of friends exchanging the same $50 back and forth among themselves.</li>
+	<li>A gamers' guild keeping track of favors or bragging rights.</li>
+	<li>A community of unbanked.</li>
+	<li>Villagers in a high-inflation country or with an untrustworthy government.</li>
+	<li>Experiments in Universal Basic Income and fair economies.</li>
+	<li>An attestation network (e.g., X is a human).</li>
+	<li>A watchdog group, particularly if tracking the disappearance of funds.</li>
+	<li>Close-knit vulnerable groups.</li>
+	<li>The Resistance,</li>
+      </ul>
+    </section>      
+
+    <section>
+      <hr/>
+      <h2>Technology</h2>
+      <p>Although the concept of the app is simple, the underlying security framework is sophisticated, general, and of great scope. Some of the pieces are:</p>
+      <ul>
+	<li><b>Messaging and storage</b> Currently, all data is saved locally, and synchronized with peers or relays via pairwise <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API">WebRTC</a> connections. yz.social is creating a more general WebRTC-based system with specific security guarantees. FairShare could be loosely integrated with the yz network as simply one of the relay options, or it could be tightly coupled as the means of all communications and storage.</li>
+	<li><b>Cryptography and key management</b> FairShare stores messages as JWS signatures that are verified by each peer that acts on the message (e.g., to display or store it), and which may be encrypted inside of that as a JWE. The keys for this are themselves encrypted, signed, and stored in the same cloud of peers and relays as the messages themselves. Individual browsers maintain the the keys that decrypt the stable cloud-stored keys used by humans and groups. This is implemented and documented at the <a href="https://github.com/kilroy-code/distributed-security">Distributed Security</a> open-source code repository.</lI>
+	<li><b>The local storage and realtime p2p synchronization</b> of the signed data is implemented at the <a href="https://github.com/kilroy-code/flexstore">Flexstore</a> open-source code repository.</li>
+	<li>The <b>app</b> itself is open sourced <a href="https://github.com/howard-stearns/fairshare2">here</a>. The current version is designed as flexible test-bed and demo-framework, and designed to be very flexible in the face of changing designs. To this end, it is built in an experimental <a href="https://github.com/kilroy-code/ui-components">UI Components</a> library, which makes use of a mature <a href="https://github.com/kilroy-code/rules">rule-based</a> dependency-directed backtracking system.</li>
+      </ul>
+    </section>
+
+  </body>
+</html>
+  
