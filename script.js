@@ -420,18 +420,21 @@ class FairshareAllOtherGroupsMenuButton extends MenuButton { // Choose among oth
   get choice() {
     return '';
   }
+  get choiceRecord() {
+    const {choice, collection} = this;
+    if (!choice) return null;
+    collection.updateKnownRecord(choice); // Ensure a rule for choice.
+    return collection[choice] || null;
+  }
   get choiceEffect() {
-    return this.button.textContent = this.collection[this.choice]?.title || "Select a group";
+    const { choiceRecord } = this;
+    return this.button.textContent = choiceRecord?.title || "Select a group";
   }
   get tags() {
     const collection = this.collection;
     if (!collection) return [];
     const live = new Set(collection?.liveTags);
     return collection.knownTags.filter(tag => !live.has(tag));
-  }
-  afterInitialize() {
-    super.afterInitialize();
-    this.button.textContent = "Select a group";
   }
 }
 FairshareAllOtherGroupsMenuButton.register();
@@ -476,6 +479,7 @@ class FairshareAuthorizeUser extends AuthorizeUser {
   }
 }
 FairshareAuthorizeUser.register();
+
 
 class FairshareSwitchUser extends SwitchUser {
   select(tag) { // Before switching users, switch the group to one of theirs if necessary, so that the usr doesn't try adopt.
@@ -545,13 +549,20 @@ class FairshareJoinGroup extends MDElement {
   get choiceEffect() {
     return this.joinElement.toggleAttribute('disabled', !this.otherGroupsElement.choice);
   }
+  activate() {
+    const invitation = App.getParameter('igroup');
+    if (!invitation) return;
+    this.otherGroupsElement.choice = invitation;
+  }
   afterInitialize() {
     super.afterInitialize();
     this.joinElement.addEventListener('click', async event => {
       const button = event.target;
-      button.toggleAttribute('disabled', true);
       const menu = this.otherGroupsElement;
-      await FairshareGroups.join(menu.choice);
+      const choice = menu.choice;
+      button.toggleAttribute('disabled', true);
+      App.resetUrl({igroup: ''});
+      await FairshareGroups.adopt(choice);
       menu.choice = '';
       button.toggleAttribute('disabled', false);
       return true;
@@ -560,8 +571,9 @@ class FairshareJoinGroup extends MDElement {
   get template() {
     return `
       <section>
-        <p>You can join <fairshare-all-other-groups-menu-button></fairshare-all-other-groups-menu-button>.</p>
-        <p><i>Currently, you will be added immediately. Later, you will have to be voted in.</i></p>
+        <p>Once you are a in FairShare, you can then be <a href="#Invite someone">invited</a> into another group.</p>
+        <p>When we have messages, <fairshare-all-other-groups-menu-button disabled></fairshare-all-other-groups-menu-button> will allow
+        you to submit a request to join. For now, this is where an invitation is redeemed (with the group chooser dropdown filled in for you and disabled).</p>
         <md-filled-button disabled>join</md-filled-button>
      </section>
     `;
@@ -576,15 +588,15 @@ class FairshareJoinGroup extends MDElement {
 FairshareJoinGroup.register();
   
 class FairshareShare extends AppShare {
-  async generateUrl(user, group) {
+  async generateUrl(user, igroup) {
     if (!user) return '';
     let invitation = '';
     if (user === '0') {
       invitation = await Credentials.createAuthor('-');
-      user = group = '';
+      user = igroup = '';
     }
-    await FairshareGroups.addToOwner(invitation || user, group || App.FairShareTag);
-    const url = App.urlWith({user, invitation, group, payee: '', amount: '', screen: ''});
+    await FairshareGroups.addToOwner(invitation || user, igroup || App.FairShareTag);
+    const url = App.urlWith({user, invitation, igroup, group: '', payee: '', amount: '', screen: 'Join existing group'});
     console.log(url.href);
     return url;
   }
@@ -630,6 +642,7 @@ class FairshareShare extends AppShare {
   }
 }
 FairshareShare.register();
+
 class FairshareFirstuse extends AppFirstuse {
   get availabilityEffect() {
     const users = App.userCollection.knownTags,
