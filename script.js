@@ -35,11 +35,12 @@ class Group { // A single group, of which the current user must be a member.
   get members() {
     return Object.keys(this.balances);
   }
-  balances = {};
+  get balances() { return {}; }
   static millisecondsPerDay = 1e3 * 60 * 60 * 24;
   // For now, these next two are deliberately adding the user if not already present.
   getBalance(user) { // Updates for daily stipend, and returns the result.
-    const data = this.balances[user] || {balance: this.stipend * 10}; // Just for now, start new users with some money.
+    const { balances } = this;
+    let data = balances[user] || {balance: this.stipend * 10}; // Just for now, start new users with some money.
     if (!data) return 0;
     const now = Date.now();
     let {balance, lastStipend = now} = data;
@@ -47,7 +48,9 @@ class Group { // A single group, of which the current user must be a member.
     balance += this.stipend * daysSince;
     balance = this.roundDownToNearest(balance);
     lastStipend = now;
-    this.balances[user] = {balance, lastStipend};
+    data = {balance, lastStipend};
+    balances[user] = data;
+    this.balances = balances; // Ensure that we reset the rule for balances, so dependecies update.
     return balance;
   }
   adjustBalance(user, amount) {
