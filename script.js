@@ -125,28 +125,34 @@ groupsPrivate.onupdate = addUnknown('groupCollection');
 //Object.values(Credentials.collections).concat(users, groups).forEach(c => c.debug = true);
 function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service);
-  if (connect) {
+  try {
+    if (connect) {
+      return Promise.all([
+	Credentials.synchronize(service),
+	usersPublic.synchronize(service),
+	groupsPublic.synchronize(service)
+	  .then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
+	    await groupsPublic.synchronized;
+	    App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
+	  }),
+	usersPrivate.synchronize(service),
+	groupsPrivate.synchronize(service),
+	media.synchronize(service)
+      ]);
+    }
     return Promise.all([
-      Credentials.synchronize(service),
-      usersPublic.synchronize(service),
-      groupsPublic.synchronize(service)
-	.then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
-	  await groupsPublic.synchronized;
-	  App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
-	}),
-      usersPrivate.synchronize(service),
-      groupsPrivate.synchronize(service),
-      media.synchronize(service)
+      Credentials.disconnect(service),
+      usersPublic.disconnect(service),
+      usersPrivate.disconnect(service),
+      groupsPublic.disconnect(service),
+      groupsPrivate.disconnect(service),
+      media.disconnect(service)
     ]);
+  } catch (error) {
+    console.error('synchronization error', error.message || error);
+    console.log(error.stack);
+    return null;
   }
-  return Promise.all([
-    Credentials.disconnect(service),
-    usersPublic.disconnect(service),
-    usersPrivate.disconnect(service),
-    groupsPublic.disconnect(service),
-    groupsPrivate.disconnect(service),
-    media.disconnect(service)
-  ]);
 }
 
 function getUserList() { return usersPublic.list(); }
