@@ -1,6 +1,6 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser, AppQrcode } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
-import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, WebRTC, PromiseWebRTC } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
@@ -98,7 +98,7 @@ const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.group.pub
 const groupsPrivate = new VersionedCollection({name: 'social.fairshare.groups.private'});
 const media         = new ImmutableCollection({name: 'social.fairshare.media'});
 
-Object.assign(window, {Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User}); // For debugging in console.
+Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User}); // For debugging in console.
 
 function addUnknown(collectionName) { // Return an update event handler for the specified collection.
   return async event => {
@@ -121,6 +121,7 @@ usersPublic.onupdate = addUnknown('userCollection');
 usersPrivate.onupdate = addUnknown('userCollection');
 groupsPublic.onupdate = addUnknown('groupCollection');
 groupsPrivate.onupdate = addUnknown('groupCollection');
+groupsPrivate.versions.debug = true; // fixme remove
 
 //Object.values(Credentials.collections).concat(users, groups).forEach(c => c.debug = true);
 function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
@@ -814,7 +815,7 @@ class FairshareSync extends MDElement {
 
     // These two wacky special cases are for LAN connections by QR code.
     if (label.textContent.includes('Lead')) {
-      url = 'signals';
+      url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
       if (inFlight) { // Already started. Finish up by receiving the peer's code.
 	this.hide(this.sendCode);
 	this.show(this.sendVideo);
@@ -846,7 +847,7 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendVideo);
       }
     } else if (label.textContent.includes('Follow')) {
-      url = relayElement.url;
+      url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
       if (inFlight) { // Display answer code to peer.
 	console.log('starting inflight', url);
 	checkbox.indeterminate = false;
@@ -1416,3 +1417,6 @@ class FairshareHistory extends MDElement { // WIP
   }
 }
 FairshareHistory.register();
+
+// Some debugging/status stuff.
+document.onvisibilitychange = () => console.log(document.visibilityState, usersPublic.synchronizers.get(usersPublic.services[0])?.connection.peer.connectionState || 'no synchronizer');
