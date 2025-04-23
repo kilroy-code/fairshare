@@ -194,6 +194,9 @@ class FairshareApp extends BasicApp {
     // synchronization has been turned off.
     if (!groupsPublic.synchronizers.size) groupsPublic.find({title: 'FairShare'}).then(tag => this.FairShareTag = tag);
   }
+  get statusElement() {
+    return this.child$('[slot="additional-menu"]');
+  }
   directedToFirstUse() {
     if (!App.getParameter('invitation')) return false;
     App.resetUrl({screen: 'First Use'});
@@ -678,7 +681,7 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
-const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
@@ -747,6 +750,7 @@ class FairshareSync extends MDElement {
     };
     this.shadow$('#hotspotCredentialsForm').onsubmit = () => this.saveHotspotCredentials();
     this.qrProceed.onclick = () => this.proceed?.();
+    App.statusElement.onclick = () => App.resetUrl({screen: 'Relays'});
   }
   get ssidElement() {
     return this.shadow$('#ssid');
@@ -793,7 +797,7 @@ class FairshareSync extends MDElement {
   }
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
     const [checkbox, label, urlElement, trailing] = relayElement.children;
-    const [packets, ice] = trailing.children;
+    const [status, connection, kill] = trailing.children;
     const lead = Credentials.collections.EncryptionKey;
     let url = urlElement.textContent;
 
@@ -865,19 +869,31 @@ class FairshareSync extends MDElement {
     } else {
       synchronizeCollections(url, checkbox.checked);
     }
-    packets.textContent = ice.textContent = '';
+    status.textContent = 'cloud_off';
+    connection.textContent = '';
     if (!checkbox.checked) return;
-    packets.textContent = 'connecting';
+    App.statusElement.textContent = status.textContent = 'cloud_upload';
     const synchronizers = collections.map(collection => collection.synchronizers.get(url));
-    Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => packets.textContent = 'synchronizing');
-    Promise.all(synchronizers.map(synchronizer => synchronizer.bothSidesCompletedSynchronization)).then(() => {
+    Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => {
+      App.statusElement.textContent = status.textContent = 'cloud_sync';
       const [synchronizer] = synchronizers;
-      packets.textContent = synchronizer?.protocol || '';
-      ice.textContent = synchronizer?.candidateType || '';
+      connection.textContent = `${synchronizer?.protocol || ''} ${synchronizer?.candidateType || ''}`;
+      kill.style = 'display:none';
+    });
+    Promise.all(synchronizers.map(synchronizer => synchronizer.bothSidesCompletedSynchronization)).then(() => {
+      App.statusElement.textContent = status.textContent = 'cloud_done';
     });
     Promise.race(synchronizers.map(synchronizer => synchronizer.closed)).then(() => {
       checkbox.checked = false;
-      packets.textContent = ice.textContent = '';
+      status.textContent = 'cloud_off';
+      const alert = 'thunderstorm';
+      App.statusElement.textContent = alert;
+      setTimeout(() => {
+	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
+	App.statusElement.textContent = Array.from(this.relaysElement.children).some(element => element.status === 'cloud_done') ? 'cloud_done' : 'cloud_off';
+      }, 2e3);
+      connection.textContent = '';
+      kill.style = '';
     });
   }
   addRelay(label, url, state = '', disabled = '') {
@@ -887,7 +903,7 @@ class FairshareSync extends MDElement {
   <span slot="headline" contenteditable="plaintext-only">${label}</span>
   <span slot="supporting-text"  contenteditable="plaintext-only">${url}</span>
   <span slot="trailing-supporting-text">
-   <span></span>
+   <material-icon>cloud_off</material-icon>
    <span></span>
    <md-icon-button  ${disabled}><material-icon>delete</material-icon></md-icon-button>
   </span>
