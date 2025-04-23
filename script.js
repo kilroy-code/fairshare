@@ -821,7 +821,6 @@ class FairshareSync extends MDElement {
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
 	this.showCode(this.sendCode, await this.sender.connection.signals);
 	this.show(this.qrProceed);
-	console.log('showed', this.qrProceed);
 	this.scrollElement(this.sendCode);
 
 	relayElement.inFlight = 'waiting';
@@ -836,7 +835,19 @@ class FairshareSync extends MDElement {
       }
     } else if (label.textContent.includes('Follow')) {
       url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
-      if (inFlight) { // Display answer code to peer.
+      if (checkbox.checked) { // Scan code.
+	this.show(this.receiveVideo);
+	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
+	this.scrollElement(this.receiveVideo);
+	relayElement.inFlight = checkbox.indeterminate = true;
+	console.log('scanning');
+	checkbox.indeterminate = true;
+	relayElement.url = await this.scan(this.receiveVideo.querySelector('video'),
+					   _ => _,
+					   LOCAL_TEST && this.sendCode);
+	console.log('scanned, checked:', checkbox.checked, checkbox.indeterminate, relayElement.url);
+	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
+	url = relayElement.url;
 	console.log('starting inflight', url);
 	checkbox.indeterminate = false;
 	checkbox.checked = true;
@@ -849,19 +860,6 @@ class FairshareSync extends MDElement {
 	await receiver.startedSynchronization;
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
-      } else if (checkbox.checked) { // Scan code.
-	this.show(this.receiveVideo);
-	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
-	this.scrollElement(this.receiveVideo);
-	relayElement.inFlight = checkbox.indeterminate = true;
-	console.log('scanning');
-	checkbox.indeterminate = true;
-	relayElement.url = await this.scan(this.receiveVideo.querySelector('video'),
-					   _ => _,
-					   LOCAL_TEST && this.sendCode);
-	console.log('scanned, checked:', checkbox.checked, checkbox.indeterminate, relayElement.url);
-	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
-	setTimeout(() => this.updateRelay(relayElement)); // continue next tick
       } else { // Disconnect
 	if (!usersPublic.synchronizers.get(url)) return;
 	console.log('disconnect', url);
