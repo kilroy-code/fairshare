@@ -863,19 +863,22 @@ class FairshareSync extends MDElement {
       }
 
     } else {
-      await synchronizeCollections(url, checkbox.checked);
+      synchronizeCollections(url, checkbox.checked);
     }
-    const synchronizer = usersPublic.synchronizers.get(url); // users being representative
-    synchronizer && synchronizer.closed.then(() => {
-      if (!checkbox.checked) return; // Manually cleared. We're all good.
-      checkbox.checked = false; // Otherwise, make everything match.
-      setTimeout(() => {
-	this.updateRelay(relayElement);
-	this.saveRelays();
-      });
+    packets.textContent = ice.textContent = '';
+    if (!checkbox.checked) return;
+    packets.textContent = 'connecting';
+    const synchronizers = collections.map(collection => collection.synchronizers.get(url));
+    Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => packets.textContent = 'synchronizing');
+    Promise.all(synchronizers.map(synchronizer => synchronizer.bothSidesCompletedSynchronization)).then(() => {
+      const [synchronizer] = synchronizers;
+      packets.textContent = synchronizer?.protocol || '';
+      ice.textContent = synchronizer?.candidateType || '';
     });
-    packets.textContent = synchronizer?.protocol || '';
-    ice.textContent = synchronizer?.candidateType || '';
+    Promise.race(synchronizers.map(synchronizer => synchronizer.closed)).then(() => {
+      checkbox.checked = false;
+      packets.textContent = ice.textContent = '';
+    });
   }
   addRelay(label, url, state = '', disabled = '') {
     this.relaysElement.insertAdjacentHTML('beforeend', `
@@ -893,8 +896,10 @@ class FairshareSync extends MDElement {
     const [checkbox, text, location, trailing] = item.children;
     const [remove] = trailing.children;
     checkbox.oninput = async event => {
-      await this.updateRelay(event.target.parentElement);
-      this.saveRelays();
+      const element = event.target.parentElement,
+	    checkbox = element.children[2];
+      await this.updateRelay(element);
+      if (checkbox.textContent.includes('/sync')) this.saveRelays();
     };
     text.onblur = location.onblur = event => this.saveRelays();
     remove.onclick = () => this.saveRelays(item.remove());
