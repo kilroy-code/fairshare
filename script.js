@@ -794,14 +794,15 @@ class FairshareSync extends MDElement {
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
     const [checkbox, label, urlElement, trailing] = relayElement.children;
     const [packets, ice] = trailing.children;
+    const lead = Credentials.collections.EncryptionKey;
     let url = urlElement.textContent;
 
     // These two wacky special cases are for LAN connections by QR code.
     if (label.textContent.includes('Lead')) {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
       if (checkbox.checked) { // Kick off negotiation for sender's users.
-	await usersPublic.synchronize(url);
-	this.sender = usersPublic.synchronizers.get(url);
+	synchronizeCollections(url, true);
+	this.sender = lead.synchronizers.get(url);
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
 	const signals = await this.sender.connection.signals;
@@ -824,8 +825,8 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
       } else { // Disconnect
-	if (!usersPublic.synchronizers.get(url)) return;
-	await usersPublic.disconnect(url);
+	if (!lead.synchronizers.get(url)) return;
+	await synchronizeCollections(url, false);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendCode);
 	this.hide(this.sendVideo);
@@ -844,8 +845,8 @@ class FairshareSync extends MDElement {
 					   _ => _,
 					   LOCAL_TEST && this.sendCode);
 	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
-	await usersPublic.synchronize(url);
-	const receiver = usersPublic.synchronizers.get(url);
+	synchronizeCollections(url, true);
+	const receiver = lead.synchronizers.get(url);
 	this.updateText(this.receiveInstructions, `Press "scan other device's code" button on the other device, and use it to read this qr code:`);
 	this.showCode(this.receiveCode, await receiver.connection.signals);
 	this.hide(this.receiveVideo);
@@ -854,8 +855,8 @@ class FairshareSync extends MDElement {
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
       } else { // Disconnect
-	if (!usersPublic.synchronizers.get(url)) return;
-	await usersPublic.disconnect(url);
+	if (!lead.synchronizers.get(url)) return;
+	await synchronizeCollections(url, false);
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
 	this.hide(this.receiveVideo);
