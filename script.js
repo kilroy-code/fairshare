@@ -799,16 +799,24 @@ class FairshareSync extends MDElement {
     // These two wacky special cases are for LAN connections by QR code.
     if (label.textContent.includes('Lead')) {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
+      console.log('lead update. checked::', checkbox.checked);      
       if (checkbox.checked) { // Kick off negotiation for sender's users.
 	await usersPublic.synchronize(url);
+	console.log('after start, checked:', checkbox.checked);
 	this.sender = usersPublic.synchronizers.get(url);
+	console.log('sender:', this.sender);
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
-	this.showCode(this.sendCode, await this.sender.connection.signals);
+	const signals = await this.sender.connection.signals;
+	console.log('got signals:', signals, 'checked:', checkbox.checked);
+	this.showCode(this.sendCode, signals);
+	console.log('after signals, checked:', checkbox.checked);
 	this.show(this.qrProceed);
 	this.scrollElement(this.sendCode);
 
 	await new Promise(resolve => this.proceed = resolve);
+	console.log('after proceed, checked:', checkbox.checked);
+	if (!checkbox.checked) return; // User gave up.
 
 	this.hide(this.sendCode);
 	this.hide(this.qrProceed);
@@ -818,19 +826,24 @@ class FairshareSync extends MDElement {
 	const scan = await this.scan(this.sendVideo.querySelector('video'),
 				     _ => _,
 				     LOCAL_TEST && this.receiveCode);
-	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
+	console.log('after scan, checked:', checkbox.checked);	
+	if (!checkbox.checked) return; // User gave up.
 	await this.sender.completeSignalsSynchronization(scan);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
-
       } else { // Disconnect
+	console.log('disconnect, checked:', checkbox.checked, 'url:', url, 'synchronizer:', usersPublic.synchronizers.get(url));
 	if (!usersPublic.synchronizers.get(url)) return;
 	await usersPublic.disconnect(url);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendCode);
 	this.hide(this.sendVideo);
 	this.hide(this.qrProceed);
+	this.proceed?.();
+	this.sender = null;
+	console.log('disconnected', this.sender, 'get:', usersPublic.synchronizers.get(url));
       }
+
     } else if (label.textContent.includes('Follow')) {
       url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
       if (checkbox.checked) { // Scan code.
