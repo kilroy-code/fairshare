@@ -801,7 +801,18 @@ class FairshareSync extends MDElement {
     // These two wacky special cases are for LAN connections by QR code.
     if (label.textContent.includes('Lead')) {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
-      if (inFlight) { // Already started. Finish up by receiving the peer's code.
+      if (checkbox.checked) { // Kick off negotiation for sender's users.
+	await usersPublic.synchronize(url);
+	this.sender = usersPublic.synchronizers.get(url);
+
+	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
+	this.showCode(this.sendCode, await this.sender.connection.signals);
+	this.show(this.qrProceed);
+	this.scrollElement(this.sendCode);
+
+	relayElement.inFlight = 'waiting';
+	checkbox.indeterminate = true;
+	await new Promise(resolve => this.proceed = resolve);
 	this.hide(this.sendCode);
 	this.hide(this.qrProceed);
 	this.show(this.sendVideo);
@@ -814,17 +825,7 @@ class FairshareSync extends MDElement {
 	await this.sender.completeSignalsSynchronization(scan);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
-      } else if (checkbox.checked) { // Kick off negotiation for sender's users.
-	await usersPublic.synchronize(url);
-	this.sender = usersPublic.synchronizers.get(url);
 
-	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
-	this.showCode(this.sendCode, await this.sender.connection.signals);
-	this.show(this.qrProceed);
-	this.scrollElement(this.sendCode);
-
-	relayElement.inFlight = 'waiting';
-	checkbox.indeterminate = true;
       } else { // Disconnect
 	if (!usersPublic.synchronizers.get(url)) return;
 	await usersPublic.disconnect(url);
