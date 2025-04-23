@@ -685,7 +685,8 @@ class FairshareSync extends MDElement {
   get sendVideo() { return this.shadow$('slot[name="sendVideo"]').assignedElements()[0]; }
   get receiveVideo() { return this.shadow$('slot[name="receiveVideo"]').assignedElements()[0]; }
   get sendInstructions() { return this.shadow$('#sendInstructions'); }
-  get receiveInstructions() { return this.shadow$('#receiveInstructions'); }  
+  get receiveInstructions() { return this.shadow$('#receiveInstructions'); }
+  get qrProceed() { return this.shadow$('#qrProceed'); }
   hide(element) { element.style.display = 'none'; }
   show(element) {
     element.style.display = '';
@@ -733,6 +734,7 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     const relays = App.getLocal('relays', [
       ["Public server", new URL("/flexstore/sync", location).href, "checked"],
+      ["Private buddy", new URL("/flexstore/signal/some-secret", location).href],
       ["Private LAN - Lead", "generate QR code on hotspot"],
       ["Private LAN - Follow", "scan QR code on hotspot"]
     ]);
@@ -744,6 +746,7 @@ class FairshareSync extends MDElement {
       this.shadow$('#hotspotCredentialsDialog').show();
     };
     this.shadow$('#hotspotCredentialsForm').onsubmit = () => this.saveHotspotCredentials();
+    this.qrProceed.onclick = () => this.proceed?.();
   }
   get ssidElement() {
     return this.shadow$('#ssid');
@@ -800,6 +803,7 @@ class FairshareSync extends MDElement {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
       if (inFlight) { // Already started. Finish up by receiving the peer's code.
 	this.hide(this.sendCode);
+	this.hide(this.qrProceed);
 	this.show(this.sendVideo);
 	this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
 	checkbox.checked = true;
@@ -810,13 +814,14 @@ class FairshareSync extends MDElement {
 	await this.sender.completeSignalsSynchronization(scan);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
-
       } else if (checkbox.checked) { // Kick off negotiation for sender's users.
 	await usersPublic.synchronize(url);
 	this.sender = usersPublic.synchronizers.get(url);
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
 	this.showCode(this.sendCode, await this.sender.connection.signals);
+	this.show(this.qrProceed);
+	console.log('showed', this.qrProceed);
 	this.scrollElement(this.sendCode);
 
 	relayElement.inFlight = 'waiting';
@@ -827,6 +832,7 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendInstructions);
 	this.hide(this.sendCode);
 	this.hide(this.sendVideo);
+	this.hide(this.qrProceed);
       }
     } else if (label.textContent.includes('Follow')) {
       url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
@@ -913,7 +919,8 @@ class FairshareSync extends MDElement {
         <div class="column">
           <p id="sendInstructions"></p>
           <app-qrcode id="sendCode" style="display:none"></app-qrcode>
-          <slot name="sendVideo"></slot>          
+          <md-outlined-button id="qrProceed" style="display:none">scan other device's code</md-outlined-button>
+          <slot name="sendVideo"></slot>
 
           <p id="receiveInstructions" style="display:none"></p>
           <app-qrcode id="receiveCode" style="display:none"></app-qrcode>
