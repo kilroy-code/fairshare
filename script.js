@@ -9,7 +9,7 @@ const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = 
 // - Set App.mumble vs App.resetUrl. Which to use? Be consistent.
 
 const checkSafari = setTimeout(() => {
-  App.alert("There is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug is fixed in Safari Technology Preview 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.",
+  App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case reload may fix it now. But there are browser bugs that also cause this (e.g., in Safari 18.3) in which the only workaround is to close the browser and restart it.',
 	    "Webworker Bug!");
 }, 6e3);
 Credentials.ready.then(ready => ready && clearTimeout(checkSafari));
@@ -98,8 +98,6 @@ const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.group.pub
 const groupsPrivate = new VersionedCollection({name: 'social.fairshare.groups.private'});
 const media         = new ImmutableCollection({name: 'social.fairshare.media'});
 
-Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User}); // For debugging in console.
-
 function addUnknown(collectionName) { // Return an update event handler for the specified collection.
   return async event => {
     const tag = event.detail.tag;
@@ -121,34 +119,19 @@ usersPublic.onupdate = addUnknown('userCollection');
 usersPrivate.onupdate = addUnknown('userCollection');
 groupsPublic.onupdate = addUnknown('groupCollection');
 groupsPrivate.onupdate = addUnknown('groupCollection');
-groupsPrivate.versions.debug = true; // fixme remove
 
-//Object.values(Credentials.collections).concat(users, groups).forEach(c => c.debug = true);
-function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
+const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, media);
+Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User, collections}); // For debugging in console.
+async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service);
   try {
     if (connect) {
-      return Promise.all([
-	Credentials.synchronize(service),
-	usersPublic.synchronize(service),
-	groupsPublic.synchronize(service)
-	  .then(async () => { // Once we're in production, we can hardcode this in the rule for FairShareTag,
-	    await groupsPublic.synchronized;
-	    App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
-	  }),
-	usersPrivate.synchronize(service),
-	groupsPrivate.synchronize(service),
-	media.synchronize(service)
-      ]);
+      const promises = collections.map(collection => collection.synchronize(service)); // start 'em all.
+      await groupsPublic.synchronized;  // Once we're in production, we can hardcode this in the rule for FairShareTag,
+      App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
+      return Promise.all(promises);
     }
-    return Promise.all([
-      Credentials.disconnect(service),
-      usersPublic.disconnect(service),
-      usersPrivate.disconnect(service),
-      groupsPublic.disconnect(service),
-      groupsPrivate.disconnect(service),
-      media.disconnect(service)
-    ]);
+    return Promise.all(collections.map(collection => collection.disconnect(service)));
   } catch (error) {
     console.error('synchronization error', error.message || error);
     console.log(error.stack);
@@ -361,7 +344,6 @@ class FairshareApp extends BasicApp {
 
     if (key === 'Panic-Button...') return App.confirm('Delete all local data from this browser? (You will then need to "Add existing account" to reclaim your data from a relay.)', "Panic!").then(async response => {
       if (response !== 'ok') return;
-      const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, media);
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
       console.log('Removing local databases:', ...collections.map(c => c.name));
       localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
@@ -696,7 +678,7 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
-const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
