@@ -741,7 +741,8 @@ class FairshareSync extends MDElement {
       ["Private LAN - Lead", "generate QR code on hotspot"],
       ["Private LAN - Follow", "scan QR code on hotspot"]
     ]);
-    FairshareApp.initialSync = Promise.all(relays.map(params => this.updateRelay(this.addRelay(...params))));
+    const relayElements = relays.map(params => this.addRelay(...params));
+    FairshareApp.initialSync = Promise.all(this.updateRelays(relayElements));
     this.addExpander();
     this.shadow$('[href="#"]').onclick = () => {
       this.ssidElement.value = localStorage.getItem('ssid') || '';
@@ -751,6 +752,11 @@ class FairshareSync extends MDElement {
     this.shadow$('#hotspotCredentialsForm').onsubmit = () => this.saveHotspotCredentials();
     this.qrProceed.onclick = () => this.proceed?.();
     App.statusElement.onclick = () => App.resetUrl({screen: 'Relays'});
+    document.addEventListener('visibilitychange', () => {
+      console.log('visibility:', document.visibilityState);
+      if (document.visibilityState !== 'visible') return;
+      this.updateRelays();
+    });
   }
   get ssidElement() {
     return this.shadow$('#ssid');
@@ -795,6 +801,9 @@ class FairshareSync extends MDElement {
     }
     App.setLocal('relays', data);
   }
+  updateRelays(relayElements = Array.from(this.relaysElement.children)) {
+    return relayElements.map(relayElement => this.updateRelay(relayElement));
+  }
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
     const [checkbox, label, urlElement, trailing] = relayElement.children;
     const [status, connection, kill] = trailing.children;
@@ -805,6 +814,7 @@ class FairshareSync extends MDElement {
     if (label.textContent.includes('Lead')) {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
       if (checkbox.checked) { // Kick off negotiation for sender's users.
+	if (this.sender) return; // Already started.
 	synchronizeCollections(url, true);
 	this.sender = lead.synchronizers.get(url);
 
@@ -842,6 +852,7 @@ class FairshareSync extends MDElement {
     } else if (label.textContent.includes('Follow')) {
       url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
       if (checkbox.checked) { // Scan code.
+	if (url) return; // Already started
 	this.show(this.receiveVideo);
 	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
 	this.scrollElement(this.receiveVideo);
@@ -864,8 +875,14 @@ class FairshareSync extends MDElement {
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
 	this.hide(this.receiveVideo);
+	relayElement.url = null;
       }
 
+    } else if (checkbox.checked && lead.synchronizers.get(url)) {
+      console.log(`Service ${url} is underway.`);
+      return; // Already started.
+    } else if (!checkbox.checked && !lead.synchronizers.get(url)) {
+      return;
     } else {
       synchronizeCollections(url, checkbox.checked);
     }
@@ -886,11 +903,13 @@ class FairshareSync extends MDElement {
     Promise.race(synchronizers.map(synchronizer => synchronizer.closed)).then(() => {
       checkbox.checked = false;
       status.textContent = 'cloud_off';
-      const alert = 'thunderstorm';
+      // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
+      const alert = 'thunderstorm';      
       App.statusElement.textContent = alert;
       setTimeout(() => {
 	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
-	App.statusElement.textContent = Array.from(this.relaysElement.children).some(element => element.status === 'cloud_done') ? 'cloud_done' : 'cloud_off';
+	const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
+	App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
       }, 2e3);
       connection.textContent = '';
       kill.style = '';
@@ -1418,6 +1437,3 @@ class FairshareHistory extends MDElement { // WIP
   }
 }
 FairshareHistory.register();
-
-// Some debugging/status stuff.
-document.onvisibilitychange = () => console.log(document.visibilityState, usersPublic.synchronizers.get(usersPublic.services[0])?.connection.peer.connectionState || 'no synchronizer');
