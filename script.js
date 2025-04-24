@@ -945,7 +945,7 @@ class FairshareSync extends MDElement {
       <section>
         <md-list>
         </md-list>
-        <p><a href="#">Share your hotspot</a></p>
+        <p><a href="#">Share your hotspot</a> <audio src="https://npr-ice.streamguys1.com/live.mp3" controls></audio></p>
 
         <div class="column">
           <p id="sendInstructions"></p>
