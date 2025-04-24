@@ -945,6 +945,7 @@ class FairshareSync extends MDElement {
       <section>
         <md-list>
         </md-list>
+        <!-- See also https://gist.github.com/novwhisky/8a1a0168b94f3b6abfaa https://fmstream.org/index.php?c=FT -->
         <p><a href="#">Share your hotspot</a> <audio src="https://npr-ice.streamguys1.com/live.mp3" controls></audio></p>
 
         <div class="column">
@@ -1109,7 +1110,7 @@ FairshareTransaction.register();
 
 class FairshareInvest extends MDElement {
   get template() {
-    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a> in another tab.</i></p>`;
+    return `<p><i>Investing in a groups is not implemented yet, but see <a href="https://howard-stearns.github.io/FairShare-initial-poc/app.html?user=alice&groupFilter=&group=apples&payee=carol&amount=10&investment=-50&currency=fairshare#invest" target="fairshare-poc">proof of concept</a> in another tab.</i></p>`;
   }
 }
 FairshareInvest.register();
