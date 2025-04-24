@@ -1,0 +1,19 @@
+{
+  "name": "FairShare",
+  "description": "Securely share money and messages among a group.",
+  "start_url": "/fairshare/app.html",
+  "display": "standalone",  
+  "icons": [{
+    "src": "images/fairshare-512.png",
+    "type": "image/png",
+    "sizes": "512x512"
+  }, {
+    "src": "images/fairshare-192.png",
+    "sizes": "192x192",
+    "type": "image/png"
+  }, {
+    "src": "images/fairshare.webp",
+    "sizes": "122x122",
+    "type": "image/webp"
+  }]
+}
