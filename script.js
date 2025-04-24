@@ -700,7 +700,11 @@ class FairshareSync extends MDElement {
     element.textContent = text;
   }
   showCode(element, data) { // Show data on the qr code display specified by element.
-    element.size = this.shadow$('.column').offsetWidth;
+    const colWidth = this.shadow$('.column').offsetWidth;
+    const width = window.innerWidth - 10;
+    const height = window.innerHeight - 10;
+    const min = Math.min(colWidth, width, height, 450);
+    element.size = min;
     element.sendObject(data);
     this.show(element);
   }
