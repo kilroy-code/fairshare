@@ -1,6 +1,6 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser, AppQrcode } from '@kilroy-code/ui-components';
 import { Rule } from '@kilroy-code/rules';
-import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js'; 
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
@@ -12,7 +12,11 @@ const checkSafari = setTimeout(() => {
   App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case reload may fix it now. But there are browser bugs that also cause this (e.g., in Safari 18.3) in which the only workaround is to close the browser and restart it.',
 	    "Webworker Bug!");
 }, 6e3);
-Credentials.ready.then(ready => ready && clearTimeout(checkSafari));
+Credentials.ready.then(ready => {
+  ready && clearTimeout(checkSafari);
+  document.getElementById('distributedSecurity').innerText = `${ready.name} ${ready.version}`;
+  document.getElementById('flexstore').innerText = `${name} ${version}`;
+});
 
 class User { // A single user, which must be one that the human has authorized on this machine.
   constructor(properties) { Object.assign(this, properties); }
@@ -123,7 +127,7 @@ groupsPrivate.onupdate = addUnknown('groupCollection');
 const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, media);
 Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User, collections}); // For debugging in console.
 async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
-  console.log(connect ? 'connecting' : 'disconnecting', service);
+  console.log(connect ? 'connecting' : 'disconnecting', service, new Date());
   try {
     if (connect) {
       const promises = collections.map(collection => collection.synchronize(service)); // start 'em all.
@@ -348,6 +352,7 @@ class FairshareApp extends BasicApp {
     if (key === 'Panic-Button...') return App.confirm('Delete all local data from this browser? (You will then need to "Add existing account" to reclaim your data from a relay.)', "Panic!").then(async response => {
       if (response !== 'ok') return;
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
+      console.clear();
       console.log('Removing local databases:', ...collections.map(c => c.name));
       localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
       await Credentials.clear(); // Clear cached keys in the vault.
@@ -1245,13 +1250,12 @@ export class EditGroup extends MDElement {
     return '';
   }
   get owner() { // Overridden by FairshareGroupProfile.
-    return Credentials.create(App.user);
+    return '';
   }
   get tag() {
     return this.owner;
   }
   get exists() {
-    if (!this.tag) return false;
     return App.findGroup({title: this.title}) || null;
   }
   setUsernameValidity(message) {
@@ -1266,6 +1270,7 @@ export class EditGroup extends MDElement {
   }
   async checkUsernameAvailable() { // Returns true if available. Forces update of username.
     this.title = undefined;
+    if (!this.title) return this.setUsernameValidity('');
     if (this.allowedTitle === this.title) return this.setUsernameValidity('');
     if (!await this.exists) return this.setUsernameValidity('');
     await this.setUsernameValidity("Already exists");
@@ -1277,9 +1282,9 @@ export class EditGroup extends MDElement {
     if (!await this.checkUsernameAvailable()) return null;
     if (!data.picture.size) data.picture = this.picture;
     else data.picture = await AvatarImage.fileData(data.picture);
-    // Credentials.owner is either already set (editing), or will be on next tick after setting group to the new tag,
-    // but we need it set now for setGroup.
-    Credentials.owner = data.owner = await this.owner;
+    // Credentials.owner may already be set (editing), but we need it set now for setGroup.
+    this.owner ||= await Credentials.create(App.user);
+    Credentials.owner = data.owner = this.owner;
     const tag = this.tag;
     await App.setGroup(tag, data); // Set the data, whether new or not.
     await this.parentComponent.onaction?.(target);

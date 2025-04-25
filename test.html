@@ -59,12 +59,12 @@
 	document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
 	return true;
       }
-      import { Credentials } from '../@kilroy-code/flexstore/index.mjs';
+      import { Credentials, name, version } from '../@kilroy-code/flexstore/index.mjs';
       const checkSafari = setTimeout(() => {
 	alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
 }, 6e3);
       Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
-      identify('flexstore', '@kilroy-code/flexstore/package.json');
+      identify('flexstore', {name, version});
       identify('rules', '@kilroy-code/rules/package.json');
       identify('ui', '@kilroy-code/ui-components/package.json');
     </script>

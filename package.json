@@ -28,7 +28,7 @@
   },
   "homepage": "https://github.com/howard-stearns/fairshare2#readme",
   "dependencies": {
-    "@kilroy-code/flexstore": "^0.0.19",
+    "@kilroy-code/flexstore": "^0.0.20",
     "@kilroy-code/ui-components": "^0.0.23"
   },
   "devDependencies": {
