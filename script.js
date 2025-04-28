@@ -714,7 +714,7 @@ class FairshareSync extends MDElement {
     this.show(element);
   }
   scrollElement(element) { // Scroll element into view.
-    setTimeout(() => element.scrollIntoView({block: 'start', behavior: 'smooth'}), 500);
+    setTimeout(() => element.scrollIntoView({block: 'end', behavior: 'smooth'}), 500);
   }
   async scan(view, onDecodeError = _ => _, localTestQrCode = null) { // Scan the code at view, unless a local app-qrcode is supplied to read directly.
     // Returns a promise for the JSON-parsed scanned string
@@ -823,15 +823,15 @@ class FairshareSync extends MDElement {
     if (label.textContent.includes('Lead')) {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
       if (checkbox.checked) { // Kick off negotiation for sender's users.
-	if (this.sender) return; // Already started.
+	if (lead.synchronizers.get(url)) return; // Already started.
 	synchronizeCollections(url, true);
-	this.sender = lead.synchronizers.get(url);
+	const sender = lead.synchronizers.get(url);
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
-	const signals = await this.sender.connection.signals;
+	const signals = await sender.connection.signals;
 	this.showCode(this.sendCode, signals);
 	this.show(this.qrProceed);
-	this.scrollElement(this.sendCode);
+	this.scrollElement(this.qrProceed);
 
 	await new Promise(resolve => this.proceed = resolve);
 	if (!checkbox.checked) return; // User gave up.
@@ -839,12 +839,13 @@ class FairshareSync extends MDElement {
 	this.hide(this.qrProceed);
 	this.show(this.sendVideo);
 	this.updateText(this.sendInstructions, "Use this video to scan the qr code from the other device:");
+	this.scrollElement(this.sendVideo);
 	checkbox.checked = true;
 	const scan = await this.scan(this.sendVideo.querySelector('video'),
 				     _ => _,
 				     LOCAL_TEST && this.receiveCode);
 	if (!checkbox.checked) return; // User gave up.
-	await this.sender.completeSignalsSynchronization(scan);
+	await sender.completeSignalsSynchronization(scan);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
       } else { // Disconnect
@@ -855,13 +856,12 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendVideo);
 	this.hide(this.qrProceed);
 	this.proceed?.();
-	this.sender = null;
       }
 
     } else if (label.textContent.includes('Follow')) {
       url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
       if (checkbox.checked) { // Scan code.
-	if (url) return; // Already started
+	if (lead.synchronizers.get(url)) return; // Already started
 	this.show(this.receiveVideo);
 	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
 	this.scrollElement(this.receiveVideo);
@@ -875,6 +875,7 @@ class FairshareSync extends MDElement {
 	this.showCode(this.receiveCode, await receiver.connection.signals);
 	this.hide(this.receiveVideo);
 	this.show(this.receiveCode);
+	this.scrollElement(this.receiveCode);
 	await receiver.startedSynchronization;
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
@@ -898,30 +899,35 @@ class FairshareSync extends MDElement {
     status.textContent = 'cloud_off';
     connection.textContent = '';
     if (!checkbox.checked) return;
+    // We are connecting...
     App.statusElement.textContent = status.textContent = 'cloud_upload';
     const synchronizers = collections.map(collection => collection.synchronizers.get(url));
+    // Once connected, show that we're synchronizing and display the connection protocol/type.
     Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_sync';
       const [synchronizer] = synchronizers;
       connection.textContent = `${synchronizer?.protocol || ''} ${synchronizer?.candidateType || ''}`;
       kill.style = 'display:none';
     });
+    // Once synchronized, show that we're done.
     Promise.all(synchronizers.map(synchronizer => synchronizer.bothSidesCompletedSynchronization)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
     });
+    // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
     Promise.race(synchronizers.map(synchronizer => synchronizer.closed)).then(() => {
       checkbox.checked = false;
       status.textContent = 'cloud_off';
       // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
       const alert = 'thunderstorm';      
       App.statusElement.textContent = alert;
+      connection.textContent = '';
+      kill.style = '';
+      synchronizeCollections(url, false);
       setTimeout(() => {
 	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
 	const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
 	App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
       }, 2e3);
-      connection.textContent = '';
-      kill.style = '';
     });
   }
   addRelay(label, url, state = '', disabled = '') {
