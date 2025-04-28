@@ -695,6 +695,7 @@ class FairshareSync extends MDElement {
   get sendInstructions() { return this.shadow$('#sendInstructions'); }
   get receiveInstructions() { return this.shadow$('#receiveInstructions'); }
   get qrProceed() { return this.shadow$('#qrProceed'); }
+  get dummy() { return this.shadow$('#dummy'); }
   hide(element) { element.style.display = 'none'; }
   show(element) {
     element.style.display = '';
@@ -714,7 +715,7 @@ class FairshareSync extends MDElement {
     this.show(element);
   }
   scrollElement(element) { // Scroll element into view.
-    setTimeout(() => element.scrollIntoView({block: 'end', behavior: 'smooth'}), 500);
+    setTimeout(() => element.scrollIntoView({block: 'end', behavior: 'smooth'}), 750);
   }
   async scan(view, onDecodeError = _ => _, localTestQrCode = null) { // Scan the code at view, unless a local app-qrcode is supplied to read directly.
     // Returns a promise for the JSON-parsed scanned string
@@ -874,9 +875,10 @@ class FairshareSync extends MDElement {
 	this.updateText(this.receiveInstructions, `Press "scan other device's code" button on the other device, and use it to read this qr code:`);
 	this.showCode(this.receiveCode, await receiver.connection.signals);
 	this.hide(this.receiveVideo);
-	this.show(this.receiveCode);
-	this.scrollElement(this.receiveCode);
+	this.show(this.dummy);
+	this.scrollElement(this.dummy);
 	await receiver.startedSynchronization;
+	this.hide(this.dummy);
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
       } else { // Disconnect
@@ -966,12 +968,13 @@ class FairshareSync extends MDElement {
         <div class="column">
           <p id="sendInstructions"></p>
           <app-qrcode id="sendCode" style="display:none"></app-qrcode>
-          <md-outlined-button id="qrProceed" style="display:none">scan other device's code</md-outlined-button>
           <slot name="sendVideo"></slot>
+          <md-outlined-button id="qrProceed" style="display:none">scan other device's code</md-outlined-button>
 
           <p id="receiveInstructions" style="display:none"></p>
           <app-qrcode id="receiveCode" style="display:none"></app-qrcode>
           <slot name="receiveVideo"></slot>
+          <md-outlined-button id="dummy" style="display:none">to make scrolling match</md-outlined-button>
         </div>
         <md-dialog id="hotspotCredentialsDialog">
           <div slot="headline">Tether another device to this one</div>
@@ -998,6 +1001,7 @@ class FairshareSync extends MDElement {
   get styles() {
     return `
       section { margin: var(--margin, 10px); }
+      #dummy { visibility: hidden; }
       .column {
         display: flex;
         flex-direction: column;
