@@ -765,7 +765,10 @@ class FairshareSync extends MDElement {
     document.addEventListener('visibilitychange', () => {
       console.log('visibility:', document.visibilityState);
       if (document.visibilityState !== 'visible') return;
-      this.updateRelays();
+      let elements = Array.from(this.relaysElement.children);
+      let preferences = App.getLocal('relays');
+      preferences.forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
+      this.updateRelays(elements);
     });
   }
   get ssidElement() {
@@ -811,7 +814,7 @@ class FairshareSync extends MDElement {
     }
     App.setLocal('relays', data);
   }
-  updateRelays(relayElements = Array.from(this.relaysElement.children)) {
+  updateRelays(relayElements) {
     return relayElements.map(relayElement => this.updateRelay(relayElement));
   }
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
