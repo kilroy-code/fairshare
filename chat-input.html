@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mobile Chat Input</title>
     <style>
         * {
@@ -11,20 +11,25 @@
             box-sizing: border-box;
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            background-color: #f5f5f5;
-            height: 100vh;
+        html, body {
+            height: 100%;
+            width: 100%;
             overflow: hidden;
+            position: relative;
+            background-color: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+
+        .app-container {
             display: flex;
             flex-direction: column;
-            /* Fix for iOS Safari */
-            position: fixed;
+            height: 100%;
+            width: 100%;
+            position: absolute;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            width: 100%;
         }
 
         .chat-container {
@@ -32,6 +37,7 @@
             overflow-y: auto;
             padding: 16px;
             padding-bottom: 80px; /* Space for the input area */
+            -webkit-overflow-scrolling: touch; /* For iOS smooth scrolling */
         }
 
         .message {
@@ -45,19 +51,16 @@
         }
 
         .input-container {
-            position: fixed;
+            position: sticky;
             bottom: 0;
             left: 0;
             right: 0;
             background-color: #fff;
             padding: 12px;
-            padding-bottom: calc(12px + env(safe-area-inset-bottom));
             border-top: 1px solid #e0e0e0;
             display: flex;
             align-items: flex-end;
-            z-index: 1000;
-            /* Safari iOS fix */
-            transform: translateZ(0);
+            z-index: 100;
         }
 
         .input-box {
@@ -103,30 +106,47 @@
             background-color: #e3f2fd;
             margin-left: auto;
         }
+        
+        /* Debug status for iOS troubleshooting */
+        .debug-status {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px;
+            font-size: 10px;
+            z-index: 9999;
+            display: none;
+        }
     </style>
 </head>
 <body>
-    <div class="chat-container" id="chatContainer">
-        <div class="message">Hi there! How are you today?</div>
-        <div class="message">I'm doing great, thanks for asking!</div>
-        <div class="message">What are you working on?</div>
-        <div class="message">Just building a responsive chat input box for mobile that resizes as you type.</div>
-        <div class="message">That sounds interesting! Can you tell me more about it?</div>
-    </div>
+    <div class="debug-status" id="debugStatus"></div>
+    <div class="app-container">
+        <div class="chat-container" id="chatContainer">
+            <div class="message">Hi there! How are you today?</div>
+            <div class="message">I'm doing great, thanks for asking!</div>
+            <div class="message">What are you working on?</div>
+            <div class="message">Just building a responsive chat input box for mobile that resizes as you type.</div>
+            <div class="message">That sounds interesting! Can you tell me more about it?</div>
+        </div>
 
-    <div class="input-container" id="inputContainer">
-        <textarea 
-            class="input-box" 
-            id="messageInput" 
-            placeholder="Type a message..."
-            rows="1"
-        ></textarea>
-        <button class="send-button" id="sendButton" disabled>
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13"></line>
-                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-            </svg>
-        </button>
+        <div class="input-container" id="inputContainer">
+            <textarea 
+                class="input-box" 
+                id="messageInput" 
+                placeholder="Type a message..."
+                rows="1"
+            ></textarea>
+            <button class="send-button" id="sendButton" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
     </div>
 
     <script>
@@ -135,9 +155,28 @@
             const sendButton = document.getElementById('sendButton');
             const chatContainer = document.getElementById('chatContainer');
             const inputContainer = document.getElementById('inputContainer');
+            const debugStatus = document.getElementById('debugStatus');
+            
+            // Enable debug mode for troubleshooting
+            const debugMode = false;
+            if (debugMode) {
+                debugStatus.style.display = 'block';
+                debugStatus.textContent = 'Debug mode active';
+            }
             
             // Detect iOS device
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            
+            // Log debug info
+            function logDebug(text) {
+                if (debugMode) {
+                    debugStatus.textContent = text;
+                }
+            }
+            
+            if (isIOS) {
+                logDebug('iOS detected: ' + navigator.userAgent);
+            }
             
             // Function to resize the textarea based on content
             function resizeTextarea() {
@@ -149,95 +188,7 @@
                 messageInput.style.height = newHeight + 'px';
             }
             
-            // Function to handle Visual Viewport changes (keyboard opening/closing)
-            function handleViewportChange() {
-                if (!window.visualViewport) return;
-                
-                const currentViewportHeight = window.visualViewport.height;
-                const offsetTop = window.visualViewport.offsetTop || 0;
-                
-                if (isIOS) {
-                    // iOS Safari specific handling
-                    inputContainer.style.position = 'absolute';
-                    inputContainer.style.bottom = `${window.innerHeight - currentViewportHeight - offsetTop}px`;
-                    
-                    // Ensure chat container doesn't get covered
-                    chatContainer.style.paddingBottom = `${inputContainer.offsetHeight + 20}px`;
-                    
-                    // Scroll to bottom to keep input in view if needed
-                    window.scrollTo(0, 0);
-                } else {
-                    // Android and other browsers
-                    inputContainer.style.bottom = `${window.innerHeight - currentViewportHeight - offsetTop}px`;
-                }
-            }
-            
-            // Function to handle focus event on iOS
-            function handleFocus() {
-                if (isIOS) {
-                    // Add small delay for iOS keyboard to appear
-                    setTimeout(() => {
-                        // Scroll to ensure input is visible
-                        window.scrollTo(0, document.body.scrollHeight);
-                        
-                        // Additional fix for older iOS versions
-                        inputContainer.style.position = 'fixed';
-                        inputContainer.style.bottom = '0';
-                        
-                        // Set body height to accommodate keyboard
-                        document.body.style.height = `${window.innerHeight}px`;
-                        document.body.style.overflow = 'hidden';
-                    }, 300);
-                }
-            }
-            
-            // Function to handle blur event on iOS
-            function handleBlur() {
-                if (isIOS) {
-                    // Reset positioning
-                    inputContainer.style.position = 'fixed';
-                    inputContainer.style.bottom = '0';
-                    
-                    // Reset body styles
-                    document.body.style.height = '';
-                    document.body.style.overflow = '';
-                }
-            }
-            
-            // Listen for input event to resize textarea
-            messageInput.addEventListener('input', function() {
-                resizeTextarea();
-                
-                // Enable or disable send button based on input
-                sendButton.disabled = messageInput.value.trim() === '';
-            });
-            
-            // Add focus and blur event listeners (especially important for iOS)
-            messageInput.addEventListener('focus', handleFocus);
-            messageInput.addEventListener('blur', handleBlur);
-            
-            // Listen for Visual Viewport resize (keyboard appearing)
-            if (window.visualViewport) {
-                window.visualViewport.addEventListener('resize', handleViewportChange);
-                window.visualViewport.addEventListener('scroll', handleViewportChange);
-            } else {
-                // Fallback for browsers without Visual Viewport API
-                window.addEventListener('resize', function() {
-                    // Simple fallback that just keeps input at bottom
-                    inputContainer.style.bottom = '0';
-                });
-            }
-            
             // Handle sending messages
-            sendButton.addEventListener('click', sendMessage);
-            messageInput.addEventListener('keydown', function(e) {
-                // Send on Enter (but allow Shift+Enter for new lines)
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                }
-            });
-            
             function sendMessage() {
                 const messageText = messageInput.value.trim();
                 if (messageText) {
@@ -259,16 +210,93 @@
                 }
             }
             
-            // Add iOS viewport meta tag dynamically if needed
-            if (isIOS) {
-                const viewportMeta = document.querySelector('meta[name="viewport"]');
-                if (viewportMeta) {
-                    viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+            // Handle focus events for iOS
+            function handleFocus() {
+                logDebug('Input focused');
+                
+                if (isIOS) {
+                    // Small delay to let keyboard appear
+                    setTimeout(() => {
+                        // Scroll the input into view
+                        inputContainer.scrollIntoView({behavior: 'smooth'});
+                        
+                        // For iOS 15+, use a different approach to keep input visible
+                        if (window.innerHeight < window.outerHeight) {
+                            document.body.scrollTop = document.body.scrollHeight;
+                        }
+                    }, 300);
                 }
             }
             
+            // Handle blur events
+            function handleBlur() {
+                logDebug('Input blurred');
+            }
+            
+            // Make sure scrolling works properly
+            function setupScrolling() {
+                // Make sure chat container is scrollable on iOS
+                chatContainer.style.webkitOverflowScrolling = 'touch';
+                
+                // Ensure we're scrolled to bottom initially
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+                
+                // Fix for iOS Safari to ensure input is visible when keyboard appears
+                if (isIOS) {
+                    // Disable position:fixed which can cause issues with iOS keyboard
+                    window.addEventListener('resize', function() {
+                        // This helps ensure the input stays in view when keyboard appears
+                        if (document.activeElement === messageInput) {
+                            setTimeout(() => {
+                                inputContainer.scrollIntoView({behavior: 'smooth'});
+                            }, 100);
+                        }
+                    });
+                }
+            }
+            
+            // Add event listeners
+            messageInput.addEventListener('input', function() {
+                resizeTextarea();
+                sendButton.disabled = messageInput.value.trim() === '';
+            });
+            
+            messageInput.addEventListener('focus', handleFocus);
+            messageInput.addEventListener('blur', handleBlur);
+            
+            sendButton.addEventListener('click', sendMessage);
+            
+            messageInput.addEventListener('keydown', function(e) {
+                // Send on Enter (but allow Shift+Enter for new lines)
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
             // Initialize
             resizeTextarea();
+            setupScrolling();
+            
+            // Debug info for viewport
+            if (debugMode) {
+                function updateDebugInfo() {
+                    const info = `Window: ${window.innerWidth}x${window.innerHeight}, ` +
+                                 `Visual: ${window.visualViewport ? window.visualViewport.width + 'x' + window.visualViewport.height : 'N/A'}, ` +
+                                 `Offset: ${window.scrollY}, ` +
+                                 `Input pos: ${inputContainer.offsetTop}`;
+                    debugStatus.textContent = info;
+                }
+                
+                window.addEventListener('resize', updateDebugInfo);
+                window.addEventListener('scroll', updateDebugInfo);
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', updateDebugInfo);
+                    window.visualViewport.addEventListener('scroll', updateDebugInfo);
+                }
+                
+                updateDebugInfo();
+            }
         });
     </script>
 </body>
