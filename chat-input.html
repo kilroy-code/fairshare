@@ -75,6 +75,14 @@
             outline: none;
             resize: none;
             line-height: 1.4;
+            /* Hide scrollbar for Chrome, Safari and Opera */
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+        }
+        
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .input-box::-webkit-scrollbar {
+            display: none;
         }
 
         .send-button {
