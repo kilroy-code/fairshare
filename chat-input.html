@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Mobile Chat Input</title>
     <style>
         * {
@@ -18,6 +18,13 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            /* Fix for iOS Safari */
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
         }
 
         .chat-container {
@@ -44,10 +51,13 @@
             right: 0;
             background-color: #fff;
             padding: 12px;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom));
             border-top: 1px solid #e0e0e0;
             display: flex;
             align-items: flex-end;
             z-index: 1000;
+            /* Safari iOS fix */
+            transform: translateZ(0);
         }
 
         .input-box {
@@ -126,6 +136,9 @@
             const chatContainer = document.getElementById('chatContainer');
             const inputContainer = document.getElementById('inputContainer');
             
+            // Detect iOS device
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            
             // Function to resize the textarea based on content
             function resizeTextarea() {
                 // Reset height to auto to get the correct scrollHeight
@@ -138,8 +151,57 @@
             
             // Function to handle Visual Viewport changes (keyboard opening/closing)
             function handleViewportChange() {
+                if (!window.visualViewport) return;
+                
                 const currentViewportHeight = window.visualViewport.height;
-                inputContainer.style.bottom = `${window.innerHeight - currentViewportHeight - window.visualViewport.offsetTop}px`;
+                const offsetTop = window.visualViewport.offsetTop || 0;
+                
+                if (isIOS) {
+                    // iOS Safari specific handling
+                    inputContainer.style.position = 'absolute';
+                    inputContainer.style.bottom = `${window.innerHeight - currentViewportHeight - offsetTop}px`;
+                    
+                    // Ensure chat container doesn't get covered
+                    chatContainer.style.paddingBottom = `${inputContainer.offsetHeight + 20}px`;
+                    
+                    // Scroll to bottom to keep input in view if needed
+                    window.scrollTo(0, 0);
+                } else {
+                    // Android and other browsers
+                    inputContainer.style.bottom = `${window.innerHeight - currentViewportHeight - offsetTop}px`;
+                }
+            }
+            
+            // Function to handle focus event on iOS
+            function handleFocus() {
+                if (isIOS) {
+                    // Add small delay for iOS keyboard to appear
+                    setTimeout(() => {
+                        // Scroll to ensure input is visible
+                        window.scrollTo(0, document.body.scrollHeight);
+                        
+                        // Additional fix for older iOS versions
+                        inputContainer.style.position = 'fixed';
+                        inputContainer.style.bottom = '0';
+                        
+                        // Set body height to accommodate keyboard
+                        document.body.style.height = `${window.innerHeight}px`;
+                        document.body.style.overflow = 'hidden';
+                    }, 300);
+                }
+            }
+            
+            // Function to handle blur event on iOS
+            function handleBlur() {
+                if (isIOS) {
+                    // Reset positioning
+                    inputContainer.style.position = 'fixed';
+                    inputContainer.style.bottom = '0';
+                    
+                    // Reset body styles
+                    document.body.style.height = '';
+                    document.body.style.overflow = '';
+                }
             }
             
             // Listen for input event to resize textarea
@@ -150,10 +212,20 @@
                 sendButton.disabled = messageInput.value.trim() === '';
             });
             
+            // Add focus and blur event listeners (especially important for iOS)
+            messageInput.addEventListener('focus', handleFocus);
+            messageInput.addEventListener('blur', handleBlur);
+            
             // Listen for Visual Viewport resize (keyboard appearing)
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', handleViewportChange);
                 window.visualViewport.addEventListener('scroll', handleViewportChange);
+            } else {
+                // Fallback for browsers without Visual Viewport API
+                window.addEventListener('resize', function() {
+                    // Simple fallback that just keeps input at bottom
+                    inputContainer.style.bottom = '0';
+                });
             }
             
             // Handle sending messages
@@ -184,6 +256,14 @@
                     messageInput.value = '';
                     resizeTextarea();
                     sendButton.disabled = true;
+                }
+            }
+            
+            // Add iOS viewport meta tag dynamically if needed
+            if (isIOS) {
+                const viewportMeta = document.querySelector('meta[name="viewport"]');
+                if (viewportMeta) {
+                    viewportMeta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
                 }
             }
             
