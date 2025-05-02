@@ -2,6 +2,7 @@ body {
     margin: 0;
     font-family: roboto;
 }
+html, body, fairshare-app { height: 100%; }
 p fairshare-group-chooser,
 p fairshare-groups-menu-button,
 p fairshare-all-other-groups-menu-button,

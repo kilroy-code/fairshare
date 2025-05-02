@@ -378,8 +378,11 @@ class FairshareApp extends BasicApp {
 FairshareApp.register();
 
 class GroupImage extends AvatarImage {
-  get model() {
-    return App.groupRecord || null;
+  get collectionName() {
+    return 'groupCollection';
+  }
+  get tag() {
+    return App.group;
   }
   get radius() {
     return 10;
@@ -766,8 +769,7 @@ class FairshareSync extends MDElement {
       console.log('visibility:', document.visibilityState);
       if (document.visibilityState !== 'visible') return;
       let elements = Array.from(this.relaysElement.children);
-      let preferences = App.getLocal('relays');
-      preferences.forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
+      App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
       this.updateRelays(elements);
     });
   }
@@ -1015,6 +1017,278 @@ class FairshareSync extends MDElement {
   }
 }
 FairshareSync.register();
+
+class FairshareBubble extends MDElement {
+  // See https://www.subframe.com/tips/css-chat-examples
+  // "3) CorporateSync Chat Interface" but with:
+  //     Me (username) for myself, to left like others (see "7) Project Management Chat Interface)
+  //     time on same line as username (to right, like "7")
+  //     do not use this "typing" (as it does not say who. Want more like "10) Dynamic CSS Chat UI")
+  get user() { return ''; }
+  get message() { return '[[missing message]]'; }
+  get time() { return '[[missing time]]'; }
+  get isMe() { return this.user === App.user; }
+  get userEffect() {
+    // TODO: isMe stuff ought to be set here rather than in template, so that we can switch user nicely.
+    const user = App.userCollection[this.user];
+    if (!user) return false;
+    return this.shadow$('.message-sender').textContent = this.isMe ? `me (${user.title})` : user.title;
+  }
+  get template() {
+    return `
+<div class="message ${this.isMe ? 'outgoing' : 'incoming'}">
+  <avatar-image class="message-avatar" tag="${this.user}"></avatar-image>
+  <div class="message-content">
+    <div class="message-meta">
+      <span class="message-sender">...</span>
+      <span class="message-time">${this.time}</span>
+    </div>
+    <div class="message-bubble">${this.message}</div>
+  </div>
+</div>`;
+  }
+  get styles() {
+    return `
+        .message {
+            display: flex;
+            gap: 10px;
+        }
+        .message.outgoing {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+        .message-avatar {
+            flex-shrink: 0;
+        }
+        .message-content {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .message-bubble {
+            padding: 10px 15px;
+            border-radius: 18px;
+            font-size: 14px;
+            max-width: 100%;
+            word-wrap: break-word;
+            position: relative;
+        }
+        .message.incoming .message-bubble {
+            background-color: var(--md-sys-color-secondary-container);
+            color: var(--md-sys-color-on-secondary-container);
+            border-top-left-radius: 4px;
+        }
+        .message.outgoing .message-bubble {
+            background-color: var(--md-sys-color-primary-container);
+            color: var(--md-sys-color-on-primary-container);
+            border-top-right-radius: 4px;
+        }
+        .message-sender {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--md-sys-color-secondary);
+        }
+        .message-meta {
+            display: flex;
+            width: 100%;
+            justify-content: space-between;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            color: var(--md-sys-color-secondary);
+            margin-left: auto;
+            margin-top: 2px;
+            margin-bottom: 2px;
+        }
+        .message.outgoing .message-sender,
+        .message.outgoing .message-meta {
+            color: var(--md-sys-color-outline-variant);
+        }
+    `;
+  }
+}
+FairshareBubble.register();
+
+class FairshareChatInput extends MDElement {
+  get chatContainer() { return null; }
+  get inputElement() {
+    return this.shadow$('.input-box');
+  }
+  get sendElement() {
+    return this.shadow$('md-icon-button');
+  }
+  maxHeight = 120; // pixels
+  resizeTextArea() { // Make the text area be the right height for its content.
+    // Reset height to auto to get the correct scrollHeight
+    this.inputElement.style.height = 'auto';
+
+    // Set the height to scrollHeight to fit all content
+    const newHeight = Math.min(this.maxHeight, this.inputElement.scrollHeight); // Note box-sizing style.
+    this.inputElement.style.height = newHeight + 'px';
+  }
+  sendMessage() { // Send the text where it needs to go, and reset the input.
+    const messageText = this.inputElement.value.trim();
+    if (messageText) {
+      // Create new message element
+      const messageElement = document.createElement('fairshare-bubble');
+      messageElement.user = App.user;
+      messageElement.time = new Date().toLocaleString();
+      messageElement.message = messageText;
+
+      // Add to chat container
+      this.chatContainer.appendChild(messageElement);
+
+      // Scroll to bottom
+      this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+
+      // Clear input
+      this.inputElement.value = '';
+      this.resizeTextArea();
+      this.sendElement.disabled = true;
+    }
+  }
+  handleFocus() {
+    // Small delay to let keyboard appear
+    setTimeout(() => {
+      // Scroll the input into view
+      this.inputElement.scrollIntoView({behavior: 'smooth'});
+
+      // For iOS 15+, use a different approach to keep input visible
+      if (window.innerHeight < window.outerHeight) {
+        document.body.scrollTop = document.body.scrollHeight;
+      }
+    }, 300);
+  }
+  afterInitialize() {
+    this.inputElement.addEventListener('input', () => {
+      this.resizeTextArea();
+      this.sendElement.disabled = this.inputElement.value.trim() === '';
+    });
+
+    this.inputElement.addEventListener('focus', () => this.handleFocus());
+    this.sendElement.addEventListener('click', () => this.sendMessage());
+    this.inputElement.addEventListener('keydown', (e) => {
+      // Send on Enter (but allow Shift+Enter for new lines)
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.sendMessage();
+      }
+    });
+
+    // Initialize
+    this.resizeTextArea();
+    // Ensure we're scrolled to bottom initially
+    this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+    // Fix for iOS Safari to ensure input is visible when keyboard appears
+    window.addEventListener('resize', () => {
+      // This helps ensure the input stays in view when keyboard appears
+      if (document.activeElement === this.inputElement) {
+        setTimeout(() => {
+          this.inputElement.parentElement.scrollIntoView({behavior: 'smooth'});
+        }, 100);
+      }
+    });
+  }
+  get template() {
+    return `
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+        <div class="input-container" id="inputContainer">
+            <textarea
+                class="input-box"
+                placeholder="Type a message..."
+                rows="1"
+            ></textarea>
+            <md-icon-button disabled><md-icon class="material-icons">send</md-icon></md-icon-button>
+        </div>
+       `;
+  }
+  get styles() {
+    return `
+        * { box-sizing: border-box; }
+        md-icon-button {
+          background-color: var(--md-sys-color-on-primary-container);
+          border-radius: 50%;
+        }
+        md-icon { color: var(--md-sys-color-primary-container); }
+        .input-container {
+            position: sticky;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #fff;
+            padding: 12px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            align-items: flex-end;
+            z-index: 100;
+        }
+        .input-box::placeholder { color: var(--md-sys-color-outline-variant); font-style: italic; }
+        .input-box {
+            flex: 1;
+            border: 1px solid #ddd;
+            border-radius: 24px;
+            color: var(--md-sys-color-on-primary-container);
+            background-color: var(--md-sys-color-primary-container);
+            padding: 12px 16px;
+            max-height: ${this.maxHeight}px;
+            overflow-y: auto;
+            margin-right: 8px;
+            outline: none;
+            resize: none;
+            line-height: 1.4;
+            /* Hide scrollbar for Chrome, Safari and Opera */
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge */
+        }
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .input-box::-webkit-scrollbar {
+            display: none;
+        }
+      `;
+  }
+}
+FairshareChatInput.register();
+
+class FairshareHistory extends MDElement {
+  afterInitialize() {
+    const chatContainer = this.shadow$('.messages');
+    this.shadow$('fairshare-chat-input').chatContainer = chatContainer;
+  }
+  get template() {
+    let tags = App.getLocal(App.localKey(usersPrivate), []);
+    tags = tags.concat(tags);
+    return `
+      <section>
+        <div class="messages">
+<fairshare-bubble user="${tags[0]}" message="Hello. How are you today?" time=" 11:00"></fairshare-bubble>
+
+<fairshare-bubble user="${tags[1]}" message="Hey! I'm fine. Thanks for asking!" time=" 11:01"></fairshare-bubble>
+
+<fairshare-bubble user="${tags[0]}" message="Sweet! So, what do you wanna do today?" time=" 11:02"></fairshare-bubble>
+
+<fairshare-bubble user="${tags[1]}" message="Nah, I dunno. Play soccer.. or learn more coding perhaps?" time=" 11:05"></fairshare-bubble>
+        </div>
+        <fairshare-chat-input></fairshare-chat-input>
+      </section>
+    `;
+  }
+  get styles() {
+    return `
+      section {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      .messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+        padding-bottom: 80px;
+      }
+    `;
+  }
+}
+FairshareHistory.register();
 
 class FairsharePay extends MDElement {
   get transactionElement1() { // There will be more with exchanges.
@@ -1446,17 +1720,3 @@ export class EditGroup extends MDElement {
   }
 }
 EditGroup.register();
-
-class FairshareHistory extends MDElement { // WIP
-  get items() {
-    return [{from: App.user, text: "hello there"},
-	    {from: App.user, text: "goodbye"}];
-  }
-  get template() {
-    return `
-  <section>
-    <slot></slot>
-  </section>`;
-  }
-}
-FairshareHistory.register();
