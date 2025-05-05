@@ -100,6 +100,7 @@ const usersPublic   = new MutableCollection(  {name: 'social.fairshare.users.pub
 const usersPrivate  = new MutableCollection(  {name: 'social.fairshare.users.private'});
 const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.group.public'});
 const groupsPrivate = new VersionedCollection({name: 'social.fairshare.groups.private'});
+const messages = new VersionedCollection({name: 'social.fairshare.messages'});
 const media         = new ImmutableCollection({name: 'social.fairshare.media'});
 
 function addUnknown(collectionName) { // Return an update event handler for the specified collection.
@@ -110,6 +111,8 @@ function addUnknown(collectionName) { // Return an update event handler for the 
     // The 'update' event machinery cannot decrypt payloads for us, because the data might not be ours.
     // However, if it is one of our liveTags, then we certainly can (and must) decrypt it.
     if (live.includes(tag)) return collection.updateLiveRecord(tag, (await Collection.ensureDecrypted(event.detail)).json);
+
+    // Otherwise, we only deal in public info. FIXME: is that true? What about encrypted media attachements to messages?
     const known = collection.knownTags;
     if (!known.includes(tag)) {
       return collection.updateKnownTags([...known, tag]); // Adding a new knownTag
@@ -123,9 +126,12 @@ usersPublic.onupdate = addUnknown('userCollection');
 usersPrivate.onupdate = addUnknown('userCollection');
 groupsPublic.onupdate = addUnknown('groupCollection');
 groupsPrivate.onupdate = addUnknown('groupCollection');
+messages.versions.onupdate = ({detail}) => FairshareChatInput.instance.onupdate(detail);
 
-const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, media);
-Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection, groupsPublic, groupsPrivate, usersPublic, usersPrivate, media, Group, User, collections}); // For debugging in console.
+const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, messages, messages.versions, media);
+Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection,
+		       groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,
+		       Group, User, collections}); // For debugging in console.
 async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service, new Date());
   try {
@@ -1126,26 +1132,65 @@ class FairshareChatInput extends MDElement {
     const newHeight = Math.min(this.maxHeight, this.inputElement.scrollHeight); // Note box-sizing style.
     this.inputElement.style.height = newHeight + 'px';
   }
-  sendMessage() { // Send the text where it needs to go, and reset the input.
-    const messageText = this.inputElement.value.trim();
-    if (messageText) {
-      // Create new message element
-      const messageElement = document.createElement('fairshare-bubble');
-      messageElement.user = App.user;
-      messageElement.time = new Date().toLocaleString();
-      messageElement.message = messageText;
+  receiveMessage(verified) { // TODO: place in correct order.
+    const {json, protectedHeader} = verified;
+    const {text} = json;
+    const {iss, iat, act} = protectedHeader;
+    // Create new message element
+    const messageElement = document.createElement('fairshare-bubble');
+    messageElement.user = act;
+    messageElement.time = new Date(iat).toLocaleString();
+    messageElement.message = text;
+    messageElement.verified = verified;
 
-      // Add to chat container
-      this.chatContainer.appendChild(messageElement);
-
-      // Scroll to bottom
-      this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
-
-      // Clear input
-      this.inputElement.value = '';
-      this.resizeTextArea();
-      this.sendElement.disabled = true;
+    // Add to chat container
+    let children = this.chatContainer.children;
+    let i = children.length;
+    for (; i>0; i--) {
+      let child = children[i-1];
+      let {json, protectedHeader} = child.verified;
+      //console.log(i, json.text, protectedHeader.iat, 'vs', text, iat);
+      if (protectedHeader.iat < iat) {
+	child.after(messageElement);
+	break;
+      }
     }
+    //console.log('after loop, i=', i);
+    if (i <= 0) {
+      this.chatContainer.insertAdjacentElement('afterBegin', messageElement);
+    }
+
+    // Scroll to bottom
+    this.chatContainer.scrollTop = this.chatContainer.scrollHeight; // TODO: when/where should this be done.
+  }
+  async receiveMessages() {
+    // We getVersions rather that iterating through the version antecedents, because only the former must be correct after merging.
+    for (let hash of Object.values(await messages.getVersions(App.group)).slice(1)) {
+      const message = await messages.retrieve({tag: App.FairShareTag, hash});
+      this.receiveMessage(message);
+    }
+    return true;
+  }
+  onupdate(verified) {
+    if (verified?.protectedHeader?.iss !== App.group) return;
+    this.receiveMessage(verified);
+  }
+  get groupEffect() {
+    const group = App.group;
+    if (!group) return false;
+    this.chatContainer.innerHTML = '';
+    return this.receiveMessages();
+  }
+
+  async sendMessage() { // Send the text where it needs to go, and reset the input.
+    const messageText = this.inputElement.value.trim();
+    if (!messageText) return;
+    const message = {text: messageText};
+    await messages.store(message, {tag: App.group/* TODO: handle encryption onupdate, encryption: App.group*/});
+    // messages.onupdate will call receiveMessage().
+    this.inputElement.value = '';   // Clear input
+    this.resizeTextArea();
+    this.sendElement.disabled = true;
   }
   handleFocus() {
     // Small delay to let keyboard appear
@@ -1160,6 +1205,8 @@ class FairshareChatInput extends MDElement {
     }, 300);
   }
   afterInitialize() {
+    super.afterInitialize();
+    this.constructor.instance = this;
     this.inputElement.addEventListener('input', () => {
       this.resizeTextArea();
       this.sendElement.disabled = this.inputElement.value.trim() === '';
@@ -1210,6 +1257,7 @@ class FairshareChatInput extends MDElement {
           border-radius: 50%;
         }
         md-icon { color: var(--md-sys-color-primary-container); }
+        textarea { min-height: 40px; }
         .input-container {
             position: sticky;
             bottom: 0;
@@ -1251,6 +1299,7 @@ FairshareChatInput.register();
 
 class FairshareHistory extends MDElement {
   afterInitialize() {
+    super.afterInitialize();
     const chatContainer = this.shadow$('.messages');
     this.shadow$('fairshare-chat-input').chatContainer = chatContainer;
   }
@@ -1259,15 +1308,7 @@ class FairshareHistory extends MDElement {
     tags = tags.concat(tags);
     return `
       <section>
-        <div class="messages">
-<fairshare-bubble user="${tags[0]}" message="Hello. How are you today?" time=" 11:00"></fairshare-bubble>
-
-<fairshare-bubble user="${tags[1]}" message="Hey! I'm fine. Thanks for asking!" time=" 11:01"></fairshare-bubble>
-
-<fairshare-bubble user="${tags[0]}" message="Sweet! So, what do you wanna do today?" time=" 11:02"></fairshare-bubble>
-
-<fairshare-bubble user="${tags[1]}" message="Nah, I dunno. Play soccer.. or learn more coding perhaps?" time=" 11:05"></fairshare-bubble>
-        </div>
+        <div class="messages"></div>
         <fairshare-chat-input></fairshare-chat-input>
       </section>
     `;
