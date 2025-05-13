@@ -105,6 +105,7 @@ const media         = new ImmutableCollection({name: 'social.fairshare.media'});
 
 function addUnknown(collectionName) { // Return an update event handler for the specified collection.
   return async event => {
+    try {
     const tag = event.detail.tag;
     const collection = App[collectionName];
     const live = collection.liveTags;
@@ -118,7 +119,11 @@ function addUnknown(collectionName) { // Return an update event handler for the 
       return collection.updateKnownTags([...known, tag]); // Adding a new knownTag
     }
     // Otherwise just update the record without adding a new one.
-    collection.updateKnownRecord(tag);
+      collection.updateKnownRecord(tag);
+    } catch (e) {
+      console.error(e.message);
+      console.warn(e.stack);
+    }
     return null;
   };
 }
@@ -514,6 +519,7 @@ class FairshareGroups extends LiveList {
 
     // Update persistent and live group data (which the user doesn't have yet):
     const groupRecord = await App.groupCollection.getLiveRecord(groupTag);
+    console.log({groupTag, groups, groupRecord});
     if (groupRecord.title === 'unknown') {
       App.alert(`No viable record found for ${groupTag}.`);
       return;
@@ -1034,6 +1040,7 @@ class FairshareBubble extends MDElement {
   get message() { return '[[missing message]]'; }
   get time() { return '[[missing time]]'; }
   get isMe() { return this.user === App.user; }
+  get isCommand() { return this.message.startsWith('/'); }
   get userEffect() {
     // TODO: isMe stuff ought to be set here rather than in template, so that we can switch user nicely.
     const user = App.userCollection[this.user];
@@ -1042,7 +1049,7 @@ class FairshareBubble extends MDElement {
   }
   get template() {
     return `
-<div class="message ${this.isMe ? 'outgoing' : 'incoming'}">
+<div class="message ${this.isMe ? 'outgoing' : 'incoming'} ${this.isCommand ? 'command' : ''}">
   <avatar-image class="message-avatar" tag="${this.user}"></avatar-image>
   <div class="message-content">
     <div class="message-meta">
@@ -1087,7 +1094,11 @@ class FairshareBubble extends MDElement {
         .message.outgoing .message-bubble {
             background-color: var(--md-sys-color-primary-container);
             color: var(--md-sys-color-on-primary-container);
-            border-top-right-radius: 4px;
+            border-top-right-radius: 4px
+        }
+        .message.command .message-bubble {
+           border-radius: 4px;
+           opacity: 0.7;
         }
         .message-sender {
             font-size: 12px;
@@ -1172,8 +1183,14 @@ class FairshareChatInput extends MDElement {
     return true;
   }
   onupdate(verified) {
+    try {
+      console.log('update', verified.text);
     if (verified?.protectedHeader?.iss !== App.group) return;
-    this.receiveMessage(verified);
+      this.receiveMessage(verified);
+    } catch (e) {
+      console.error(e.message);
+      console.warn(e.stack);
+    }
   }
   get groupEffect() {
     const group = App.group;
@@ -1181,12 +1198,14 @@ class FairshareChatInput extends MDElement {
     this.chatContainer.innerHTML = '';
     return this.receiveMessages();
   }
-
+  static send(message) {
+    // TODO: handle encryption.
+    return messages.store(message, {tag: App.group});
+  }
   async sendMessage() { // Send the text where it needs to go, and reset the input.
     const messageText = this.inputElement.value.trim();
     if (!messageText) return;
-    const message = {text: messageText};
-    await messages.store(message, {tag: App.group/* TODO: handle encryption onupdate, encryption: App.group*/});
+    this.constructor.send({text: messageText});
     // messages.onupdate will call receiveMessage().
     this.inputElement.value = '';   // Clear input
     this.resizeTextArea();
@@ -1440,7 +1459,8 @@ class FairshareTransaction extends MDElement {
       this.groupRecord.adjustBalance(App.user, -this.cost);
       if (App.user !== this.payee) this.groupRecord.adjustBalance(this.payee, this.amount);
       await App.setGroup(App.group, this.groupRecord);
-      this.balanceBefore = undefined; // TODO: replace getBalance with a proper rule so that this isn't necessary.
+    this.balanceBefore = undefined; // TODO: replace getBalance with a proper rule so that this isn't necessary.
+    FairshareChatInput.send({text: `/pay @${App.userCollection[this.payee]?.title || this.payee} ${this.amount} ${this.groupRecord.title}`});
   }
 }
 FairshareTransaction.register();
