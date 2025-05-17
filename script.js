@@ -519,7 +519,6 @@ class FairshareGroups extends LiveList {
 
     // Update persistent and live group data (which the user doesn't have yet):
     const groupRecord = await App.groupCollection.getLiveRecord(groupTag);
-    console.log({groupTag, groups, groupRecord});
     if (groupRecord.title === 'unknown') {
       App.alert(`No viable record found for ${groupTag}.`);
       return;
@@ -762,7 +761,8 @@ class FairshareSync extends MDElement {
     super.afterInitialize();
     const relays = App.getLocal('relays', [
       ["Public server", new URL("/flexstore/sync", location).href, "checked"],
-      ["Private buddy", new URL("/flexstore/signal/some-secret", location).href],
+      ["Private WAN - Lead", new URL("/flexstore/signal/answer/some-secret", location).href],
+      ["Private WAN - Follow", new URL("/flexstore/signal/offer/some-secret", location).href],
       ["Private LAN - Lead", "generate QR code on hotspot"],
       ["Private LAN - Follow", "scan QR code on hotspot"]
     ]);
@@ -838,7 +838,7 @@ class FairshareSync extends MDElement {
     let url = urlElement.textContent;
 
     // These two wacky special cases are for LAN connections by QR code.
-    if (label.textContent.includes('Lead')) {
+    if (label.textContent.includes('LAN - Lead')) {
       url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
       if (checkbox.checked) { // Kick off negotiation for sender's users.
 	if (lead.synchronizers.get(url)) return; // Already started.
@@ -876,7 +876,7 @@ class FairshareSync extends MDElement {
 	this.proceed?.();
       }
 
-    } else if (label.textContent.includes('Follow')) {
+    } else if (label.textContent.includes('LAN - Follow')) {
       url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
       if (checkbox.checked) { // Scan code.
 	if (lead.synchronizers.get(url)) return; // Already started
