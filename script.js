@@ -368,10 +368,10 @@ class FairshareApp extends BasicApp {
       localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
       await Credentials.clear(); // Clear cached keys in the vault.
       await Promise.all(collections.map(async c => {
+	const store = await c.persistenceStore;
 	await c.disconnect();
-	const persist = await c.persist;
-	persist.close();
-	await persist.destroy();
+	store.close();
+	await store.destroy();
       }));
       localStorage.clear(); // again, because disconnect tickles relays.
       console.log('Cleared');
