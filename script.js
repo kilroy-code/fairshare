@@ -1378,6 +1378,7 @@ class FairsharePay extends MDElement {
       const payee = App.payee;
       const button = event.target;
       button.toggleAttribute('disabled', true);
+      this.transactionElement1.memo = this.shadow$('[label=memo]').value.trim();
       await this.transactionElement1.onaction();
       this.payeeElement.choice = '';
       App.resetUrl({payee: '', amount: ''});
@@ -1394,6 +1395,11 @@ class FairsharePay extends MDElement {
           to
           <fairshare-group-members-menu-button></fairshare-group-members-menu-button>
         </div>
+        <md-outlined-text-field
+          type="textarea"
+          label="memo"
+          rows="1">
+        </md-outlined-text-field>
         <hr>
         <fairshare-transaction></fairshare-transaction>
         <md-filled-button id="pay" disabled>Pay</md-filled-button>
@@ -1406,6 +1412,10 @@ class FairsharePay extends MDElement {
         display: flex;
         gap: var(--margin);
         align-items: center;
+      }
+      md-outlined-text-field {
+        width: 100%;
+        margin-top: 6px;
       }
       section { margin: var(--margin); }
     `;
@@ -1460,7 +1470,7 @@ class FairshareTransaction extends MDElement {
       if (App.user !== this.payee) this.groupRecord.adjustBalance(this.payee, this.amount);
       await App.setGroup(App.group, this.groupRecord);
     this.balanceBefore = undefined; // TODO: replace getBalance with a proper rule so that this isn't necessary.
-    FairshareChatInput.send({text: `/pay @${App.userCollection[this.payee]?.title || this.payee} ${this.amount} ${this.groupRecord.title}`});
+    FairshareChatInput.send({text: `/pay @${App.userCollection[this.payee]?.title || this.payee} ${this.amount} ${this.groupRecord.title}${this.memo ? ': ' : ''}${this.memo}`});
   }
 }
 FairshareTransaction.register();
