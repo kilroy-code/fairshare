@@ -1,10 +1,10 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse,
-	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule } from '@kilroy-code/ui-components';
+	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule, name as uname, version as uversion } from '@kilroy-code/ui-components';
 import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js';
 
 
-const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
+const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection, Notification } = window;
 
 // Cleanup todo:
 // - Set App.mumble vs App.resetUrl. Which to use? Be consistent.
@@ -17,6 +17,7 @@ Credentials.ready.then(ready => {
   ready && clearTimeout(checkSafari);
   document.getElementById('distributedSecurity').innerText = `${ready.name} ${ready.version}`;
   document.getElementById('flexstore').innerText = `${name} ${version}`;
+  document.getElementById('uicomponents').innerText = `${uname} ${uversion}`;
 });
 
 class User { // A single user, which must be one that the human has authorized on this machine.
@@ -25,6 +26,12 @@ class User { // A single user, which must be one that the human has authorized o
   get title() { return 'unknown'; }
   get picture() { return ''; }
   get groups() { return []; }
+  get notify() { return []; }
+  getNotify(group) {
+    const index = this.groups.indexOf(group);
+    if (index < 0) return false;
+    return this.notify[index];
+  }
 }
 Rule.rulify(User.prototype);
 
@@ -48,12 +55,12 @@ class Group { // A single group, of which the current user must be a member.
     let data = balances[user] || {balance: this.stipend * 10}; // Just for now, start new users with some money.
     if (!data) return 0;
     const now = Date.now();
-    let {balance, lastStipend = now} = data;
+    let {balance, lastStipend = now, notify = false} = data;
     const daysSince = Math.floor((now - lastStipend) / Group.millisecondsPerDay);
     balance += this.stipend * daysSince;
     balance = this.roundDownToNearest(balance);
     lastStipend = now;
-    data = {balance, lastStipend};
+    data = {balance, lastStipend, notify};
     balances[user] = data;
     this.balances = balances; // Ensure that we reset the rule for balances, so dependecies update.
     return balance;
@@ -1144,7 +1151,7 @@ class FairshareChatInput extends MDElement {
     const newHeight = Math.min(this.maxHeight, this.inputElement.scrollHeight); // Note box-sizing style.
     this.inputElement.style.height = newHeight + 'px';
   }
-  receiveMessage(verified) { // TODO: place in correct order.
+  receiveMessage(verified) {
     const {json, protectedHeader} = verified;
     const {text} = json;
     const {iss, iat, act} = protectedHeader;
@@ -1173,7 +1180,7 @@ class FairshareChatInput extends MDElement {
     }
 
     // Scroll to bottom
-    this.chatContainer.scrollTop = this.chatContainer.scrollHeight; // TODO: when/where should this be done.
+    this.chatContainer.scrollTop = this.chatContainer.scrollHeight; // TODO: when/where should this be done?
   }
   async receiveMessages() {
     // We getVersions rather that iterating through the version antecedents, because only the former must be correct after merging.
@@ -1183,15 +1190,37 @@ class FairshareChatInput extends MDElement {
     }
     return true;
   }
-  onupdate(verified) {
-    try {
-      console.log('update', verified.text);
-    if (verified?.protectedHeader?.iss !== App.group) return;
-      this.receiveMessage(verified);
-    } catch (e) {
-      console.error(e.message);
-      console.warn(e.stack);
-    }
+  async onupdate(verified) {
+    const {protectedHeader} = verified;
+    const {iss, iat, act} = protectedHeader;
+
+    const isCurrentGroup = iss === App.group;
+    if (isCurrentGroup) verified = await Collection.ensureDecrypted(verified);
+    if (isCurrentGroup) this.receiveMessage(verified);
+    if ((Notification.permission === "granted") &&
+	App.userRecord.getNotify(iss) &&
+	(act !== App.user) &&
+	(!isCurrentGroup || (App.screen !== 'History') || (document.visibilityState !== 'visible')) &&
+	// Currently, we only show notifications from a group that the current user is a member of.
+	// IWBNI if we showed notifications that any of this device's users are a member of.
+	App.groupCollection.liveTags.includes(iss)) {
+      verified = await Collection.ensureDecrypted(verified);
+      const registration = await navigator.serviceWorker.ready;
+      const title = `${App.getUserTitle(act)} in ${App.getGroupTitle(iss)}:`;
+      const body = verified.json.text; // verified.json will have changed via decryption.
+      const image = new URL('./images/fairshare-512.png', location.href).href;
+      const timestamp = iat;
+      const aud = App.user; // A member of the iss that is not act.
+      const data = {iss, aud};
+      const options = {body, image, timestamp, data};
+      // Here notifications are local. They don't go through any service (which is nice for security), but they
+      // only appear separately on each device that is running the app.
+      // If you have, e.g., a Mac, iPhone, and iWatch, it would be nice if any one device that was running would
+      // cause the message to show up everywhere. That could be done by going through Apple's service.
+      registration.showNotification(title, options);
+    } else console.log('notification is not sent', {permission: Notification.permission, notify: App.userRecord.getNotify(iss),
+						    isCurrentUser: act === App.user, isCurrentGroup, isHistory: App.screen === 'History',
+						    isVisible: document.visibilityState === 'visible', act, iss});
   }
   get groupEffect() {
     const group = App.group;
@@ -1200,8 +1229,7 @@ class FairshareChatInput extends MDElement {
     return this.receiveMessages();
   }
   static send(message) {
-    // TODO: handle encryption.
-    return messages.store(message, {tag: App.group});
+    return messages.store(message, {tag: App.group, encryption: App.group});
   }
   async sendMessage() { // Send the text where it needs to go, and reset the input.
     const messageText = this.inputElement.value.trim();
@@ -1324,8 +1352,6 @@ class FairshareHistory extends MDElement {
     this.shadow$('fairshare-chat-input').chatContainer = chatContainer;
   }
   get template() {
-    let tags = App.getLocal(App.localKey(usersPrivate), []);
-    tags = tags.concat(tags);
     return `
       <section>
         <div class="messages"></div>
@@ -1588,6 +1614,7 @@ class FairshareGroupProfile extends MDElement {
     // This next casues a warning if the screen is not actually being shown:
     // Invalid keyframe value for property transform: translateX(0px) translateY(NaNpx) scale(NaN)
     edit.usernameElement.value = title;
+    edit.notifyElement.checked = App.userRecord?.getNotify?.(App.group);
     // Disable editing of the FairShare title, as App.FairShareTag depends on it being constant.
     edit.usernameElement.toggleAttribute('disabled', (edit.owner === App.FairShareTag));
 
@@ -1638,6 +1665,8 @@ export class EditGroup extends MDElement {
   }
   async onaction(target) {
     const data = Object.fromEntries(new FormData(target)); // Must be now, before await.
+    const element = this.notifyElement;
+    const checked = element.checked;
     if (!await this.checkUsernameAvailable()) return null;
     if (!data.picture.size) data.picture = this.picture;
     else data.picture = await AvatarImage.fileData(data.picture);
@@ -1647,6 +1676,12 @@ export class EditGroup extends MDElement {
     const tag = this.tag;
     await App.setGroup(tag, data); // Set the data, whether new or not.
     await this.parentComponent.onaction?.(target);
+    // After parentComponent.onaction, we are certain to have tag in userRecord.groups
+    // Notify preference is per group, but set in the the private user data.
+    const index = App.userRecord.groups.indexOf(tag);
+    const notify = App.userRecord.notify;
+    notify[index] = checked;
+    await App.setUser(App.user, {notify});
     return null;
   }
   afterInitialize() {
@@ -1690,6 +1725,15 @@ export class EditGroup extends MDElement {
       event.preventDefault();
       this.shadow$('[type="file"]').click();
     });
+    this.notifyElement.addEventListener('click', event => {
+      const checkbox = event.target;
+      setTimeout(async () => { // Value isn't set yet
+	if (!checkbox.checked) return;
+	const permission = await Notification.requestPermission();
+	if (permission === 'granted') return;
+	checkbox.checked = false;
+      });
+    });
   }
   get usernameElement() { // A misnomer, carried over from EditUser.
     return this.shadow$('[name="title"]');
@@ -1699,6 +1743,9 @@ export class EditGroup extends MDElement {
   }
   get stipendElement() {
     return this.shadow$('[name="stipend"]');
+  }
+  get notifyElement() {
+    return this.shadow$('#notify');
   }
   get submitElement() {
     return this.shadow$('[type="submit"]');
@@ -1754,6 +1801,9 @@ export class EditGroup extends MDElement {
 		     id="${this.formId}-stipend">
 		</md-outlined-text-field>
                 <div class="current">(currently <span id="currentStipend">x</span>)</div>
+              </div>
+              <div class="row">
+                <label><md-checkbox id="notify"></md-checkbox> Notify me about activity in this group</label>
               </div>
             </form>
 	    <div slot="actions">

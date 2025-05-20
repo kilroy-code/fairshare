@@ -28,10 +28,10 @@
       const importMap = {
 	"imports": {
           "uuid4": "./node_modules/uuid4/browser.mjs",
-	  "@ki1r0y/distributed-security": url.href,
           "@kilroy-code/rules": "../@kilroy-code/rules/index.mjs",
-          "@kilroy-code/flexstore": "../@kilroy-code/flexstore/index.mjs",
-          "@kilroy-code/ui-components": "../@kilroy-code/ui-components/index.mjs",
+	  "@ki1r0y/distributed-security": url.href,
+          "@kilroy-code/flexstore": "../@kilroy-code/flexstore/bundle.mjs",
+          "@kilroy-code/ui-components": "../@kilroy-code/ui-components/bundle.mjs",
 	  "@kilroy-code/": "../@kilroy-code/"
 	}
       };
@@ -54,14 +54,14 @@
 	document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
 	return true;
       }
-      import { Credentials, name, version } from '../@kilroy-code/flexstore/index.mjs';
+      import { Credentials, name, version } from '@kilroy-code/flexstore';
+      import { name as uname, version as uversion } from '@kilroy-code/ui-components';
       const checkSafari = setTimeout(() => {
 	alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
 }, 6e3);
       Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
       identify('flexstore', {name, version});
-      identify('rules', '@kilroy-code/rules/package.json');
-      identify('ui', '@kilroy-code/ui-components/package.json');
+      identify('ui', {name:uname, version:uversion});
     </script>
   </head>
   <body>
@@ -78,7 +78,6 @@
     </script>
     <button disabled id="wipe" onclick="wipeDB()">delete db</button><br/>
     <span id="security"></span><br/>
-    <span id="rules"></span><br/>
     <span id="flexstore"></span><br/>
     <span id="ui"></span>
   </body>
