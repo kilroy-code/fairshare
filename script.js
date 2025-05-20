@@ -1,7 +1,8 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse, UserProfile, EditUser, SwitchUser, AppQrcode } from '@kilroy-code/ui-components';
-import { Rule } from '@kilroy-code/rules';
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse,
+	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule } from '@kilroy-code/ui-components';
 import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
-import QrScanner from './qr-scanner.min.js'; 
+import QrScanner from './qr-scanner.min.js';
+
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection } = window;
 
@@ -1791,3 +1792,20 @@ export class EditGroup extends MDElement {
   }
 }
 EditGroup.register();
+
+
+try {
+  const registration = await navigator.serviceWorker.register("/fairshare/sw.js", {
+    //scope: "/",
+  });
+  if (registration.installing) {
+    console.log("Service worker installing");
+  } else if (registration.waiting) {
+    console.log("Service worker installed");
+  } else if (registration.active) {
+    console.log("Service worker active");
+  }
+} catch (error) {
+  console.error(`Registration failed with ${error}`);
+}
+

@@ -4,7 +4,9 @@
   "description": "Cooperative currency and safe messaging.",
   "main": "app.html",
   "scripts": {
-    "test": "jasmine"
+    "test": "jasmine",
+    "build": "rollup -c",
+    "build-dev": "npx rollup -c --environment NODE_ENV:development"
   },
   "repository": {
     "type": "git",
@@ -32,7 +34,10 @@
     "@kilroy-code/ui-components": "^0.0.25"
   },
   "devDependencies": {
-    "jasmine": "^5.3.1",
-    "qr-scanner": "^1.4.2"
+    "@rollup/plugin-node-resolve": "15.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "jasmine": "^5.4.0",
+    "qr-scanner": "^1.4.2",
+    "rollup": "4.27"
   }
 }
