@@ -7,13 +7,17 @@
 The bottom of "About" and the top of "tests" should say:
 ```
 @ki1r0y/distributed-security 1.1.3
-@kilroy-code/flexstore 0.0.29
+@kilroy-code/flexstore 0.0.30
 @kilroy-code/ui-components 0.0.27
 ```
 
-and the "About" page additionally says `Fairshare 0.1.6`.
+and the "About" page additionally says `Fairshare 0.1.7`.
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
+
+## 0.1.7
+
+- Fix subtle timing variance that could cause connection problems such as a recurrence of https://github.com/kilroy-code/fairshare/issues/15 and maybe https://github.com/kilroy-code/fairshare/issues/34
 
 ## 0.1.6
 
