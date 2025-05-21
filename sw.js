@@ -57,7 +57,6 @@ self.addEventListener("install", (event) => {
     addResourcesToCache([
       "./app.html",
       "./script.js",
-      "./dependencies.js",
 
       "/@kilroy-code/ui-components/bundle.mjs",      
       "/@kilroy-code/flexstore/bundle.mjs",
