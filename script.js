@@ -55,12 +55,12 @@ class Group { // A single group, of which the current user must be a member.
     let data = balances[user] || {balance: this.stipend * 10}; // Just for now, start new users with some money.
     if (!data) return 0;
     const now = Date.now();
-    let {balance, lastStipend = now, notify = false} = data;
+    let {balance, lastStipend = now} = data;
     const daysSince = Math.floor((now - lastStipend) / Group.millisecondsPerDay);
     balance += this.stipend * daysSince;
     balance = this.roundDownToNearest(balance);
     lastStipend = now;
-    data = {balance, lastStipend, notify};
+    data = {balance, lastStipend};
     balances[user] = data;
     this.balances = balances; // Ensure that we reset the rule for balances, so dependecies update.
     return balance;
@@ -634,7 +634,7 @@ class FairshareShare extends AppShare {
   get groupElement() {
     return this.child$('fairshare-groups-menu-button');
   }
-  get buttonChoicesEffect() {
+/*  get buttonChoicesEffect() {
     const userTag = this.userElement.choice,
 	  userRecord = App.userCollection[userTag],
 	  userTitle = userRecord?.title,
@@ -658,7 +658,7 @@ class FairshareShare extends AppShare {
 	.then(() => setTimeout(() => this.userElement.choice = 0));
     }
     return true;
-  }
+  }*/
 }
 FairshareShare.register();
 
