@@ -1678,10 +1678,12 @@ export class EditGroup extends MDElement {
     await this.parentComponent.onaction?.(target);
     // After parentComponent.onaction, we are certain to have tag in userRecord.groups
     // Notify preference is per group, but set in the the private user data.
+    await App.userCollection.updateLiveRecord(App.user); // Is this necessary? Why?
     const index = App.userRecord.groups.indexOf(tag);
     const notify = App.userRecord.notify;
     notify[index] = checked;
     await App.setUser(App.user, {notify});
+    await App.userCollection.updateLiveRecord(App.user);
     return null;
   }
   afterInitialize() {
