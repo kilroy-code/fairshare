@@ -5,13 +5,14 @@
     <title>flexstore tests</title>
 
     <meta name="viewport" content="initial-scale=1, viewport-fit=cover">
+    <link rel="manifest" href="manifest-test.json" />
 
-    <link rel="stylesheet" href="/jasmine-standalone-4.5.0/lib/jasmine-4.5.0/jasmine.css">
-    <script src="/jasmine-standalone-4.5.0/lib/jasmine-4.5.0/jasmine.js"></script>
-    <script src="/jasmine-standalone-4.5.0/lib/jasmine-4.5.0/jasmine-html.js"></script>
-    <script src="/jasmine-standalone-4.5.0/lib/jasmine-4.5.0/boot0.js"></script>
+    <link rel="stylesheet" href="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/jasmine.css">
+    <script src="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/jasmine.js"></script>
+    <script src="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/jasmine-html.js"></script>
+    <script src="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/boot0.js"></script>
     <!-- optional: include a file here that configures the Jasmine env -->
-    <script src="/jasmine-standalone-4.5.0/lib/jasmine-4.5.0/boot1.js"></script>
+    <script src="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/boot1.js"></script>
 
     <script>
       // See https://github.com/WICG/import-maps#dynamic-import-map-example
@@ -27,12 +28,15 @@
       url.search = url.hash = '';
       const importMap = {
 	"imports": {
-          "uuid4": "./node_modules/uuid4/browser.mjs",
-          "@kilroy-code/rules": "../@kilroy-code/rules/index.mjs",
+          "uuid4": "/node_modules/uuid4/browser.mjs",
+          "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
 	  "@ki1r0y/distributed-security": url.href,
-          "@kilroy-code/flexstore": "../@kilroy-code/flexstore/bundle.mjs",
-          "@kilroy-code/ui-components": "../@kilroy-code/ui-components/bundle.mjs",
-	  "@kilroy-code/": "../@kilroy-code/"
+          "@kilroy-code/flexstore": "/@kilroy-code/flexstore/bundle.mjs",
+          "@kilroy-code/ui-components": "/@kilroy-code/ui-components/bundle.mjs",
+          "@kilroy-code/storage": "/@kilroy-code/storage/index.mjs",
+	  "@kilroy-code/": "/@kilroy-code/",
+	  "@ki1r0y/": "/@kilroy-code/",
+	  "fairshare/": "/fairshare/"
 	}
       };
       console.log(`Mapping distributed-security to ${importMap.imports['@ki1r0y/distributed-security']}.`);
@@ -43,30 +47,27 @@
     </script>
 
     <script type="module">
-      jasmine.getEnv().configure({random: false});
-      import "./spec/spec.mjs";
+      import "fairshare/spec/spec.mjs";
 
       async function identify(elementId, packageInfo) {
-	if (typeof(packageInfo) === 'string') {
-	  // Firefox won't even import or dynamic import that uses {with: {type: 'json'}} or even assert. So use fetch.
-	  packageInfo = await (await fetch('../' + packageInfo)).json();
-	}
 	document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
 	return true;
       }
-      import { Credentials, name, version } from '@kilroy-code/flexstore';
-      import { name as uname, version as uversion } from '@kilroy-code/ui-components';
-      const checkSafari = setTimeout(() => {
-	alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
-}, 6e3);
-      Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
-      identify('flexstore', {name, version});
-      identify('ui', {name:uname, version:uversion});
+//       import { Credentials, name, version } from '@kilroy-code/flexstore';
+//       import { name as uname, version as uversion } from '@kilroy-code/ui-components';
+//       const checkSafari = setTimeout(() => {
+// 	alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
+// }, 6e3);
+//       Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
+//       identify('flexstore', {name, version});
+//       identify('ui', {name:uname, version:uversion});
     </script>
   </head>
   <body>
-    <script>addEventListener('load', () => setTimeout(() => jasmine.getEnv().execute(), 2e3));</script> <!-- Delay for safari -->
+    <!-- <script>addEventListener('load', () => setTimeout(() => jasmine.getEnv().execute(), 2e3));</script> --> <!-- Delay for safari -->
     <script>
+      jasmine.getEnv().configure({random: false});
+      jasmine.getEnv().addReporter({jasmineDone: () => document.getElementById('wipe').toggleAttribute('disabled', false)});
       async function wipeDB() {
 	indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
 	localStorage.clear();
@@ -74,7 +75,6 @@
 	if (namesAfter.length) alert(`Database wipe left ${namesAfter}.\n\n(Might clear after reload. Be sure to have no other open Fairshare tabs in this browser.)`);
 	else alert(`Databases have been cleared.`);
       }
-      jasmine.getEnv().addReporter({jasmineDone: () => document.getElementById('wipe').toggleAttribute('disabled', false)});
     </script>
     <button disabled id="wipe" onclick="wipeDB()">delete db</button><br/>
     <span id="security"></span><br/>
