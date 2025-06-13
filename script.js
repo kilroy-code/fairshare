@@ -378,7 +378,6 @@ class FairshareApp extends BasicApp {
       await Promise.all(collections.map(async c => {
 	const store = await c.persistenceStore;
 	await c.disconnect();
-	store.close();
 	await store.destroy();
       }));
       localStorage.clear(); // again, because disconnect tickles relays.

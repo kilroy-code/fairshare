@@ -1,7 +1,7 @@
 {
   "name": "FairShareTest",
   "description": "Test suite for FairShare internals.",
-  "start_url": "/fairshare/test.html",
+  "start_url": "/fairshare/test.html?funkyParameter=17",
   "display": "standalone",  
   "icons": [{
     "src": "images/fairshare-512.png",

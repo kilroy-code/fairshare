@@ -5,7 +5,7 @@
     <title>flexstore tests</title>
 
     <meta name="viewport" content="initial-scale=1, viewport-fit=cover">
-    <link rel="manifest" href="manifest-test.json" />
+    <!-- <link rel="manifest" href="manifest-test.json" /> -->
 
     <link rel="stylesheet" href="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/jasmine.css">
     <script src="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/jasmine.js"></script>
@@ -18,26 +18,29 @@
       // See https://github.com/WICG/import-maps#dynamic-import-map-example
       const url = new URL(location.href);
       if (url.hostname === 'localhost') {
-	url.port = 59693;
+        url.port = 59693;
       } else {
-	url.protocol = "https:"
-	url.host = "cloud.ki1r0y.com";
-	url.port = "";
+        url.protocol = "https:"
+        url.host = "cloud.ki1r0y.com";
+        url.port = "";
       }
       url.pathname = "/@ki1r0y/distributed-security/dist/index-bundle.mjs";
       url.search = url.hash = '';
       const importMap = {
-	"imports": {
-          "uuid4": "/node_modules/uuid4/browser.mjs",
+        "imports": {
+          "uuid4": "/fairshare/uuid4.mjs",
           "@kilroy-code/rules": "/@kilroy-code/rules/index.mjs",
-	  "@ki1r0y/distributed-security": url.href,
+          "@ki1r0y/storage": "/@ki1r0y/storage/bundle.mjs",
+          "@ki1r0y/storage/spec.mjs": "/@ki1r0y/storage/spec/storageSpec.mjs",
+          "@ki1r0y/distributed-security": url.href,
+          "@ki1r0y/distributed-security/spec.mjs": "/@ki1r0y/distributed-security/dist/securitySpec-bundle.mjs",
+          "@ki1r0y/cache": "/@ki1r0y/cache/index.mjs",
           "@kilroy-code/flexstore": "/@kilroy-code/flexstore/bundle.mjs",
           "@kilroy-code/ui-components": "/@kilroy-code/ui-components/bundle.mjs",
-          "@kilroy-code/storage": "/@kilroy-code/storage/index.mjs",
-	  "@kilroy-code/": "/@kilroy-code/",
-	  "@ki1r0y/": "/@kilroy-code/",
-	  "fairshare/": "/fairshare/"
-	}
+          "@kilroy-code/": "/@kilroy-code/",
+          "@ki1r0y/": "/@kilroy-code/",
+          "fairshare/": "/fairshare/"
+        }
       };
       console.log(`Mapping distributed-security to ${importMap.imports['@ki1r0y/distributed-security']}.`);
       const im = document.createElement('script');
@@ -50,13 +53,13 @@
       import "fairshare/spec/spec.mjs";
 
       async function identify(elementId, packageInfo) {
-	document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
-	return true;
+        document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
+        return true;
       }
 //       import { Credentials, name, version } from '@kilroy-code/flexstore';
 //       import { name as uname, version as uversion } from '@kilroy-code/ui-components';
 //       const checkSafari = setTimeout(() => {
-// 	alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
+//      alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
 // }, 6e3);
 //       Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
 //       identify('flexstore', {name, version});
@@ -64,16 +67,15 @@
     </script>
   </head>
   <body>
-    <!-- <script>addEventListener('load', () => setTimeout(() => jasmine.getEnv().execute(), 2e3));</script> --> <!-- Delay for safari -->
     <script>
-      jasmine.getEnv().configure({random: false});
+      //jasmine.getEnv().configure({random: false});
       jasmine.getEnv().addReporter({jasmineDone: () => document.getElementById('wipe').toggleAttribute('disabled', false)});
       async function wipeDB() {
-	indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
-	localStorage.clear();
-	const namesAfter = await indexedDB.databases().then(dbs => dbs.map(db => db.name));
-	if (namesAfter.length) alert(`Database wipe left ${namesAfter}.\n\n(Might clear after reload. Be sure to have no other open Fairshare tabs in this browser.)`);
-	else alert(`Databases have been cleared.`);
+        indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
+        localStorage.clear();
+        const namesAfter = await indexedDB.databases().then(dbs => dbs.map(db => db.name));
+        if (namesAfter.length) alert(`Database wipe left ${namesAfter}.\n\n(Might clear after reload. Be sure to have no other open Fairshare tabs in this browser.)`);
+        else alert(`Databases have been cleared.`);
       }
     </script>
     <button disabled id="wipe" onclick="wipeDB()">delete db</button><br/>

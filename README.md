@@ -1,6 +1,7 @@
 # FairShare
 
-> Cooperative currency and safe messaging.
+> _Cooperative currency and safe messaging._
+> See [Issues](https://github.com/kilroy-code/fairshare/issues) and [Release Notes](https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md)
 
 FairShare lets you share money and messages amongst a group of humans.
 

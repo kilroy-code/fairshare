@@ -99,8 +99,9 @@ self.addEventListener("notificationclick", (event) => {
       .matchAll({type: "window", includeUncontrolled: true})
       .then(clientList => {
 	const url = `app.html?user=${data.aud}&group=${data.iss}#History`;
+	console.log({url, clientList});
         for (const client of clientList) {
-	  console.log('focus:', url);
+	  console.log(client);
 	  client.navigate(url);
 	  client.focus();
 	  return;
