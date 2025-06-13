@@ -18,12 +18,12 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 ## 0.2.0 - Infrastructure: safer/shorter-key signing algorithm; safer persistent store with more even performance; automated testing of component packages.
 
 - New package for local storage:
-  - Uses Cache API instead of IndexedDB in browsers. (IndexDB is overkill, and has (poor performance in some browser versions or usage patterns)[https://www.reddit.com/r/javascript/comments/r0axv1/why_indexeddb_is_slow_and_what_to_use_instead/], and requires some browsers to be restarted after panic-kill of storage.)
+  - Uses Cache API instead of IndexedDB in browsers. [IndexDB is overkill, and has (poor performance in some browser versions or usage patterns](https://www.reddit.com/r/javascript/comments/r0axv1/why_indexeddb_is_slow_and_what_to_use_instead/), and requires some browsers to be restarted after panic-kill of storage.)
   - Uses file system in NodeJS with good performance _except_ for `put` on OSX. (OSX file system flush is _terrible_!)
   - Has it's own test suite.
 - New distributed-security version:
   - Uses new storage package for device keys.
-  - Uses (Ed25519 for signing instead of ECDSA)[https://github.com/kilroy-code/fairshare/issues/10]:
+  - Uses [Ed25519 for signing instead of ECDSA](https://github.com/kilroy-code/fairshare/issues/10):
     - ECDSA is considered to potentially be broken by government agencies, and is no longer recommended.
     - The last browser to include support for Ed25519, Chrome, has now done so on all platforms. **You must update to the latest Chrome version.**
     - Ed25519 uses much smaller tags - 43 characters each instead of 132 - which appear in FairShare URL `user` and `group` query parameters. Thus the URLs are smaller, more readable, and work reliably in QR codes.
@@ -32,10 +32,9 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
   - Addresses some subtle timing dependencies.
   - Each of our dependencies has headless/NodeJS regression tests that are atomatically run as GitHub Actions when checking in code, and results are displayed on the FairShare [README page](https://github.com/kilroy-code/fairshare?tab=readme-ov-file#fairshare) as a dashboard. (We do not yet automate headless in-browser testing across browsers.)
 - Should address:
-  - (use Ed25519 for signing instead of ECDSA)[https://github.com/kilroy-code/fairshare/issues/10]
-  - (DataError: Failed to execute 'get' on 'IDBObjectStore': No key or key range specified. at worker-bundle)[https://github.com/kilroy-code/fairshare/issues/42]
-  - (indexeddb hygiene)[https://github.com/kilroy-code/fairshare/issues/9]
-  - (device keys should be deleted in panic)[https://github.com/kilroy-code/fairshare/issues/11]
+  - [use Ed25519 for signing instead of ECDSA](https://github.com/kilroy-code/fairshare/issues/10)
+  - [DataError: Failed to execute 'get' on 'IDBObjectStore': No key or key range specified. at worker-bundle](https://github.com/kilroy-code/fairshare/issues/42)
+  - [indexeddb hygiene](https://github.com/kilroy-code/fairshare/issues/9)
 
 ## 0.1.8
 
