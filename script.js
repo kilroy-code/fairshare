@@ -141,7 +141,8 @@ groupsPublic.onupdate = addUnknown('groupCollection');
 groupsPrivate.onupdate = addUnknown('groupCollection');
 messages.versions.onupdate = ({detail}) => FairshareChatInput.instance.onupdate(detail);
 
-const collections = Object.values(Credentials.collections).concat(usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, messages, messages.versions, media);
+const appCollections = [usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, messages, messages.versions, media];
+const collections = Object.values(Credentials.collections).concat(appCollections);
 Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection,
 		       groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,
 		       Group, User, collections}); // For debugging in console.
@@ -352,11 +353,12 @@ class FairshareApp extends BasicApp {
     const groups = userRecord?.groups;
     return groupCollection.updateLiveTags(groups || []); // Ensures that there are named rules for each group.
   }
-  get groupRecordEffect() {
-    return Credentials.owner = this.groupRecord?.owner || '';
-  }
+  // get groupRecordEffect() {
+  //   return Credentials.owner = this.groupRecord?.owner || '';
+  // }
   get groupEffect() {
-    return this.resetUrl({group: this.group});
+    this.resetUrl({group: this.group});
+    return Credentials.owner = this.group || '';
   }
   get amountEffect() {
     return this.resetUrl({amount: this.amount});
@@ -374,13 +376,16 @@ class FairshareApp extends BasicApp {
       console.clear();
       console.log('Removing local databases:', ...collections.map(c => c.name));
       localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
-      await Credentials.clear(); // Clear cached keys in the vault.
-      await Promise.all(collections.map(async c => {
-	const store = await c.persistenceStore;
+
+      navigator.serviceWorker.controller.postMessage('clearSourceCache');
+      await Promise.all(appCollections.map(async c => {
 	await c.disconnect();
+	const store = await c.persistenceStore;
 	await store.destroy();
       }));
-      localStorage.clear(); // again, because disconnect tickles relays.
+      await Credentials.Storage.destroy();
+
+	localStorage.clear(); // again, because disconnect tickles relays.
       console.log('Cleared');
     });
 
@@ -1197,7 +1202,7 @@ class FairshareChatInput extends MDElement {
     if (isCurrentGroup) verified = await Collection.ensureDecrypted(verified);
     if (isCurrentGroup) this.receiveMessage(verified);
     if ((Notification.permission === "granted") &&
-	App.userRecord.getNotify(iss) &&
+	App.userRecord?.getNotify(iss) &&
 	(act !== App.user) &&
 	(!isCurrentGroup || (App.screen !== 'History') || (document.visibilityState !== 'visible')) &&
 	// Currently, we only show notifications from a group that the current user is a member of.
@@ -1217,9 +1222,11 @@ class FairshareChatInput extends MDElement {
       // If you have, e.g., a Mac, iPhone, and iWatch, it would be nice if any one device that was running would
       // cause the message to show up everywhere. That could be done by going through Apple's service.
       registration.showNotification(title, options);
-    } else console.log('notification is not sent', {permission: Notification.permission, notify: App.userRecord.getNotify(iss),
-						    isCurrentUser: act === App.user, isCurrentGroup, isHistory: App.screen === 'History',
-						    isVisible: document.visibilityState === 'visible', act, iss});
+    // } else {
+    //   console.log('notification is not sent', {permission: Notification.permission, notify: App.userRecord?.getNotify(iss),
+    // 					       isCurrentUser: act === App.user, isCurrentGroup, isHistory: App.screen === 'History',
+    // 					       isVisible: document.visibilityState === 'visible', act, iss});
+    }
   }
   get groupEffect() {
     const group = App.group;

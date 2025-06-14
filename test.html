@@ -56,14 +56,15 @@
         document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
         return true;
       }
-//       import { Credentials, name, version } from '@kilroy-code/flexstore';
-//       import { name as uname, version as uversion } from '@kilroy-code/ui-components';
-//       const checkSafari = setTimeout(() => {
-//      alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
-// }, 6e3);
-//       Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
-//       identify('flexstore', {name, version});
-//       identify('ui', {name:uname, version:uversion});
+      import { Credentials, name, version } from '@kilroy-code/flexstore';
+      import { name as uname, version as uversion } from '@kilroy-code/ui-components';
+      const checkSafari = setTimeout(() => {
+     alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
+}, 6e3);
+      Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
+      identify('flexstore', {name, version});
+      identify('ui', {name:uname, version:uversion});
+      window.Credentials = Credentials;
     </script>
   </head>
   <body>
@@ -71,9 +72,12 @@
       //jasmine.getEnv().configure({random: false});
       jasmine.getEnv().addReporter({jasmineDone: () => document.getElementById('wipe').toggleAttribute('disabled', false)});
       async function wipeDB() {
-        indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
+        //indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
+	await Credentials.wipeDeviceKeys();
+	await Promise.all((await caches.keys()).map(name => caches.delete(name)));
         localStorage.clear();
-        const namesAfter = await indexedDB.databases().then(dbs => dbs.map(db => db.name));
+        //const namesAfter = await indexedDB.databases().then(dbs => dbs.map(db => db.name));
+	const namesAfter = await caches.keys();
         if (namesAfter.length) alert(`Database wipe left ${namesAfter}.\n\n(Might clear after reload. Be sure to have no other open Fairshare tabs in this browser.)`);
         else alert(`Databases have been cleared.`);
       }
@@ -81,7 +85,7 @@
     <button disabled id="wipe" onclick="wipeDB()">delete db</button><br/>
     <span id="security"></span><br/>
     <span id="flexstore"></span><br/>
-    <span id="ui"></span>
+    <span id="ui"></span><br/>
     <a href="https://google.com" target="_blank">An external link</a>
   </body>
 </html>

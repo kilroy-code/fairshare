@@ -4,7 +4,7 @@
 
 ## Current Version
 
-The bottom of "About" and the top of "tests" should say:
+The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.3
 @kilroy-code/flexstore 0.0.36
@@ -18,7 +18,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 ## 0.2.0 - Infrastructure: safer/shorter-key signing algorithm; safer persistent store with more even performance; automated testing of component packages.
 
 - New package for local storage:
-  - Uses Cache API instead of IndexedDB in browsers. [IndexDB is overkill, and has (poor performance in some browser versions or usage patterns](https://www.reddit.com/r/javascript/comments/r0axv1/why_indexeddb_is_slow_and_what_to_use_instead/), and requires some browsers to be restarted after panic-kill of storage.)
+  - Uses Cache API instead of IndexedDB in browsers. (IndexDB is overkill, and has [poor performance in some browser versions or usage patterns](https://www.reddit.com/r/javascript/comments/r0axv1/why_indexeddb_is_slow_and_what_to_use_instead/), and requires some browsers to be restarted after panic-kill of storage.)
   - Uses file system in NodeJS with good performance _except_ for `put` on OSX. (OSX file system flush is _terrible_!)
   - Has it's own test suite.
 - New distributed-security version:
@@ -35,6 +35,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
   - [use Ed25519 for signing instead of ECDSA](https://github.com/kilroy-code/fairshare/issues/10)
   - [DataError: Failed to execute 'get' on 'IDBObjectStore': No key or key range specified. at worker-bundle](https://github.com/kilroy-code/fairshare/issues/42)
   - [indexeddb hygiene](https://github.com/kilroy-code/fairshare/issues/9)
+  - [device keys should be deleted in panic](https://github.com/kilroy-code/fairshare/issues/11)
 
 ## 0.1.8
 

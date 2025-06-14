@@ -1,5 +1,5 @@
 const { Response, clients} = self;
-const version = 'v1';
+const version = 'sourceV1';
 
 async function addResourcesToCache(resources) {
   const cache = await caches.open(version);
@@ -36,19 +36,27 @@ async function deleteCache(key) {
   await caches.delete(key);
 };
 
-async function deleteOldCaches() {
-  const cacheKeepList = [version];
+async function deleteOldCaches(cacheKeepList = [version]) {
   const keyList = await caches.keys();
   const cachesToDelete = keyList.filter((key) => !cacheKeepList.includes(key));
   await Promise.all(cachesToDelete.map(deleteCache));
 };
-
 
 const vaultHost = origin.startsWith('http:/localhost') ? origin : 'https://cloud.ki1r0y.com';
 const securitySource = `${vaultHost}/@ki1r0y/distributed-security/dist/`;
 
 
 // EVENT HANDLERS
+
+self.addEventListener("message", async event => {
+  switch (event.data) {
+  case 'clearSourceCache':
+    await deleteOldCaches([]);
+    break;
+  default:
+    console.warn(`Unrecognized service worker message: "${event.data}".`);
+  }
+});
 
 // Install all the resources we need, so that we can work offline.
 // (Users, groups, and media are cached separately in indexeddb.)
