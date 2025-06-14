@@ -59,7 +59,7 @@
       import { Credentials, name, version } from '@kilroy-code/flexstore';
       import { name as uname, version as uversion } from '@kilroy-code/ui-components';
       const checkSafari = setTimeout(() => {
-     alert("Webworker Bug!\n\nThere is a bug in Safari 18.3 (and possibly other browsers) that prevents Web worker scripts from reloading properly. The bug appears to be fixed in Safari 18.4. The only workaround in Safari 18.3 is to close Safari and restart it.");
+	alert("Webworker Bug!\n\nReloading while reloading can mess things up. Now that you've had a chance to read this, reload ONE more time.");
 }, 6e3);
       Credentials.ready.then(ready => ready && identify('security', ready) && clearTimeout(checkSafari));
       identify('flexstore', {name, version});
