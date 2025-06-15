@@ -1,4 +1,4 @@
-import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser, AppFirstuse,
+import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser,
 	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule, name as uname, version as uversion } from '@kilroy-code/ui-components';
 import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js';
@@ -221,11 +221,6 @@ class FairshareApp extends BasicApp {
   get statusElement() {
     return this.child$('[slot="additional-menu"]');
   }
-  directedToFirstUse() {
-    if (!App.getParameter('invitation')) return false;
-    App.resetUrl({screen: 'First Use'});
-    return true;
-  }
   noCurrentUser(heading = "No authorized user") {
     App.alert("You must either authorize as an existing member, or obtain an unused invitation from a member.",
 	      heading);
@@ -276,7 +271,7 @@ class FairshareApp extends BasicApp {
   get amount() {
     return parseFloat(this.getParameter('amount') || '0');
   }
-  async createUserTag(editUserComponent) { // For (AppFirstuse >) CreateUser > EditUser
+  async createUserTag(editUserComponent) {
     const prompt = editUserComponent.questionElement.value;
     const answer = editUserComponent.answerElement.value;
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
@@ -665,19 +660,6 @@ class FairshareShare extends AppShare {
   }*/
 }
 FairshareShare.register();
-
-class FairshareFirstuse extends AppFirstuse {
-  get availabilityEffect() {
-    const users = App.userCollection.knownTags,
-	  invitation = App.getParameter('invitation');
-    if (invitation && users.includes(invitation)) {
-      App.noCurrentUser("Invitation has already been used");
-      return false;
-    }
-    return true;
-  }
-}
-FairshareFirstuse.register();
 
 class FairsharePayme extends AppShare {
   get url() {

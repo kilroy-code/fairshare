@@ -46,7 +46,7 @@
     <link href="style.css" rel="stylesheet">
     <script type="module" src="script.js"></script>
     <style>
-      app-firstuse, create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
+      create-user, user-profile, switch-users, add-user, about-app, list-items, fairshare-pay, fairshare-invest, fairshare-payme { display: block; }
       *:not(:defined) { opacity: 0; }
       *:defined { transition: opacity 0.5s ease-out; }
       section { margin: 10pt; }
@@ -146,15 +146,6 @@
 	<p slot="qr"><i>(For now, this is how <b>new</b> users get admitted to the FairShare group, or <b>existing</b> users get added to other groups. Later on, the latter will have voting through in-app messages.)</i></p>
 	<p slot="social">Or share the acceptance URL yourself:</p>
       </fairshare-share>
-
-      <!-- Not used right now, but must exist -->
-      <fairshare-firstuse slot="first-use" title="First Use">
-	<fairshare-create-user>
-	  <h2>Welcome!</h2>
-	  <p>Creating a new account is free and no personal information is needed. Each new account is automatically added to the FairShare group.</p>
-	  <p>Or, if you already have an account, you can authorize it for use in this browser <a href="#Add existing account">here</a>.</p>
-	</fairshare-create-user>
-      </fairshare-firstuse>
 
       <fairshare-sync title="Relays">
 	<div slot="sendVideo" style="display:none;" class="video-container"><video disablepictureinpicture playsinline></video></div>
