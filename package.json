@@ -32,7 +32,7 @@
   "dependencies": {
     "@ki1r0y/storage": "^1.0.8",
     "@kilroy-code/flexstore": "^0.0.37",
-    "@kilroy-code/ui-components": "^0.0.28"
+    "@kilroy-code/ui-components": "^0.0.30"
   },
   "devDependencies": {
     "@rollup/plugin-node-resolve": "16.0.1",
