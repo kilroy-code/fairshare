@@ -23,14 +23,14 @@ async function cacheFirstWithRefresh(event) {
 	});
   // ...but without waiting, use a cache hit if there is one.
   return (await caches.match(request)) ||
-    (await event.preloadResponse) ||
+    //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
 
-async function enablePreload() {
-  if (!self.registration.navigationPreload) return;
-  await self.registration.navigationPreload.enable();
-}
+// async function enablePreload() {
+//   if (!self.registration.navigationPreload) return;
+//   await self.registration.navigationPreload.enable();
+// }
 
 async function deleteCache(key) {
   await caches.delete(key);
@@ -80,7 +80,7 @@ self.addEventListener("install", (event) => {
       "./qr-scanner.min.js",
       "https://cdn.jsdelivr.net/npm/jdenticon@3.3.0/dist/jdenticon.min.js",
       "https://unpkg.com/qr-code-styling@1.8.0/lib/qr-code-styling.js"
-    ])
+    ]).then(() => self.skipWaiting()) // Activate worker immediately
   );
 });
 
@@ -91,7 +91,8 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(Promise.all([
     deleteOldCaches(),
-    enablePreload()
+    //enablePreload(),
+    self.clients.claim() // Become available to all pages
   ]));
 });
 
@@ -107,9 +108,7 @@ self.addEventListener("notificationclick", (event) => {
       .matchAll({type: "window", includeUncontrolled: true})
       .then(clientList => {
 	const url = `app.html?user=${data.aud}&group=${data.iss}#History`;
-	console.log({url, clientList});
         for (const client of clientList) {
-	  console.log(client);
 	  client.navigate(url);
 	  client.focus();
 	  return;
