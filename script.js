@@ -271,13 +271,13 @@ class FairshareApp extends BasicApp {
   get amount() {
     return parseFloat(this.getParameter('amount') || '0');
   }
-  async createUserTag(editUserComponent) {
+  async createUserTag(editUserComponent) { // Promise a tag for the user, authorizing it with editUserComponent question/answer, and creating the team if it doesn't already exist as an invitation.
     const prompt = editUserComponent.questionElement.value;
     const answer = editUserComponent.answerElement.value;
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
     const invitation = App.getParameter('invitation');
     if (invitation) {
-      // This is a bit crazy, but as a side effect of claiming and invtation, we must make sure that the invitation is removed
+      // This is a bit crazy, but as a side effect of claiming an invtation, we must make sure that the invitation is removed
       // from the url so that we don't get issues as a result of using a dead invitation.
       App.resetUrl({invitation: ''});
       return await Credentials.claimInvitation(invitation, prompt);
@@ -522,7 +522,9 @@ class FairshareGroups extends LiveList {
     // Requires group to exist, and userTag to be a member of owning team.
     // Requires Credential.author to be set.
     if (!groupTag) return;
-    const groups = [...App.userRecord?.groups || [], groupTag];
+    const groups = App.userRecord?.groups || [];
+    if (groups.includes(groupTag)) return;
+    groups.push(groupTag);
 
     // Update persistent and live group data (which the user doesn't have yet):
     const groupRecord = await App.groupCollection.getLiveRecord(groupTag);
@@ -774,9 +776,11 @@ class FairshareSync extends MDElement {
     document.addEventListener('visibilitychange', () => {
       console.log('visibility:', document.visibilityState);
       if (document.visibilityState !== 'visible') return;
-      let elements = Array.from(this.relaysElement.children);
-      App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
-      this.updateRelays(elements);
+      setTimeout(() => { // Give the network a moment to do what it needs to.
+	let elements = Array.from(this.relaysElement.children);
+	App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
+	this.updateRelays(elements);
+      }, 1e3);
     });
   }
   get ssidElement() {
@@ -923,7 +927,7 @@ class FairshareSync extends MDElement {
       kill.style = 'display:none';
     });
     // Once synchronized, show that we're done.
-    Promise.all(synchronizers.map(synchronizer => synchronizer.bothSidesCompletedSynchronization)).then(() => {
+    Promise.all(collections.map(collection => collection.synchronized)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
     });
     // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
@@ -969,12 +973,13 @@ class FairshareSync extends MDElement {
     return item;
   }
   get template() {
+    // We tell browsers (particularly Safari) not to preload the audio stream, because it can result in the page appearing to not be loaded.
     return `
       <section>
         <md-list>
         </md-list>
         <!-- See also https://gist.github.com/novwhisky/8a1a0168b94f3b6abfaa https://fmstream.org/index.php?c=FT -->
-        <p><a href="#">Share your hotspot</a> <audio src="https://npr-ice.streamguys1.com/live.mp3" controls></audio></p>
+        <p><a href="#">Share your hotspot</a> <audio src="https://npr-ice.streamguys1.com/live.mp3" preload="none" controls></audio></p>
 
         <div class="column">
           <p id="sendInstructions"></p>
@@ -1500,6 +1505,7 @@ FairshareInvest.register();
 
 class FairshareCreateUser extends CreateUser {
   activate() { // Creating a new user should always put them in the FairShare group.
+    super.activate();
     App.resetUrl({group: App.FairShareTag});
   }
   async onaction(form) {
@@ -1848,4 +1854,10 @@ try {
 } catch (error) {
   console.error(`Registration failed with ${error}`);
 }
-
+window.bootstrap = async function bootstrap() { // Used to get the system started from nothing.
+  Credentials.author = await Credentials.createAuthor('-'); // Create invite.
+  Credentials.owner = await Credentials.create(Credentials.author); // Create Fairshare owner team, with that member.
+  let fairshare = {title: "FairShare", owner: Credentials.owner}; // When we create new user, it will adopt the group.
+  await groupsPublic.store(fairshare, {tag: Credentials.owner}); // Store FairShare, with that author & owner.
+  location.href = App.urlWith({invitation: Credentials.author, screen: "Create new account", user:'', group:''}).href;
+}
