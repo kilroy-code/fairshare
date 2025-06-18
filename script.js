@@ -276,6 +276,7 @@ class FairshareApp extends BasicApp {
     const answer = editUserComponent.answerElement.value;
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
     const invitation = App.getParameter('invitation');
+    if (!prompt) return '';
     if (invitation) {
       // This is a bit crazy, but as a side effect of claiming an invtation, we must make sure that the invitation is removed
       // from the url so that we don't get issues as a result of using a dead invitation.
