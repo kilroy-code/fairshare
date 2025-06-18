@@ -313,12 +313,24 @@ class FairshareApp extends BasicApp {
     if (await media.get(tag)) return tag;
     return await media.store(picture, {tag, ...options});
   }
+  async getMemberUsers(tag) { // Answer those members of tags that are users (not recovery or devices)
+    const team = await Credentials.collections.Team.retrieve(tag);
+    const currentMembers = team.json.recipients.map(m => m.header.kid); // IWBNI flexstore provides this.
+    const userMembers = currentMembers.filter(tag => App.userCollection[tag]);
+    return userMembers;
+  }
   get setUser() { // TODO: change these two names (one in ui-components), to something implying that data will be merged and saved. (Do they really have to be rules?)
-    return async (tag, newData) => {
+    return async (tag, {cosigners:newCosigners = [], ...newData}) => {
       const oldData = this.userCollection[tag];
       const merged = this.mergeData(oldData, newData);
       merged.picture = await this.mediaTag(merged.picture, {owner: '', author: tag});
-      return setUserData(tag, merged);
+
+      const oldCosigners = await this.getMemberUsers(tag);
+      const add = newCosigners.filter(coTag => coTag !== tag && !oldCosigners.includes(coTag));
+      const remove = oldCosigners.filter(coTag => coTag !== tag && !newCosigners.includes(coTag));
+      const publicPrivate = setUserData(tag, merged);
+      if (add.length || remove.length) await Credentials.changeMembership({tag, add, remove});
+      return publicPrivate;
     };
   }
   get setGroup() {
