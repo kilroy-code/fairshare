@@ -486,6 +486,12 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
     this.element.value = App.amount || '';
     return true;
   }
+  get min() {
+    return '0';
+  }
+  get minEffect() {
+    return this.element.min = this.min;
+  }
   afterInitialize() {
     super.afterInitialize();
     this.element.addEventListener('change', event => event.target.reportValidity() && (App.amount = parseFloat(event.target.value || '0')));
@@ -1382,6 +1388,19 @@ class FairshareHistory extends MDElement {
 }
 FairshareHistory.register();
 
+// TODO: Implment this (more efficiently) in distributed-security.
+Credentials.isMember = async (tag, teamTag, recurse = true) => {
+  const team = await Credentials.collections.Team.retrieve(teamTag);
+  if (!team) return false;
+  const recipients = team.json.recipients;
+  for (const recipient of recipients) {
+    if (tag === recipient.header.kid) return true;
+  }
+  if (!recurse) return false;
+  let next = await Promise.all(recipients.map(recipient => Credentials.isMember(tag, recipient.header.kid, recurse)));
+  return next.some(x => x);
+};
+
 class FairsharePay extends MDElement {
   get transactionElement1() { // There will be more with exchanges.
     return this.shadow$('fairshare-transaction');
@@ -1389,11 +1408,18 @@ class FairsharePay extends MDElement {
   get payElement() {
     return this.shadow$('#pay');
   }
+  get amountElement() {
+    return this.shadow$('fairshare-amount');
+  }
   get payeeElement() {
     return this.shadow$('fairshare-group-members-menu-button');
   }
   get payeeEffect() {
-    if (this.payeeElement.choice) return App.resetUrl({payee: this.payeeElement.choice});
+    const payee = this.payeeElement.choice;
+    if (payee) {
+      Credentials.isMember(App.user, payee).then(isMember => this.amountElement.min = isMember ? '' : '0');
+      return App.resetUrl({payee: this.payeeElement.choice});
+    }
     if (!App.payee || !App.groupRecord) return null;
     App.alert(`When exchanges are implemented, you will be able to pay across groups. But for now, you cannot pay ${App.payee} because they are not a member of ${App.group}.`).then(() => App.resetUrl({payee: ''}));
     return null;
