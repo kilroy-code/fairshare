@@ -415,6 +415,9 @@ class GroupImage extends AvatarImage {
   get tag() {
     return App.group;
   }
+  get model() { // TODO: Why do we not update properly without this?
+    return App.groupRecord;
+  }
   get radius() {
     return 10;
   }
