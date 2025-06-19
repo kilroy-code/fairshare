@@ -551,11 +551,11 @@ class FairshareGroups extends LiveList {
       App.alert(`No viable record found for ${groupTag}.`);
       return;
     }
-    App.groupCollection.updateKnownRecord(groupTag, groupRecord);
+    await App.groupCollection.updateKnownRecord(groupTag, groupRecord);
     groupRecord.getBalance(App.user); // For side-effect of entering an initial balance
     Credentials.owner = groupRecord.owner; // Will happen anyway on next tick, from changing group. But we need it now to save.
     await App.setGroup(groupTag, groupRecord); // Save with our presence.
-    App.groupCollection.updateLiveTags(groups);  // See comments in AuthorizeUser.adopt.
+    await App.groupCollection.updateLiveTags(groups);  // See comments in AuthorizeUser.adopt.
 
     // Update persistent and live user data (which the user does have):
     await App.setUser(App.user, {groups});
