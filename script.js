@@ -20,6 +20,10 @@ Credentials.ready.then(ready => {
   document.getElementById('uicomponents').innerText = `${uname} ${uversion}`;
 });
 
+Collection.error = error => App.error(error);
+window.onerror = (message, source, lineno, colno, error) => App.error(`${message} at ${source}:${lineno}:${colno}.`);
+window.onunhandledrejection = event => App.error(event);
+
 class User { // A single user, which must be one that the human has authorized on this machine.
   constructor(properties) { Object.assign(this, properties); }
   isLiveRecord = true;
@@ -128,9 +132,8 @@ function addUnknown(collectionName) { // Return an update event handler for the 
     }
     // Otherwise just update the record without adding a new one.
       collection.updateKnownRecord(tag);
-    } catch (e) {
-      console.error(e.message);
-      console.warn(e.stack);
+    } catch (error) {
+      App.error(error);
     }
     return null;
   };
@@ -157,8 +160,7 @@ async function synchronizeCollections(service, connect = true) { // Synchronize 
     }
     return Promise.all(collections.map(collection => collection.disconnect(service)));
   } catch (error) {
-    console.error('synchronization error', error.message || error);
-    console.log(error.stack);
+    App.error(error);
     return null;
   }
 }
@@ -1909,7 +1911,7 @@ try {
     console.log("Service worker active");
   }
 } catch (error) {
-  console.error(`Registration failed with ${error}`);
+  App.error(`Registration failed with ${error.message}`);
 }
 window.bootstrap = async function bootstrap() { // Used to get the system started from nothing.
   Credentials.author = await Credentials.createAuthor('-'); // Create invite.
