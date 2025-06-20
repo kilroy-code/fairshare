@@ -487,14 +487,8 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
     return this.shadow$('md-outlined-text-field');
   }
   get amountEffect() {
-    this.element.value = App.amount || '';
+    this.element.value = App.amount ? Math.abs(App.amount) : '';
     return true;
-  }
-  get min() {
-    return '0';
-  }
-  get minEffect() {
-    return this.element.min = this.min;
   }
   afterInitialize() {
     super.afterInitialize();
@@ -1412,6 +1406,9 @@ class FairsharePay extends MDElement {
   get payElement() {
     return this.shadow$('#pay');
   }
+  get chargeElement() {
+    return this.shadow$('#charge');
+  }
   get amountElement() {
     return this.shadow$('fairshare-amount');
   }
@@ -1421,7 +1418,7 @@ class FairsharePay extends MDElement {
   get payeeEffect() {
     const payee = this.payeeElement.choice;
     if (payee) {
-      Credentials.isMember(App.user, payee).then(isMember => this.amountElement.min = isMember ? '' : '0');
+      Credentials.isMember(App.user, payee).then(isMember => this.chargeElement.toggleAttribute('disabled', !isMember));
       return App.resetUrl({payee: this.payeeElement.choice});
     }
     if (!App.payee || !App.groupRecord) return null;
@@ -1432,21 +1429,21 @@ class FairsharePay extends MDElement {
     this.payElement.toggleAttribute('disabled', !this.transactionElement1.valid);
     return true;
   }
+  async pay(button) {
+    if ((button.id === 'charge') !== (App.amount < 0)) App.amount *= -1;
+    button.toggleAttribute('disabled', true);
+    this.transactionElement1.memo = this.shadow$('[label=memo]').value.trim();
+    const alert = await this.transactionElement1.onaction();
+    this.payeeElement.choice = '';
+    App.resetUrl({payee: '', amount: ''});
+    App.alert(alert);
+    button.toggleAttribute('disabled', false);
+  }
   afterInitialize() {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
-    this.payElement.addEventListener('click', async event => {
-      const amount = App.amount;
-      const payee = App.payee;
-      const button = event.target;
-      button.toggleAttribute('disabled', true);
-      this.transactionElement1.memo = this.shadow$('[label=memo]').value.trim();
-      await this.transactionElement1.onaction();
-      this.payeeElement.choice = '';
-      App.resetUrl({payee: '', amount: ''});
-      App.alert(`Paid ${amount} ${App.groupRecord.title} to ${App.userCollection[payee]?.title || payee}.`);
-      button.toggleAttribute('disabled', false);
-    });
+    this.payElement.addEventListener('click', event => this.pay(event.target));
+    this.chargeElement.addEventListener('click', event => this.pay(event.target));
   }
   get template() {
     return `
@@ -1465,6 +1462,7 @@ class FairsharePay extends MDElement {
         <hr>
         <fairshare-transaction></fairshare-transaction>
         <md-filled-button id="pay" disabled>Pay</md-filled-button>
+        <md-filled-button id="charge" disabled>Charge</md-filled-button>
       </section>
     `;
   }
@@ -1528,11 +1526,14 @@ class FairshareTransaction extends MDElement {
     `;
   }
   async onaction() {
-      this.groupRecord.adjustBalance(App.user, -this.cost);
-      if (App.user !== this.payee) this.groupRecord.adjustBalance(this.payee, this.amount);
-      await App.setGroup(App.group, this.groupRecord);
+    const amount = this.amount;
+    const payee = this.payee;
+    this.groupRecord.adjustBalance(App.user, -this.cost);
+    if (App.user !== payee) this.groupRecord.adjustBalance(payee, amount);
+    await App.setGroup(App.group, this.groupRecord);
     this.balanceBefore = undefined; // TODO: replace getBalance with a proper rule so that this isn't necessary.
-    FairshareChatInput.send({text: `/pay @${App.userCollection[this.payee]?.title || this.payee} ${this.amount} ${this.groupRecord.title}${this.memo ? ': ' : ''}${this.memo}`});
+    FairshareChatInput.send({text: `/pay @${App.userCollection[payee]?.title || payee} ${amount} ${this.groupRecord.title}${this.memo ? ': ' : ''}${this.memo}`});
+    return `Paid ${amount} ${App.groupRecord.title} to ${App.userCollection[payee]?.title || payee}.`;
   }
 }
 FairshareTransaction.register();
