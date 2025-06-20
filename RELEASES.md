@@ -18,6 +18,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 ## 0.2.6
 - Fix display of cosigners.
 - Improve flow for charging against a joint account, [with toggle](https://github.com/kilroy-code/fairshare/issues/53).
+- Fix confusing [wrapping of header buttons](https://github.com/kilroy-code/fairshare/issues/56) if the title is too long
 - Update in-app TODO list.
 
 ## 0.2.5 - Do not sync with incompatible version
