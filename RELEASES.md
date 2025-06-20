@@ -16,8 +16,9 @@ and the "About" page additionally says `Fairshare 0.2.5`. (See next.)
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
 
 ## 0.2.6
-- Fix display of cosigners
-- Improve flow for charging against a joint account
+- Fix display of cosigners.
+- Improve flow for charging against a joint account, [with toggle](https://github.com/kilroy-code/fairshare/issues/53).
+- Update in-app TODO list.
 
 ## 0.2.5 - Do not sync with incompatible version
 ## 0.2.4 - clean db version break

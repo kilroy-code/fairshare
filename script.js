@@ -474,6 +474,7 @@ class FairshareAllOtherGroupsMenuButton extends MenuButton { // Choose among oth
 FairshareAllOtherGroupsMenuButton.register();
 
 class FairshareAmount extends MDElement { // Numeric input linked with App.amount.
+  // Program change of App.amount value updates display. User-change of control sets App.amount.
   get placeholder() {
     return App.groupRecord?.title || '';
   }
@@ -486,13 +487,26 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
   get element() {
     return this.shadow$('md-outlined-text-field');
   }
+  get flipControl() {
+    return null;
+  }
+  negationFactor() {
+    if (!this.flipControl) return 1;
+    if (this.flipControl.disabled) return 1;
+    if (!this.flipControl.checked) return 1;
+    return -1;
+  }
   get amountEffect() {
     this.element.value = App.amount ? Math.abs(App.amount) : '';
     return true;
   }
+  updateAppAmount() {
+    console.log('updateAppAmount', this.element.value, this.negationFactor());
+    this.element.reportValidity() && (App.amount = this.negationFactor() * parseFloat(this.element.value || '0'));
+  }
   afterInitialize() {
     super.afterInitialize();
-    this.element.addEventListener('change', event => event.target.reportValidity() && (App.amount = parseFloat(event.target.value || '0')));
+    this.element.addEventListener('change', event => this.updateAppAmount());
   }
 }
 FairshareAmount.register();
@@ -1430,7 +1444,6 @@ class FairsharePay extends MDElement {
     return true;
   }
   async pay(button) {
-    if ((button.id === 'charge') !== (App.amount < 0)) App.amount *= -1;
     button.toggleAttribute('disabled', true);
     this.transactionElement1.memo = this.shadow$('[label=memo]').value.trim();
     const alert = await this.transactionElement1.onaction();
@@ -1442,8 +1455,9 @@ class FairsharePay extends MDElement {
   afterInitialize() {
     super.afterInitialize();
     this.payeeElement.choice = App.payee;
+    this.amountElement.flipControl = this.chargeElement;
     this.payElement.addEventListener('click', event => this.pay(event.target));
-    this.chargeElement.addEventListener('click', event => this.pay(event.target));
+    this.chargeElement.addEventListener('click', event => setTimeout(() => this.amountElement.updateAppAmount()));
   }
   get template() {
     return `
@@ -1462,7 +1476,7 @@ class FairsharePay extends MDElement {
         <hr>
         <fairshare-transaction></fairshare-transaction>
         <md-filled-button id="pay" disabled>Pay</md-filled-button>
-        <md-filled-button id="charge" disabled>Charge</md-filled-button>
+        <label><md-checkbox id="charge" disabled></md-checkbox> Charge joint account</label>
       </section>
     `;
   }
@@ -1511,7 +1525,7 @@ class FairshareTransaction extends MDElement {
   }
   get paymentEffect() {
     this.shadow$('#balanceBefore').textContent = this.balanceBefore;
-    this.shadow$('#cost').textContent = this.cost;
+    this.shadow$('#cost').textContent = -1 * this.cost;
     this.shadow$('#group').textContent = this.groupRecord.title;
     this.shadow$('#rate').textContent = this.groupRecord.rate;
     this.shadow$('#balanceAfter').textContent = this.balanceAfter;
@@ -1520,7 +1534,7 @@ class FairshareTransaction extends MDElement {
   get template() {
     return `
        your balance: <span id="balanceBefore"></span><br/>
-       cost with fee: -<span id="cost"></span> (<span id="group"></span> rate: <span id="rate"></span>)
+       cost with fee: <span id="cost"></span> (<span id="group"></span> rate: <span id="rate"></span>)
        <hr>
        balance after: <span id="balanceAfter"></span>
     `;
