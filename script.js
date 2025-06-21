@@ -10,14 +10,21 @@ const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection, Not
 // - Set App.mumble vs App.resetUrl. Which to use? Be consistent.
 
 const checkSafari = setTimeout(() => {
-  App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case reload may fix it now. But there are browser bugs that also cause this (e.g., in Safari 18.3) in which the only workaround is to close the browser and restart it.',
+  App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case a single reload may fix it now.',
 	    "Webworker Bug!");
 }, 6e3);
 Credentials.ready.then(ready => {
   ready && clearTimeout(checkSafari);
-  document.getElementById('distributedSecurity').innerText = `${ready.name} ${ready.version}`;
-  document.getElementById('flexstore').innerText = `${name} ${version}`;
-  document.getElementById('uicomponents').innerText = `${uname} ${uversion}`;
+  const fairshare = '0.2.6';
+  App.versionedTitleBlock = `Fairshare ${fairshare}
+${ready.name} ${ready.version}
+${name} ${version}
+${uname} ${uversion}`;
+  document.getElementById('versionedTitleBlock').innerHTML =
+`<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${fairshare}</a>
+<a href="https://github.com/kilroy-code/distributed-security">${ready.name}</a> ${ready.version}
+<a href="https://github.com/kilroy-code/flexstore">${name}</a> ${version}
+<a href="https://github.com/kilroy-code/ui-components">${uname}</a> ${uversion}`;
 });
 
 Collection.error = error => App.error(error);
@@ -964,6 +971,7 @@ class FairshareSync extends MDElement {
     });
     // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
     Promise.race(synchronizers.map(synchronizer => synchronizer.closed)).then(() => {
+      const userAsked = !checkbox.checked;
       checkbox.checked = false;
       status.textContent = 'cloud_off';
       // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
@@ -971,7 +979,7 @@ class FairshareSync extends MDElement {
       App.statusElement.textContent = alert;
       connection.textContent = '';
       kill.style = '';
-      synchronizeCollections(url, false);
+      if (!userAsked) synchronizeCollections(url, false);
       setTimeout(() => {
 	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
 	const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
