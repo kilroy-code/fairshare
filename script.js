@@ -15,7 +15,7 @@ const checkSafari = setTimeout(() => {
 }, 6e3);
 Credentials.ready.then(ready => {
   ready && clearTimeout(checkSafari);
-  const fairshare = '0.2.6';
+  const fairshare = '0.2.6-debug';
   App.versionedTitleBlock = `Fairshare ${fairshare}
 ${ready.name} ${ready.version}
 ${name} ${version}
@@ -872,15 +872,28 @@ class FairshareSync extends MDElement {
     const [checkbox, label, urlElement, trailing] = relayElement.children;
     const [status, connection, kill] = trailing.children;
     const lead = Credentials.collections.EncryptionKey;
+    const isLanLead = label.textContent.includes('LAN - Lead');
+    const isLanFollow = label.textContent.includes('LAN - Follow');
+
     let url = urlElement.textContent;
+    if (isLanLead) url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
+    else if (isLanFollow) url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
+
+    const isUnderWay = lead.synchronizers.get(url); // Don't mess with what is already correct.
+    if (checkbox.checked && isUnderWay) {
+      console.log(`Service ${url} is underway.`);
+      return; // Already started.
+    } else if (!checkbox.checked && !isUnderWay) {
+      return;
+    }
+    status.textContent = 'cloud_off'; // In case of error.
+    connection.textContent = '';
 
     // These two wacky special cases are for LAN connections by QR code.
-    if (label.textContent.includes('LAN - Lead')) {
-      url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
+    if (isLanLead) {
       if (checkbox.checked) { // Kick off negotiation for sender's users.
-	if (lead.synchronizers.get(url)) return; // Already started.
 	synchronizeCollections(url, true);
-	const sender = lead.synchronizers.get(url);
+	const sender = isUnderWay;
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
 	const signals = await sender.connection.signals;
@@ -904,7 +917,6 @@ class FairshareSync extends MDElement {
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
       } else { // Disconnect
-	if (!lead.synchronizers.get(url)) return;
 	await synchronizeCollections(url, false);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendCode);
@@ -913,10 +925,8 @@ class FairshareSync extends MDElement {
 	this.proceed?.();
       }
 
-    } else if (label.textContent.includes('LAN - Follow')) {
-      url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
+    } else if (isLanFollow) {
       if (checkbox.checked) { // Scan code.
-	if (lead.synchronizers.get(url)) return; // Already started
 	this.show(this.receiveVideo);
 	this.updateText(this.receiveInstructions, "Use this video to scan the qr code from the other device:");
 	this.scrollElement(this.receiveVideo);
@@ -925,7 +935,7 @@ class FairshareSync extends MDElement {
 					   LOCAL_TEST && this.sendCode);
 	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
 	synchronizeCollections(url, true);
-	const receiver = lead.synchronizers.get(url);
+	const receiver = isUnderWay;
 	this.updateText(this.receiveInstructions, `Press "scan other device's code" button on the other device, and use it to read this qr code:`);
 	this.showCode(this.receiveCode, await receiver.connection.signals);
 	this.hide(this.receiveVideo);
@@ -936,7 +946,6 @@ class FairshareSync extends MDElement {
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
       } else { // Disconnect
-	if (!lead.synchronizers.get(url)) return;
 	await synchronizeCollections(url, false);
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
@@ -944,31 +953,34 @@ class FairshareSync extends MDElement {
 	relayElement.url = null;
       }
 
-    } else if (checkbox.checked && lead.synchronizers.get(url)) {
-      console.log(`Service ${url} is underway.`);
-      return; // Already started.
-    } else if (!checkbox.checked && !lead.synchronizers.get(url)) {
-      return;
-    } else {
-      synchronizeCollections(url, checkbox.checked);
+    } else { // The usual case
+      console.log('request cloud', checkbox.checked);
+      const promise = synchronizeCollections(url, checkbox.checked);
+      if (!checkbox.checked) await promise;
     }
-    status.textContent = 'cloud_off';
-    connection.textContent = '';
+
     if (!checkbox.checked) return;
     // We are connecting...
     App.statusElement.textContent = status.textContent = 'cloud_upload';
+    console.log(status.textContent);
     const synchronizers = collections.map(collection => collection.synchronizers.get(url));
+    console.log({collections, synchronizers});
+
     // Once connected, show that we're synchronizing and display the connection protocol/type.
     Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_sync';
+      console.log(status.textContent, synchronizers.map(s => s.dataChannelPromise));
       const [synchronizer] = synchronizers;
       connection.textContent = `${synchronizer?.protocol || ''} ${synchronizer?.candidateType || ''}`;
       kill.style = 'display:none';
     });
+
     // Once synchronized, show that we're done.
     Promise.all(collections.map(collection => collection.synchronized)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
+      console.log(status.textContent);
     });
+
     // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
     Promise.race(synchronizers.map(synchronizer => synchronizer.closed)).then(() => {
       const userAsked = !checkbox.checked;
@@ -977,13 +989,16 @@ class FairshareSync extends MDElement {
       // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
       const alert = 'thunderstorm';      
       App.statusElement.textContent = alert;
+      console.log(status.textContent);
       connection.textContent = '';
       kill.style = '';
       if (!userAsked) synchronizeCollections(url, false);
       setTimeout(() => {
+	console.log(App.statusElement.textContent, alert);
 	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
 	const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
 	App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
+        console.log('someDone', someDone);
       }, 2e3);
     });
   }

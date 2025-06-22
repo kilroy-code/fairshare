@@ -6,23 +6,28 @@ async function addResourcesToCache(resources) {
   await cache.addAll(resources);
 };
 
-async function cacheFirstWithRefresh(event) {
-  const {request} = event;
+async function cacheFirstWithRefresh(event, request = event.request) {
+  console.log('cacheFirstWithRefresh', event, request);
   // Start fetching to update cache...
   const fetchResponsePromise = fetch(request)
-	.catch(() => new Response("Network error", {   // If it fails (e.g., offline), cons a valid non-ok response to pass back to app.
-	  status: 408,
-	  headers: { "Content-Type": "text/plain" },
-	}))
-	.then(async (networkResponse) => { // Schedule a .then to execute on response ASYNCHRONOUSLY to match or preload, below.
-	  if (networkResponse?.ok && (request.method === 'GET')) { // Cache it for next time, if we can.
-	    const cache = await caches.open(version);
-	    cache.put(request, networkResponse.clone());
+	.then(
+	  async networkResponse => { // Schedule a .then to execute on response ASYNCHRONOUSLY to match or preload, below.
+	    if (networkResponse?.ok && (request.method === 'GET')) { // Cache it for next time, if we can.
+	      const cache = await caches.open(version);
+	      cache.put(request, networkResponse.clone());
+	    }
+	    return networkResponse; // Pass the networkResponse if we need it below.
+	  },
+	  error => { // If it fails (e.g., offline), cons a valid non-ok response to pass back to app.
+	    console.log('sw fetch failed', error);
+	    return new Response("Network error", {
+	      status: 408,
+	      headers: { "Content-Type": "text/plain" },
+	    });
 	  }
-	  return networkResponse; // Pass the networkResponse if we need it below.
-	});
+	);
   // ...but without waiting, use a cache hit if there is one.
-  return (await caches.match(request)) ||
+  return (await caches.open(version).then(cache => cache.match(request))) || // There are rumors of in intermittent bug in direct use of: (await caches.match(request))
     //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
@@ -61,6 +66,7 @@ self.addEventListener("message", async event => {
 // Install all the resources we need, so that we can work offline.
 // (Users, groups, and media are cached separately in indexeddb.)
 self.addEventListener("install", (event) => {
+  console.log('install', event);
   event.waitUntil(
     addResourcesToCache([
       "./app.html",
@@ -84,16 +90,19 @@ self.addEventListener("install", (event) => {
   );
 });
 
-self.addEventListener("fetch", (event) => {
-  event.respondWith(cacheFirstWithRefresh(event));
-});
-
 self.addEventListener("activate", (event) => {
+  console.log('activate', event);
   event.waitUntil(Promise.all([
     deleteOldCaches(),
     //enablePreload(),
     self.clients.claim() // Become available to all pages
   ]));
+});
+
+self.addEventListener("fetch", (event) => {
+  const {request} = event; // It is conceivable that something might await before request is referenced, and find it missing.
+  console.log('fetch', event, request);
+  event.respondWith(cacheFirstWithRefresh(event, request));
 });
 
 self.addEventListener("notificationclick", (event) => {
