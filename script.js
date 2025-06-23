@@ -15,7 +15,7 @@ const checkSafari = setTimeout(() => {
 }, 6e3);
 Credentials.ready.then(ready => {
   ready && clearTimeout(checkSafari);
-  const fairshare = '0.2.6-debug';
+  const fairshare = '0.2.7';
   App.versionedTitleBlock = `Fairshare ${fairshare}
 ${ready.name} ${ready.version}
 ${name} ${version}
@@ -510,7 +510,6 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
     return true;
   }
   updateAppAmount() {
-    console.log('updateAppAmount', this.element.value, this.negationFactor());
     this.element.reportValidity() && (App.amount = this.negationFactor() * parseFloat(this.element.value || '0'));
   }
   afterInitialize() {
@@ -815,8 +814,9 @@ class FairshareSync extends MDElement {
     document.addEventListener('visibilitychange', () => {
       console.log('visibility:', document.visibilityState);
       if (document.visibilityState !== 'visible') return;
-      setTimeout(() => { // Give the network a moment to do what it needs to.
+      setTimeout(() => { // Give the network a moment to do what it needs to. (Including any disconnects.)
 	let elements = Array.from(this.relaysElement.children);
+	// If it is supposed to be on, set it so. (E.g., it may have been disconnected.)
 	App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
 	this.updateRelays(elements);
       }, 1e3);
@@ -954,7 +954,6 @@ class FairshareSync extends MDElement {
       }
 
     } else { // The usual case
-      console.log('request cloud', checkbox.checked);
       const promise = synchronizeCollections(url, checkbox.checked);
       if (!checkbox.checked) await promise;
     }
@@ -962,14 +961,11 @@ class FairshareSync extends MDElement {
     if (!checkbox.checked) return;
     // We are connecting...
     App.statusElement.textContent = status.textContent = 'cloud_upload';
-    console.log(status.textContent);
     const synchronizers = collections.map(collection => collection.synchronizers.get(url));
-    console.log({collections, synchronizers});
 
     // Once connected, show that we're synchronizing and display the connection protocol/type.
     Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_sync';
-      console.log(status.textContent, synchronizers.map(s => s.dataChannelPromise));
       const [synchronizer] = synchronizers;
       connection.textContent = `${synchronizer?.protocol || ''} ${synchronizer?.candidateType || ''}`;
       kill.style = 'display:none';
@@ -978,7 +974,6 @@ class FairshareSync extends MDElement {
     // Once synchronized, show that we're done.
     Promise.all(collections.map(collection => collection.synchronized)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
-      console.log(status.textContent);
     });
 
     // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
@@ -989,16 +984,13 @@ class FairshareSync extends MDElement {
       // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
       const alert = 'thunderstorm';      
       App.statusElement.textContent = alert;
-      console.log(status.textContent);
       connection.textContent = '';
       kill.style = '';
       if (!userAsked) synchronizeCollections(url, false);
       setTimeout(() => {
-	console.log(App.statusElement.textContent, alert);
 	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
 	const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
 	App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
-        console.log('someDone', someDone);
       }, 2e3);
     });
   }

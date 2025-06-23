@@ -7,13 +7,17 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.42
+@kilroy-code/flexstore 0.0.43
 @kilroy-code/ui-components 0.0.37
 ```
 
 and the "About" page additionally says `Fairshare 0.2.5`. (See next.)
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
+
+## 0.2.7
+- Fix (ios safari comes back from sleep without data or displays)[https://github.com/kilroy-code/fairshare/issues/55]
+- data change
 
 ## 0.2.6
 - Display errors [in a dialog (so visible on mobile) and offer to email the report](https://github.com/kilroy-code/fairshare/issues/58).
