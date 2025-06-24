@@ -27,7 +27,8 @@ async function cacheFirstWithRefresh(event, request = event.request) {
 	  }
 	);
   // ...but without waiting, use a cache hit if there is one.
-  return (await caches.open(version).then(cache => cache.match(request))) || // There are rumors of in intermittent bug in direct use of: (await caches.match(request))
+  // There are rumors of in intermittent bug (Safari) in direct use of (await caches.match(request)), so open explicitly.
+  return (await caches.open(version).then(cache => cache.match(request))) ||
     //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
@@ -101,6 +102,7 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const {request} = event; // It is conceivable that something might await before request is referenced, and find it missing.
+  // E.g., Safari might define event.request only within the dynamic extent of the original event dispatch.
   console.log('fetch', event, request);
   event.respondWith(cacheFirstWithRefresh(event, request));
 });
@@ -118,11 +120,9 @@ self.addEventListener("notificationclick", (event) => {
       .then(clientList => {
 	const url = `app.html?user=${data.aud}&group=${data.iss}#History`;
         for (const client of clientList) {
-	  client.navigate(url);
-	  client.focus();
-	  return;
+	  return client.navigate(url).then(() => client.focus());
         }
-        clients.openWindow(url);
+        return clients.openWindow(url);
       }),
   );
 });

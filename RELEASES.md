@@ -7,7 +7,7 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.43
+@kilroy-code/flexstore 0.0.46
 @kilroy-code/ui-components 0.0.37
 ```
 
@@ -17,6 +17,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 
 ## 0.2.7
 - Fix (ios safari comes back from sleep without data or displays)[https://github.com/kilroy-code/fairshare/issues/55]
+- Fix chrome coming back from sleep with `Failed to execute 'createDataChannel' on 'RTCPeerConnection': The RTCPeerConnection's signalingState is 'closed'.`
 - data change
 
 ## 0.2.6
