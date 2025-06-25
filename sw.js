@@ -28,7 +28,8 @@ async function cacheFirstWithRefresh(event, request = event.request) {
 	);
   // ...but without waiting, use a cache hit if there is one.
   // There are rumors of in intermittent bug (Safari) in direct use of (await caches.match(request)), so open explicitly.
-  return (await caches.open(version).then(cache => cache.match(request))) ||
+  // ignoreSearch so that app.html?user=mumble&group=mumble hits.
+  return (await caches.open(version).then(cache => cache.match(request, {ignoreSearch: true}))) ||
     //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
@@ -54,10 +55,15 @@ const securitySource = `${vaultHost}/@ki1r0y/distributed-security/dist/`;
 
 // EVENT HANDLERS
 
-self.addEventListener("message", async event => {
+let update = null;
+self.addEventListener('message', async event => {
+  console.log('service worker got message', event.data);
   switch (event.data) {
   case 'clearSourceCache':
     await deleteOldCaches([]);
+    break;
+  case 'updated':
+    update?.resolve?.();
     break;
   default:
     console.warn(`Unrecognized service worker message: "${event.data}".`);
@@ -66,7 +72,7 @@ self.addEventListener("message", async event => {
 
 // Install all the resources we need, so that we can work offline.
 // (Users, groups, and media are cached separately in indexeddb.)
-self.addEventListener("install", (event) => {
+self.addEventListener('install', event => {
   console.log('install', event);
   event.waitUntil(
     addResourcesToCache([
@@ -91,7 +97,7 @@ self.addEventListener("install", (event) => {
   );
 });
 
-self.addEventListener("activate", (event) => {
+self.addEventListener('activate', event => {
   console.log('activate', event);
   event.waitUntil(Promise.all([
     deleteOldCaches(),
@@ -100,29 +106,61 @@ self.addEventListener("activate", (event) => {
   ]));
 });
 
-self.addEventListener("fetch", (event) => {
+self.addEventListener('fetch', event => {
   const {request} = event; // It is conceivable that something might await before request is referenced, and find it missing.
   // E.g., Safari might define event.request only within the dynamic extent of the original event dispatch.
   console.log('fetch', event, request);
   event.respondWith(cacheFirstWithRefresh(event, request));
 });
 
-self.addEventListener("notificationclick", (event) => {
+/*
+  curl "http://localhost:3000/flexstore/poke/2GSlKfza-dvC1jme5_u24a-HvPu6ecOEXiV7wdCaSB4"
+ */
+self.addEventListener('push', event => {
+  console.log('push', event.data, event.data.text());
+  event.waitUntil(
+    clients.matchAll({type: 'window', includeUncontrolled: true}).then(async clients => {
+      if (clients.length) {
+	let resolver;
+	update = new Promise(resolve => resolver = resolve);
+	update.resolve = resolver;
+	clients[0].postMessage('update');
+	await self.registration.showNotification('fixme update', {body: event.data.text()}); // FIXME remove
+	return update;
+      }
+      // No client window open. We should not open the app without interaction,
+      // but we can display a notification that they can touch to open it (which will then sync).
+      const url = new URL(event.data.text());
+      return self.registration.showNotification(`Activity at ${url.host}.`, {
+	body: 'Click to launch app and synchronize.',
+	data: {url: url.href}
+      });
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
   const {notification} = event;
   const {title, body, data} = notification;
   notification.close();
-
-  // This looks to see if the current is already open and
-  // focuses if it is
+  if (!data) return console.log('no data in notification', notification);
+  // This looks to see if the current is already open and focuses if it is. Else opens one.
   event.waitUntil(
     clients
-      .matchAll({type: "window", includeUncontrolled: true})
-      .then(clientList => {
-	const url = `app.html?user=${data.aud}&group=${data.iss}#History`;
+      .matchAll({type: 'window', includeUncontrolled: true})
+      .then(async clientList => {
+	const url = data.url || `app.html?user=${data.aud}&group=${data.iss}#History`;
+	console.log('hrs notificationLick', {title, body, data, url, clientList});
         for (const client of clientList) {
 	  return client.navigate(url).then(() => client.focus());
         }
-        return clients.openWindow(url);
+	try {
+	  const p = clients.openWindow(url);
+	  console.log('hrs, asked to open', p, url);
+	  const pp = await p;
+	  console.log('hrs opened', pp, url);
+          return pp;
+	} catch (e) { console.error('hrs wtf', e); }
       }),
   );
 });

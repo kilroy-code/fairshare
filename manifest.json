@@ -15,5 +15,10 @@
     "src": "images/fairshare.webp",
     "sizes": "122x122",
     "type": "image/webp"
-  }]
+  }],
+
+  "comment": "In Chrome App Settings, the following sets the initial value of 'Opening supported links' (meaning in-scope links) to be 'Open in FairShare' (rather than 'Open in Chrome browser'.",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
 }

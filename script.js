@@ -1,6 +1,6 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser,
 	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule, name as uname, version as uversion } from '@kilroy-code/ui-components';
-import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, Synchronizer, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js';
 
 
@@ -153,9 +153,9 @@ messages.versions.onupdate = ({detail}) => FairshareChatInput.instance.onupdate(
 
 const appCollections = [usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, messages, messages.versions, media];
 const collections = Object.values(Credentials.collections).concat(appCollections);
-Object.assign(window, {SharedWebRTC, Credentials, MutableCollection, Collection,
-		       groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,
-		       Group, User, collections}); // For debugging in console.
+Object.assign(globalThis, {SharedWebRTC, Credentials, MutableCollection, Collection, Synchronizer,
+			   groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,
+			   Group, User, collections}); // For debugging in console.
 async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service, new Date());
   try {
@@ -413,6 +413,22 @@ class FairshareApp extends BasicApp {
     if (!this.user && !this.getParameter('invitation')) return this.noCurrentUser();
     super.select(key);
     return null;
+  }
+  async subscribe(key = App.user) { // FIXME: move this. It won't load in NodeJS
+    const pubkeyResponse = await fetch('/flexstore/publicVapidKey');
+    const pubkey = await pubkeyResponse.json();
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true, // TODO: can we set false in Safari?
+      applicationServerKey: pubkey
+    });
+    const subscribeResponse = await fetch(`/flexstore/subscribe/${key}`, {
+      method: 'PUT',
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(subscription)
+    });
+    const subscribeResults = await subscribeResponse.json();
+    console.log({pubkeyResponse, pubkey, registration, subscription, subscribeResponse, subscribeResults});
   }
 }
 FairshareApp.register();
@@ -791,8 +807,16 @@ class FairshareSync extends MDElement {
       scanner.start();
     });
   }
+  static instance = null;
+  static update() {
+    let elements = Array.from(this.instance.relaysElement.children);
+    // If it is supposed to be on, set it so. (E.g., it may have been disconnected.)
+    App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
+    return Promise.all(this.instance.updateRelays(elements));
+  }
   afterInitialize() {
     super.afterInitialize();
+    this.constructor.instance = this;
     const relays = App.getLocal('relays', [
       ["Public server", new URL("/flexstore/sync", location).href, "checked"],
       ["Private WAN - Lead", new URL("/flexstore/signal/answer/some-secret", location).href],
@@ -814,12 +838,8 @@ class FairshareSync extends MDElement {
     document.addEventListener('visibilitychange', () => {
       console.log('visibility:', document.visibilityState);
       if (document.visibilityState !== 'visible') return;
-      setTimeout(() => { // Give the network a moment to do what it needs to. (Including any disconnects.)
-	let elements = Array.from(this.relaysElement.children);
-	// If it is supposed to be on, set it so. (E.g., it may have been disconnected.)
-	App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
-	this.updateRelays(elements);
-      }, 1e3);
+      // Give the network a moment to do what it needs to. (Including any disconnects.)
+      setTimeout(() => this.constructor.update(), 1e3);
     });
   }
   get ssidElement() {
@@ -957,8 +977,8 @@ class FairshareSync extends MDElement {
       const promise = synchronizeCollections(url, checkbox.checked);
       if (!checkbox.checked) await promise;
     }
-
     if (!checkbox.checked) return;
+
     // We are connecting...
     App.statusElement.textContent = status.textContent = 'cloud_upload';
     const synchronizers = collections.map(collection => collection.synchronizers.get(url));
@@ -972,7 +992,7 @@ class FairshareSync extends MDElement {
     });
 
     // Once synchronized, show that we're done.
-    Promise.all(collections.map(collection => collection.synchronized)).then(() => {
+    let promiseDone = Promise.all(collections.map(collection => collection.synchronized)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
     });
 
@@ -993,6 +1013,7 @@ class FairshareSync extends MDElement {
 	App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
       }, 2e3);
     });
+    return promiseDone;
   }
   addRelay(label, url, state = '', disabled = '') {
     this.relaysElement.insertAdjacentHTML('beforeend', `
@@ -1925,6 +1946,17 @@ try {
   } else if (registration.active) {
     console.log("Service worker active");
   }
+  navigator.serviceWorker.addEventListener("message", async event => {
+    console.log('got message from service worker', event.data);
+    switch (event.data) {
+    case 'update':
+      await FairshareSync.update();
+      navigator.serviceWorker.controller.postMessage('updated');
+      break;
+    default:
+      console.warn(`Unrecognized service worker message: "${event.data}".`);
+    }
+  });
 } catch (error) {
   App.error(`Registration failed with ${error.message}`);
 }

@@ -17,7 +17,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 
 ## 0.2.7
 - Fix (ios safari comes back from sleep without data or displays)[https://github.com/kilroy-code/fairshare/issues/55]
-- Fix chrome coming back from sleep with `Failed to execute 'createDataChannel' on 'RTCPeerConnection': The RTCPeerConnection's signalingState is 'closed'.`
+- Fix (chrome coming back from sleep with `Failed to execute 'createDataChannel' on 'RTCPeerConnection': The RTCPeerConnection's signalingState is 'closed'.`)[https://github.com/kilroy-code/fairshare/issues/57]
 - data change
 
 ## 0.2.6
