@@ -7,7 +7,6 @@ async function addResourcesToCache(resources) {
 };
 
 async function cacheFirstWithRefresh(event, request = event.request) {
-  console.log('cacheFirstWithRefresh', event, request);
   // Start fetching to update cache...
   const fetchResponsePromise = fetch(request)
 	.then(
@@ -109,7 +108,6 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const {request} = event; // It is conceivable that something might await before request is referenced, and find it missing.
   // E.g., Safari might define event.request only within the dynamic extent of the original event dispatch.
-  console.log('fetch', event, request);
   event.respondWith(cacheFirstWithRefresh(event, request));
 });
 
@@ -133,6 +131,8 @@ self.addEventListener('push', event => {
       const url = new URL(event.data.text());
       return self.registration.showNotification(`Activity at ${url.host}.`, {
 	body: 'Click to launch app and synchronize.',
+	icon: new URL('./images/fairshare-192.png', url).href,
+	image: new URL('./images/fairshare-512.png', url).href,
 	data: {url: url.href}
       });
     })
@@ -154,13 +154,7 @@ self.addEventListener('notificationclick', event => {
         for (const client of clientList) {
 	  return client.navigate(url).then(() => client.focus());
         }
-	try {
-	  const p = clients.openWindow(url);
-	  console.log('hrs, asked to open', p, url);
-	  const pp = await p;
-	  console.log('hrs opened', pp, url);
-          return pp;
-	} catch (e) { console.error('hrs wtf', e); }
+	return clients.openWindow(url);
       }),
   );
 });
