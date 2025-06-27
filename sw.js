@@ -115,8 +115,15 @@ self.addEventListener('fetch', event => {
   curl "http://localhost:3000/flexstore/poke/2GSlKfza-dvC1jme5_u24a-HvPu6ecOEXiV7wdCaSB4"
  */
 self.addEventListener('push', event => {
-  console.log('push', event.data, event.data.text());
+  const url = new URL(event.data.text());
+  console.log('push', url.href);
+  // Resubscribe in case the existing is about to expire.
+  event.waitUntil(fetch(new URL('/flexstore/publicVapidKey', url).href)
+		  .then(response => response.json())
+		  .then(applicationServerKey =>
+		    self.registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey})));
   event.waitUntil(
+    // Find a window and wake it up.
     clients.matchAll({type: 'window', includeUncontrolled: true}).then(async clients => {
       if (clients.length) {
 	let resolver;
@@ -128,7 +135,6 @@ self.addEventListener('push', event => {
       }
       // No client window open. We should not open the app without interaction,
       // but we can display a notification that they can touch to open it (which will then sync).
-      const url = new URL(event.data.text());
       return self.registration.showNotification(`Activity at ${url.host}.`, {
 	body: 'Click to launch app and synchronize.',
 	icon: new URL('./images/fairshare-192.png', url).href,
