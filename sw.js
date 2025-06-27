@@ -155,7 +155,7 @@ self.addEventListener('notificationclick', event => {
     clients
       .matchAll({type: 'window', includeUncontrolled: true})
       .then(async clientList => {
-	const url = data.url || `app.html?user=${data.aud}&group=${data.iss}#History`;
+	const url = data.url || `app.html?user=${data.aud}&group=${data.iss}#Messages`;
 	console.log('hrs notificationLick', {title, body, data, url, clientList});
         for (const client of clientList) {
 	  return client.navigate(url).then(() => client.focus());
