@@ -56,7 +56,7 @@
     <fairshare-app>
       <material-icon slot="additional-menu">cloud_off</material-icon>
 
-      <fairshare-history slot="additional-screen"></fairshare-history>
+      <fairshare-messages slot="additional-screen"></fairshare-messages>
 
       <fairshare-pay slot="additional-screen"></fairshare-pay>
 
@@ -125,7 +125,9 @@
       </switch-user>
 
       <fairshare-authorize-user title="Add existing account" slot="user-menu">
-	<p>If you do not have a an existing account to add to this browser, then you need to get an invitation from a member.</p>
+	<p slot="beforeSecurity">If you do not have a an existing account to add to this browser, then you need to get an invitation from a member.</p>
+	<div slot="afterSecurity"><label><md-checkbox></md-checkbox> Push updates from relays (<a id="recommendedUpdate" href="#">recommended</a>)</label></div>
+	<div slot="afterSecurity"><label><md-checkbox></md-checkbox> Notify me of my messages (<a id="recommendedNotification" href="#">recommended</a>)</label></div>
       </fairshare-authorize-user>
 
       <fairshare-create-user title="Create new account" slot="user-menu">

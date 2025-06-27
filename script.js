@@ -1,6 +1,7 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser,
 	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule, name as uname, version as uversion } from '@kilroy-code/ui-components';
-import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, Synchronizer, SharedWebRTC, name, version } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, Synchronizer,
+	 StorageLocal, SharedWebRTC, name, version, uuid4 } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js';
 
 
@@ -15,7 +16,7 @@ const checkSafari = setTimeout(() => {
 }, 6e3);
 Credentials.ready.then(ready => {
   ready && clearTimeout(checkSafari);
-  const fairshare = '0.2.7';
+  const fairshare = '0.2.8';
   App.versionedTitleBlock = `Fairshare ${fairshare}
 ${ready.name} ${ready.version}
 ${name} ${version}
@@ -153,7 +154,7 @@ messages.versions.onupdate = ({detail}) => FairshareChatInput.instance.onupdate(
 
 const appCollections = [usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, messages, messages.versions, media];
 const collections = Object.values(Credentials.collections).concat(appCollections);
-Object.assign(globalThis, {SharedWebRTC, Credentials, MutableCollection, Collection, Synchronizer,
+Object.assign(globalThis, {SharedWebRTC, Credentials, MutableCollection, Collection, Synchronizer, StorageLocal,
 			   groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,
 			   Group, User, collections}); // For debugging in console.
 async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
@@ -208,7 +209,7 @@ class FairshareApp extends BasicApp {
     // So we're doing that here, and relying on content not dependening on anything that would cause us to re-fire.
     // We will know the locally stored tags right away, which set initial liveTags and knownTags, and ensure that there is
     // a null record rule in the collection that will be updated when the data comes in.
-    this.userCollection.updateLiveTags(this.getLocal(this.localKey(usersPrivate), []));
+    this.userCollection.updateLiveTags(this.getDeviceUsers());
   }
   afterInitialize() {
     super.afterInitialize();
@@ -295,6 +296,43 @@ class FairshareApp extends BasicApp {
     const tag = await Credentials.createAuthor(prompt);
     await FairshareGroups.addToOwner(tag);
     return tag;
+  }
+
+  deviceData = new StorageLocal({name: 'fairshareDevice'}); // Local per-device data.
+  getRequestUpdates(url) { // Does the human want the relay at this url to wake this device from sleep?
+    return this.deviceData.get(url);
+  }
+  async setRequestUpdates(url, value) { // Set whether the relay at this url should wake this device.
+    const {deviceData} = this;
+    const guidKey = 'subscriptionGuid';
+    let key = await deviceData.get(guidKey);
+    console.log({url, value, guidKey, key});
+    let subscription = null;
+    if (!key) {
+      key = uuid4();
+      console.log('storing', key, '@', guidKey);
+      await deviceData.put(guidKey, key);
+    }
+    await this.deviceData.put(url, value);
+    const registration = await navigator.serviceWorker.ready;
+    if (value) {
+      const pubkey = await Synchronizer.fetchJSON('/flexstore/publicVapidKey');
+      subscription = await registration.pushManager.subscribe({
+	userVisibleOnly: true, // TODO: can we set false in Safari?
+	applicationServerKey: pubkey
+      });
+      console.log({url, value, pubkey, key, registration, subscription});
+    } else { // Locally clean up any old.
+      const old = await registration.pushManager.getSubscription();
+      if (old) await old.unsubscribe();
+    }
+    const result = await Synchronizer.fetchJSON(`/flexstore/subscribe`, {key, subscription});
+    console.log('subscribe result', key, result);
+    console.log('storing', value, '@', url);
+  }
+
+  getDeviceUsers() { // WARNING: this is currently synchronous. Beware of callers when changing this.
+    return this.getLocal(this.localKey(usersPrivate), []);
   }
   localKey(collection) {
     return `${collection.name}:${collection.dbVersion}`;
@@ -414,22 +452,6 @@ class FairshareApp extends BasicApp {
     super.select(key);
     return null;
   }
-  async subscribe(key = App.user) { // FIXME: move this. It won't load in NodeJS
-    const pubkeyResponse = await fetch('/flexstore/publicVapidKey');
-    const pubkey = await pubkeyResponse.json();
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true, // TODO: can we set false in Safari?
-      applicationServerKey: pubkey
-    });
-    const subscribeResponse = await fetch(`/flexstore/subscribe/${key}`, {
-      method: 'PUT',
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(subscription)
-    });
-    const subscribeResults = await subscribeResponse.json();
-    console.log({pubkeyResponse, pubkey, registration, subscription, subscribeResponse, subscribeResults});
-  }
 }
 FairshareApp.register();
 
@@ -536,11 +558,18 @@ class FairshareAmount extends MDElement { // Numeric input linked with App.amoun
 FairshareAmount.register();
 
 class FairshareAuthorizeUser extends AuthorizeUser {
-  onaction() { // Capture q/a now, while we have 'this', in case super proceedes to adopt.
+  async onaction() { // Capture q/a now, while we have 'this', in case super proceedes to adopt.
+    const usersExist = await this.usersExist();
     const prompt = this.userRecord.q0;
     const answer = this.answerElement.value;
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
-    super.onaction();
+    await super.onaction();
+    if (usersExist) return;
+    this.hideUpdateNotification(); // No longer needed.
+    if (!this.doc$('label:has(#recommendedUpdate) md-checkbox').checked) return;
+    for (let relay of FairshareSync.instance.relaysElement.children) {
+      relay.lastElementChild.firstElementChild.click();
+    }
   }
   static async adopt(tag) { // Create and add a device tag using q/a, and "wear" the new tag so we can author the user item changes in super.
     if (!tag) return '';
@@ -548,6 +577,30 @@ class FairshareAuthorizeUser extends AuthorizeUser {
     await Credentials.changeMembership({tag, add: [deviceTag]});
     Credentials.author = tag;
     return super.adopt(tag);
+  }
+  usersExist() {
+    return App.getDeviceUsers().length;
+  }
+  hideUpdateNotification(hide = true) {
+    this.querySelectorAll('[slot="afterSecurity"]').forEach(element => element.style = hide ? 'display:none;' : '');
+  }
+  async afterInitialize() {
+    super.afterInitialize();
+    // Descriptions on the "recommended" links.
+    this.doc$('#recommendedUpdate').onclick = () => App.alert("<p>If the operating system puts the app to sleep, the relay can periodically wake it up to synchronize new data.</p><p>Neither the server nor the platform can read the messages nor know which user is subscribing</p><p>After you add an account on this device, you can control this for each relay on the <i>Relays</i> screen (cloud icon).</p>", "Subscribe to relay updates");
+    this.doc$('#recommendedNotification').onclick = () => App.alert("<p>When there are new messages and you are not already on the group's message screen, the app can give you an operating system notification with the message. (If the app has been put to sleep by the operating system, it needs to be woken up with a <i>Push update</i>.) You can then touch the notification to bring you to the messages screen.</p><p>The notification is entirely through the device, and does <i>not</i> pass through any platform server.</p><p>After you add an account on this device, you can control this for each group on the <i>Group profile</i> screen.</p>", "Subscribe to group notifications");
+
+    // Ask for platform notification permission if either is checked.
+    this.querySelectorAll('[slot="afterSecurity"] md-checkbox')
+      .forEach(checkbox => checkbox.addEventListener('change', event => FairshareAuthorizeUser.getNotificationPermission(event.target)));
+    this.hideUpdateNotification(await this.usersExist());
+  }
+  static async getNotificationPermission(checkbox) { // If checked, try to get permission. If denied, clear the checkbox.
+    if (!checkbox.checked) return;
+    const permission = await Notification.requestPermission();
+    console.log('notification permission', permission);
+    if (permission === 'granted') return;
+    checkbox.checked = false;
   }
 }
 FairshareAuthorizeUser.register();
@@ -814,7 +867,7 @@ class FairshareSync extends MDElement {
     App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
     return Promise.all(this.instance.updateRelays(elements));
   }
-  afterInitialize() {
+  async afterInitialize() {
     super.afterInitialize();
     this.constructor.instance = this;
     const relays = App.getLocal('relays', [
@@ -824,7 +877,8 @@ class FairshareSync extends MDElement {
       ["Private LAN - Lead", "generate QR code on hotspot"],
       ["Private LAN - Follow", "scan QR code on hotspot"]
     ]);
-    const relayElements = relays.map(params => this.addRelay(...params));
+    const relayElements = [];
+    for (let params of relays) relayElements.push(await this.addRelay(...params));
     FairshareApp.initialSync = Promise.all(this.updateRelays(relayElements));
     this.addExpander();
     this.shadow$('[href="#"]').onclick = () => {
@@ -861,7 +915,7 @@ class FairshareSync extends MDElement {
     return this.shadow$('md-list');
   }
   addExpander() {
-    this.addRelay("Your label", 'URL of shared server or private rendevous', 'indeterminate', 'disabled');
+    return this.addRelay("Your label", 'URL of shared server or private rendevous', 'indeterminate', 'disabled');
   }
   addExpanderIfNeeded() { // And return the list of items NOT including the expander
     const items = Array.from(this.relaysElement.children);
@@ -880,7 +934,8 @@ class FairshareSync extends MDElement {
     let data = [];
     let items = this.addExpanderIfNeeded();
     for (const child of items) {
-      const [checkbox, label, url] = child.children;
+      const [checkbox, head, url] = child.children;
+      const [label] = head.children;
       data.push([label.textContent, url.textContent, checkbox.checked ? 'checked' : null]);
     }
     App.setLocal('relays', data);
@@ -889,8 +944,9 @@ class FairshareSync extends MDElement {
     return relayElements.map(relayElement => this.updateRelay(relayElement));
   }
   async updateRelay(relayElement) { // Return a promise the resolves when relayElement is connected (if checked), and updated with connection type.
-    const [checkbox, label, urlElement, trailing] = relayElement.children;
-    const [status, connection, kill] = trailing.children;
+    const [checkbox, head, urlElement, trailing] = relayElement.children;
+    const [label, protocol] = head.children;
+    const [wake, status, kill] = trailing.children;
     const lead = Credentials.collections.EncryptionKey;
     const isLanLead = label.textContent.includes('LAN - Lead');
     const isLanFollow = label.textContent.includes('LAN - Follow');
@@ -898,6 +954,7 @@ class FairshareSync extends MDElement {
     let url = urlElement.textContent;
     if (isLanLead) url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
     else if (isLanFollow) url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
+    console.log({relayElement, checkbox, head, urlElement, trailing , label, protocol, wake, status, kill});
 
     const isUnderWay = lead.synchronizers.get(url); // Don't mess with what is already correct.
     if (checkbox.checked && isUnderWay) {
@@ -907,7 +964,7 @@ class FairshareSync extends MDElement {
       return;
     }
     status.textContent = 'cloud_off'; // In case of error.
-    connection.textContent = '';
+    protocol.textContent = '';
 
     // These two wacky special cases are for LAN connections by QR code.
     if (isLanLead) {
@@ -987,8 +1044,7 @@ class FairshareSync extends MDElement {
     Promise.race(synchronizers.map(synchronizer => synchronizer.startedSynchronization)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_sync';
       const [synchronizer] = synchronizers;
-      connection.textContent = `${synchronizer?.protocol || ''} ${synchronizer?.candidateType || ''}`;
-      kill.style = 'display:none';
+      protocol.textContent = `- (${synchronizer?.protocol || ''} ${synchronizer?.candidateType || ''})`;
     });
 
     // Once synchronized, show that we're done.
@@ -1004,7 +1060,7 @@ class FairshareSync extends MDElement {
       // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
       const alert = 'thunderstorm';      
       App.statusElement.textContent = alert;
-      connection.textContent = '';
+      protocol.textContent = '';
       kill.style = '';
       if (!userAsked) synchronizeCollections(url, false);
       setTimeout(() => {
@@ -1015,21 +1071,25 @@ class FairshareSync extends MDElement {
     });
     return promiseDone;
   }
-  addRelay(label, url, state = '', disabled = '') {
+  async addRelay(label, url, state = '', disabled = '') {
+    const canUpdate = label.endsWith('server');
+    let wantsUpdate = canUpdate && await App.getRequestUpdates(url);
+    function updateIcon() { return wantsUpdate ? 'alarm' : 'snooze'; }
+    console.log({url, canUpdate, wantsUpdate, icon: updateIcon()});
     this.relaysElement.insertAdjacentHTML('beforeend', `
 <md-list-item>
   <md-checkbox slot="start" ${state || ''} ${disabled}></md-checkbox>
-  <span slot="headline" contenteditable="plaintext-only">${label}</span>
+  <span slot="headline"><span contenteditable="plaintext-only">${label}</span> <small></small></span>
   <span slot="supporting-text"  contenteditable="plaintext-only">${url}</span>
   <span slot="trailing-supporting-text">
+   ${canUpdate ? `<md-icon-button><material-icon class="alarm">${updateIcon()}</material-icon></md-icon-button>` : '<span></span>'}
    <material-icon>cloud_off</material-icon>
-   <span></span>
    <md-icon-button  ${disabled}><material-icon>delete</material-icon></md-icon-button>
   </span>
 </md-list-item>`);
     const item = this.relaysElement.lastElementChild;
     const [checkbox, text, location, trailing] = item.children;
-    const [remove] = trailing.children;
+    const [alarm, cloud, remove] = trailing.children;
     checkbox.oninput = async event => {
       const element = event.target.parentElement,
 	    checkbox = element.children[2];
@@ -1038,6 +1098,13 @@ class FairshareSync extends MDElement {
     };
     text.onblur = location.onblur = event => this.saveRelays();
     remove.onclick = () => this.saveRelays(item.remove());
+    alarm.onclick = async () => {
+      if (!canUpdate) return;
+      wantsUpdate = !wantsUpdate;
+      console.log({url, alarm, wantsUpdate});
+      App.setRequestUpdates(url, wantsUpdate);
+      alarm.firstElementChild.innerText = updateIcon();
+    };
     return item;
   }
   get template() {
@@ -1259,7 +1326,7 @@ class FairshareChatInput extends MDElement {
     if ((Notification.permission === "granted") &&
 	App.userRecord?.getNotify(iss) &&
 	(act !== App.user) &&
-	(!isCurrentGroup || (App.screen !== 'History') || (document.visibilityState !== 'visible')) &&
+	(!isCurrentGroup || (App.screen !== 'Messages') || (document.visibilityState !== 'visible')) &&
 	// Currently, we only show notifications from a group that the current user is a member of.
 	// IWBNI if we showed notifications that any of this device's users are a member of.
 	App.groupCollection.liveTags.includes(iss)) {
@@ -1267,6 +1334,7 @@ class FairshareChatInput extends MDElement {
       const registration = await navigator.serviceWorker.ready;
       const title = `${App.getUserTitle(act)} in ${App.getGroupTitle(iss)}:`;
       const body = verified.json.text; // verified.json will have changed via decryption.
+      const icons = new URL('./images/fairshare-192.png', location.href).href;
       const image = new URL('./images/fairshare-512.png', location.href).href;
       const timestamp = iat;
       const aud = App.user; // A member of the iss that is not act.
@@ -1279,7 +1347,7 @@ class FairshareChatInput extends MDElement {
       registration.showNotification(title, options);
     // } else {
     //   console.log('notification is not sent', {permission: Notification.permission, notify: App.userRecord?.getNotify(iss),
-    // 					       isCurrentUser: act === App.user, isCurrentGroup, isHistory: App.screen === 'History',
+    // 					       isCurrentUser: act === App.user, isCurrentGroup, isHistory: App.screen === 'Messages',
     // 					       isVisible: document.visibilityState === 'visible', act, iss});
     }
   }
@@ -1406,7 +1474,7 @@ class FairshareChatInput extends MDElement {
 }
 FairshareChatInput.register();
 
-class FairshareHistory extends MDElement {
+class FairshareMessages extends MDElement {
   afterInitialize() {
     super.afterInitialize();
     const chatContainer = this.shadow$('.messages');
@@ -1436,7 +1504,7 @@ class FairshareHistory extends MDElement {
     `;
   }
 }
-FairshareHistory.register();
+FairshareMessages.register();
 
 // TODO: Implment this (more efficiently) in distributed-security.
 Credentials.isMember = async (tag, teamTag, recurse = true) => {
@@ -1816,15 +1884,7 @@ export class EditGroup extends MDElement {
       event.preventDefault();
       this.shadow$('[type="file"]').click();
     });
-    this.notifyElement.addEventListener('click', event => {
-      const checkbox = event.target;
-      setTimeout(async () => { // Value isn't set yet
-	if (!checkbox.checked) return;
-	const permission = await Notification.requestPermission();
-	if (permission === 'granted') return;
-	checkbox.checked = false;
-      });
-    });
+    this.notifyElement.addEventListener('change', event => FairshareAuthorizeUser.getNotificationPermission(event.target));
   }
   get usernameElement() { // A misnomer, carried over from EditUser.
     return this.shadow$('[name="title"]');

@@ -10,6 +10,10 @@ p all-users-menu-button,
 p md-filled-button {
     vertical-align: bottom;
 }
+div {
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
 .row {
     display: flex;
     align-items: center;
