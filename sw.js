@@ -18,7 +18,7 @@ async function cacheFirstWithRefresh(event, request = event.request) {
 	    return networkResponse; // Pass the networkResponse if we need it below.
 	  },
 	  error => { // If it fails (e.g., offline), cons a valid non-ok response to pass back to app.
-	    console.log('sw fetch failed', error);
+	    console.log('service worker fetch failed', error);
 	    return new Response("Network error", {
 	      status: 408,
 	      headers: { "Content-Type": "text/plain" },
@@ -135,10 +135,12 @@ self.addEventListener('push', event => {
       }
       // No client window open. We should not open the app without interaction,
       // but we can display a notification that they can touch to open it (which will then sync).
+      const icon = new URL('./images/fairshare-192.png', url).href;
+      const image = new URL('./images/fairshare-512.png', url).href;
+      console.log('notification with', {url, icon, image});
       return self.registration.showNotification(`Activity at ${url.host}.`, {
 	body: 'Click to launch app and synchronize.',
-	icon: new URL('./images/fairshare-192.png', url).href,
-	image: new URL('./images/fairshare-512.png', url).href,
+	icon, image, 
 	data: {url: url.href}
       });
     })
@@ -156,7 +158,6 @@ self.addEventListener('notificationclick', event => {
       .matchAll({type: 'window', includeUncontrolled: true})
       .then(async clientList => {
 	const url = data.url || `app.html?user=${data.aud}&group=${data.iss}#Messages`;
-	console.log('hrs notificationLick', {title, body, data, url, clientList});
         for (const client of clientList) {
 	  return client.navigate(url).then(() => client.focus());
         }

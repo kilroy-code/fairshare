@@ -312,11 +312,9 @@ class FairshareApp extends BasicApp {
     const {deviceData} = this;
     const guidKey = 'subscriptionGuid';
     let key = await deviceData.get(guidKey);
-    console.log({url, value, guidKey, key});
     let subscription = null;
     if (!key) {
       key = uuid4();
-      console.log('storing', key, '@', guidKey);
       await deviceData.put(guidKey, key);
     }
     await this.deviceData.put(url, value);
@@ -327,14 +325,11 @@ class FairshareApp extends BasicApp {
 	userVisibleOnly: true, // TODO: can we set false in Safari?
 	applicationServerKey: pubkey
       });
-      console.log({url, value, pubkey, key, registration, subscription});
     } else { // Locally clean up any old.
       const old = await registration.pushManager.getSubscription();
       if (old) await old.unsubscribe();
     }
-    const result = await Synchronizer.fetchJSON(`/flexstore/subscribe`, {key, subscription});
-    console.log('subscribe result', key, result);
-    console.log('storing', value, '@', url);
+    await Synchronizer.fetchJSON(`/flexstore/subscribe`, {key, subscription});
   }
 
   getDeviceUsers() { // WARNING: this is currently synchronous. Beware of callers when changing this.
@@ -670,9 +665,7 @@ class FairshareGroups extends LiveList {
   static async setNotify(tag, value, user = App.user) { // Persist whether or not changes to this group notify the given user
     // Notify preference is per group, but set in the the private user data.
     const record = await App.userCollection.updateLiveRecord(user); // Is this necessary? Why?
-    console.log('setNotify', {tag, value, user, record});
     const notify = record.setNotify(tag, value);
-    console.log('setNotify....', notify);
     await App.setUser(user, {notify});
     await App.userCollection.updateLiveRecord(user);
   }
@@ -883,6 +876,9 @@ class FairshareSync extends MDElement {
     App.getLocal('relays', []).forEach(([name, url, on], index) => on && (elements[index].children[0].checked = true));
     return Promise.all(this.instance.updateRelays(elements));
   }
+  static closeAll() {
+    return Promise.all(collections.map(c => c.disconnect()));
+  }
   async afterInitialize() {
     super.afterInitialize();
     this.constructor.instance = this;
@@ -911,6 +907,8 @@ class FairshareSync extends MDElement {
       // Give the network a moment to do what it needs to. (Including any disconnects.)
       setTimeout(() => this.constructor.update(), 1e3);
     });
+    window.addEventListener('offline', () => { console.log('offline!'); this.constructor.closeAll(); });
+    window.addEventListener('online', () => { console.log('online!'); this.constructor.update(); });
   }
   get ssidElement() {
     return this.shadow$('#ssid');
@@ -970,7 +968,6 @@ class FairshareSync extends MDElement {
     let url = urlElement.textContent;
     if (isLanLead) url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
     else if (isLanFollow) url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
-    console.log({relayElement, checkbox, head, urlElement, trailing , label, protocol, wake, status, kill});
 
     const isUnderWay = lead.synchronizers.get(url); // Don't mess with what is already correct.
     if (checkbox.checked && isUnderWay) {
@@ -1066,6 +1063,7 @@ class FairshareSync extends MDElement {
     // Once synchronized, show that we're done.
     let promiseDone = Promise.all(collections.map(collection => collection.synchronized)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
+      console.log('completed synchronization for', url, new Date());
     });
 
     // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
@@ -1074,24 +1072,33 @@ class FairshareSync extends MDElement {
       checkbox.checked = false;
       status.textContent = 'cloud_off';
       // Set App.statElement to alert, and then a moment later, reset it to on if any relays are on, else off.
-      const alert = 'thunderstorm';      
+      const alert = 'thunderstorm';
       App.statusElement.textContent = alert;
       protocol.textContent = '';
-      kill.style = '';
+      console.log('closed', url, new Date());
       if (!userAsked) synchronizeCollections(url, false);
       setTimeout(() => {
 	if (App.statusElement.textContent !== alert) return; // If something has changed it, leave it be.
-	const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
-	App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
+	this.updateOverallStatus();
       }, 2e3);
+    }, async error => {
+      await synchronizeCollections(url, false);
+      checkbox.checked = false;
+      this.updateOverallStatus();
+      status.textContent = 'thunderstorm';
+      if (navigator.onLine) App.alert(error.message, error.name);
+      else App.alert('You are offline. Check your connections.');
     });
     return promiseDone;
+  }
+  updateOverallStatus() {
+    const someDone = Array.from(this.relaysElement.children).some(element => element.querySelector('material-icon').textContent === 'cloud_done');
+    App.statusElement.textContent = someDone ? 'cloud_done' : 'cloud_off';
   }
   async addRelay(label, url, state = '', disabled = '') {
     const canUpdate = label.endsWith('server');
     let wantsUpdate = canUpdate && await App.getRequestUpdates(url);
     function updateIcon() { return wantsUpdate ? 'alarm' : 'snooze'; }
-    console.log({url, canUpdate, wantsUpdate, icon: updateIcon()});
     this.relaysElement.insertAdjacentHTML('beforeend', `
 <md-list-item>
   <md-checkbox slot="start" ${state || ''} ${disabled}></md-checkbox>
@@ -1117,7 +1124,6 @@ class FairshareSync extends MDElement {
     alarm.onclick = async () => {
       if (!canUpdate) return;
       wantsUpdate = !wantsUpdate;
-      console.log({url, alarm, wantsUpdate});
       App.setRequestUpdates(url, wantsUpdate);
       alarm.firstElementChild.innerText = updateIcon();
     };
@@ -1310,13 +1316,11 @@ class FairshareChatInput extends MDElement {
     for (; i>0; i--) {
       let child = children[i-1];
       let {json, protectedHeader} = child.verified;
-      //console.log(i, json.text, protectedHeader.iat, 'vs', text, iat);
       if (protectedHeader.iat < iat) {
 	child.after(messageElement);
 	break;
       }
     }
-    //console.log('after loop, i=', i);
     if (i <= 0) {
       this.chatContainer.insertAdjacentElement('afterBegin', messageElement);
     }
