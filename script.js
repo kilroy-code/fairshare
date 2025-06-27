@@ -44,6 +44,12 @@ class User { // A single user, which must be one that the human has authorized o
     if (index < 0) return false;
     return this.notify[index];
   }
+  setNotify(group, value) { // Returns the whole notify array.
+    const index = this.groups.indexOf(group);
+    if (index < 0) return false;
+    this.notify[index] = value;
+    return this.notify;
+  }
 }
 Rule.rulify(User.prototype);
 
@@ -563,13 +569,14 @@ class FairshareAuthorizeUser extends AuthorizeUser {
     const prompt = this.userRecord.q0;
     const answer = this.answerElement.value;
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
-    await super.onaction();
+    const tag = await super.onaction();
     if (usersExist) return;
     this.hideUpdateNotification(); // No longer needed.
     if (!this.doc$('label:has(#recommendedUpdate) md-checkbox').checked) return;
     for (let relay of FairshareSync.instance.relaysElement.children) {
       relay.lastElementChild.firstElementChild.click();
     }
+    await FairshareGroups.setNotify(App.FairShareTag, this.doc$('label:has(#recommendedNotification) md-checkbox').checked, tag);
   }
   static async adopt(tag) { // Create and add a device tag using q/a, and "wear" the new tag so we can author the user item changes in super.
     if (!tag) return '';
@@ -659,6 +666,15 @@ class FairshareGroups extends LiveList {
   }
   get active() {
     return App.group;
+  }
+  static async setNotify(tag, value, user = App.user) { // Persist whether or not changes to this group notify the given user
+    // Notify preference is per group, but set in the the private user data.
+    const record = await App.userCollection.updateLiveRecord(user); // Is this necessary? Why?
+    console.log('setNotify', {tag, value, user, record});
+    const notify = record.setNotify(tag, value);
+    console.log('setNotify....', notify);
+    await App.setUser(user, {notify});
+    await App.userCollection.updateLiveRecord(user);
   }
   select(tag) {
     App.resetUrl({group: tag, payee: '', amount: ''}); // Clear payee,amount when switching.
@@ -1834,13 +1850,7 @@ export class EditGroup extends MDElement {
     await App.setGroup(tag, data); // Set the data, whether new or not.
     await this.parentComponent.onaction?.(target);
     // After parentComponent.onaction, we are certain to have tag in userRecord.groups
-    // Notify preference is per group, but set in the the private user data.
-    await App.userCollection.updateLiveRecord(App.user); // Is this necessary? Why?
-    const index = App.userRecord.groups.indexOf(tag);
-    const notify = App.userRecord.notify;
-    notify[index] = checked;
-    await App.setUser(App.user, {notify});
-    await App.userCollection.updateLiveRecord(App.user);
+    await FairshareGroups.setNotify(tag, checked);
     return null;
   }
   afterInitialize() {
