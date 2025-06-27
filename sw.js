@@ -62,7 +62,7 @@ self.addEventListener('message', async event => {
     await deleteOldCaches([]);
     break;
   case 'updated':
-    update?.resolve?.();
+    update?.resolve?.(true);
     break;
   default:
     console.warn(`Unrecognized service worker message: "${event.data}".`);
@@ -116,7 +116,7 @@ self.addEventListener('fetch', event => {
  */
 self.addEventListener('push', event => {
   const url = new URL(event.data.text());
-  console.log('push', url.href);
+  console.log('push', url.href, new Date());
   // Resubscribe in case the existing is about to expire.
   event.waitUntil(fetch(new URL('/flexstore/publicVapidKey', url).href)
 		  .then(response => response.json())
@@ -124,14 +124,24 @@ self.addEventListener('push', event => {
 		    self.registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey})));
   event.waitUntil(
     // Find a window and wake it up.
-    clients.matchAll({type: 'window', includeUncontrolled: true}).then(async clients => {
+    clients.matchAll({type: 'window', includeUncontrolled: true}).then(clients => {
       if (clients.length) {
 	let resolver;
 	update = new Promise(resolve => resolver = resolve);
 	update.resolve = resolver;
 	clients[0].postMessage('update');
-	await self.registration.showNotification('fixme update', {body: event.data.text()}); // FIXME remove
-	return update;
+
+	const result = update.then(success => {
+	  if (success) {
+	    return self.registration.showNotification('poke successful', {body: "sync'd from a push"});
+	  } else {
+	    return self.registration.showNotification('poke timeout', {body: "got a push but did not sync in time"});
+	  }
+	});
+	let resultsTimer = setTimeout(() => update.resolve(false), 20e3);
+	return result;
+
+	//return update;
       }
       // No client window open. We should not open the app without interaction,
       // but we can display a notification that they can touch to open it (which will then sync).

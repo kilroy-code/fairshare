@@ -19,6 +19,9 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 - Fix "Cannot set properties of undefined (setting 'title')".
 - Option to 'Share report' through the operating system shares, as well as through mailto: link.
 - Bigger reset for stale clients.
+- Fix(?) Safari intermittently failing to open one of the several data channels.
+- Handle going offline/online.
+- When there is activity, wake up sleeping clients that requested it.
 
 ## 0.2.7
 - Fix (ios safari comes back from sleep without data or displays)[https://github.com/kilroy-code/fairshare/issues/55]

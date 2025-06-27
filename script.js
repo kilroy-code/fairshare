@@ -121,7 +121,8 @@ Rule.rulify(Group.prototype);
   have any need to pull in such data in the first place.
 
   The protocol doesn't actually require a user or group to be listed in the public collections, but the app doesn't currently support that.
-*/
+*/  
+    
 const usersPublic   = new MutableCollection(  {name: 'social.fairshare.users.public'});
 const usersPrivate  = new MutableCollection(  {name: 'social.fairshare.users.private'});
 const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.group.public'});
@@ -163,6 +164,19 @@ const collections = Object.values(Credentials.collections).concat(appCollections
 Object.assign(globalThis, {SharedWebRTC, Credentials, MutableCollection, Collection, Synchronizer, StorageLocal,
 			   groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,
 			   Group, User, collections}); // For debugging in console.
+
+const deviceData = new StorageLocal({name: 'fairshareDevice'}); // Local per-device data.
+const guidKey = 'subscriptionGuid';
+const guidPromise = deviceData.get(guidKey).then(guid => {
+  if (!guid) {
+    guid = uuid4();
+    deviceData.put(guidKey, guid); // no need to wait
+  }
+  // FIXME: Only for those synchronizers that correspond to a relay for which we've asked for updates.
+  // Does this need to be different guid for each service?
+  collections.forEach(collection => collection.uuid = guid);
+  return guid;
+});
 async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
   console.log(connect ? 'connecting' : 'disconnecting', service, new Date());
   try {
@@ -304,19 +318,13 @@ class FairshareApp extends BasicApp {
     return tag;
   }
 
-  deviceData = new StorageLocal({name: 'fairshareDevice'}); // Local per-device data.
+  deviceData = deviceData;
   getRequestUpdates(url) { // Does the human want the relay at this url to wake this device from sleep?
     return this.deviceData.get(url);
   }
   async setRequestUpdates(url, value) { // Set whether the relay at this url should wake this device.
-    const {deviceData} = this;
-    const guidKey = 'subscriptionGuid';
-    let key = await deviceData.get(guidKey);
+    let key = await guidPromise;
     let subscription = null;
-    if (!key) {
-      key = uuid4();
-      await deviceData.put(guidKey, key);
-    }
     await this.deviceData.put(url, value);
     const registration = await navigator.serviceWorker.ready;
     if (value) {
@@ -1044,6 +1052,7 @@ class FairshareSync extends MDElement {
       }
 
     } else { // The usual case
+      await guidPromise;
       const promise = synchronizeCollections(url, checkbox.checked);
       if (!checkbox.checked) await promise;
     }
