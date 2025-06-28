@@ -72,12 +72,14 @@
       //jasmine.getEnv().configure({random: false});
       jasmine.getEnv().addReporter({jasmineDone: () => document.getElementById('wipe').toggleAttribute('disabled', false)});
       async function wipeDB() {
-        //indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
-	await Credentials.wipeDeviceKeys();
-	await Promise.all((await caches.keys()).map(name => caches.delete(name)));
+
+        indexedDB.databases().then(dbs => dbs.map(db => indexedDB.deleteDatabase(db.name)));
+        await Credentials.wipeDeviceKeys();
+        await Promise.all((await caches.keys()).map(name => caches.delete(name)));
         localStorage.clear();
-        //const namesAfter = await indexedDB.databases().then(dbs => dbs.map(db => db.name));
-	const namesAfter = await caches.keys();
+        navigator.serviceWorker.getRegistrations().then(registrations => { registrations.map(r => { r.unregister() }) })
+
+        const namesAfter = await caches.keys();
         if (namesAfter.length) alert(`Database wipe left ${namesAfter}.\n\n(Might clear after reload. Be sure to have no other open Fairshare tabs in this browser.)`);
         else alert(`Databases have been cleared.`);
       }
