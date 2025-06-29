@@ -47,6 +47,7 @@ class User { // A single user, which must be one that the human has authorized o
   setNotify(group, value) { // Returns the whole notify array.
     const index = this.groups.indexOf(group);
     if (index < 0) return false;
+    this.notify.length = Math.max(this.notify.length, index + 1);
     this.notify[index] = value;
     return this.notify;
   }
