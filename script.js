@@ -2020,7 +2020,7 @@ EditGroup.register();
 
 
 try {
-  const registration = await navigator.serviceWorker.register("/fairshare/sw.js", {
+  const registration = await navigator.serviceWorker.register("/fairshare/service-worker.1.js", {
     //scope: "/",
   });
   if (registration.installing) {
