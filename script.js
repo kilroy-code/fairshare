@@ -608,7 +608,7 @@ class FairshareAuthorizeUser extends AuthorizeUser {
   }
   static async getNotificationPermission(checkbox) { // If checked, try to get permission. If denied, clear the checkbox.
     if (!checkbox.checked) return;
-    const permission = await Notification.requestPermission();
+    const permission = await Notification?.requestPermission();
     console.log('notification permission', permission);
     if (permission === 'granted') return;
     checkbox.checked = false;
@@ -1353,7 +1353,7 @@ class FairshareChatInput extends MDElement {
     const isCurrentGroup = iss === App.group;
     if (isCurrentGroup) verified = await Collection.ensureDecrypted(verified);
     if (isCurrentGroup) this.receiveMessage(verified);
-    if ((Notification.permission === "granted") &&
+    if ((Notification?.permission === "granted") &&
 	App.userRecord?.getNotify(iss) &&
 	(act !== App.user) &&
 	(!isCurrentGroup || (App.screen !== 'Messages') || (document.visibilityState !== 'visible')) &&
