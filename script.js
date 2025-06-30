@@ -568,7 +568,7 @@ class FairshareAuthorizeUser extends AuthorizeUser {
 	relay.lastElementChild.firstElementChild.click();
       }
     }
-    await FairshareGroups.setNotify(App.FairShareTag, this.doc$('#requestNotification md-checkbox').checked, tag);
+    await FairshareGroups.setNotify(App.FairShareTag, this.doc$('#requestNotification md-checkbox').checked);
   }
   static async adopt(tag) { // Create and add a device tag using q/a, and "wear" the new tag so we can author the user item changes in super.
     if (!tag) return '';
@@ -665,7 +665,7 @@ class FairshareGroups extends LiveList {
     return App.deviceData.get(groupTag);
   }
   static setNotify(groupTag, value) { // Persist whether or not changes to this group notify this device.
-    return App.deviceData.put(groupTag, value);
+    return App.deviceData.put(groupTag, !!value);
   }
   select(tag) {
     App.resetUrl({group: tag, payee: '', amount: ''}); // Clear payee,amount when switching.
