@@ -27,8 +27,8 @@ async function cacheFirstWithRefresh(event, request = event.request) {
 	);
   // ...but without waiting, use a cache hit if there is one.
   // There are rumors of in intermittent bug (Safari) in direct use of (await caches.match(request)), so open explicitly.
-  // ignoreSearch so that app.html?user=mumble&group=mumble hits.
-  return (await caches.open(version).then(cache => cache.match(request, {ignoreSearch: true}))) ||
+  return (await caches.open(version).then(cache => cache.match(request))) ||
+    (await caches.open(version).then(cache => cache.match(request, {ignoreSearch: true}))) ||
     //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
@@ -167,9 +167,13 @@ self.addEventListener('notificationclick', event => {
     clients
       .matchAll({type: 'window', includeUncontrolled: true})
       .then(async clientList => {
-	const url = data.url || `app.html?user=${data.aud}&group=${data.iss}#Messages`;
+	let url = data.url || `app.html?group=${data.iss}`;
+	if (data.aud) url += `&user=${data.aud}`; // Else app must figure it out from group.
+	url += '#Messages';
+	console.log('notification', {title, body, data, url, clientList});
         for (const client of clientList) {
-	  return client.navigate(url).then(() => client.focus());
+	  // focus first, because client may be different after navigation.
+	  return client.focus().then(() => client.navigate(url));
         }
 	return clients.openWindow(url);
       }),
