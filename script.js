@@ -665,7 +665,7 @@ class FairshareGroups extends LiveList {
     return App.deviceData.get(groupTag);
   }
   static setNotify(groupTag, value) { // Persist whether or not changes to this group notify this device.
-    return App.deviceData.put(groupTag, !!value);
+    return App.deviceData.put(groupTag, value);
   }
   select(tag) {
     App.resetUrl({group: tag, payee: '', amount: ''}); // Clear payee,amount when switching.
@@ -1695,7 +1695,7 @@ class FairshareCreateUser extends CreateUser {
   async onaction(form) {
     await super.onaction(form);
     await FairshareGroups.adopt(App.FairShareTag);
-    await FairshareGroups.setNotify(App.FairShareTag, this.requestNotifcationsCheckbox);
+    await FairshareGroups.setNotify(App.FairShareTag, this.requestNotificationsCheckbox.checked);
   }
 }
 FairshareCreateUser.register();
