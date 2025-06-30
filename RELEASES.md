@@ -7,8 +7,8 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.48
-@kilroy-code/ui-components 0.0.38
+@kilroy-code/flexstore 0.0.49
+@kilroy-code/ui-components 0.0.39
 ```
 
 and the "About" page additionally says `Fairshare 0.2.8`. (See next.)

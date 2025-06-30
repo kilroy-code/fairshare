@@ -38,19 +38,6 @@ class User { // A single user, which must be one that the human has authorized o
   get title() { return 'unknown'; }
   get picture() { return ''; }
   get groups() { return []; }
-  get notify() { return []; }
-  getNotify(group) {
-    const index = this.groups.indexOf(group);
-    if (index < 0) return false;
-    return this.notify[index];
-  }
-  setNotify(group, value) { // Returns the whole notify array.
-    const index = this.groups.indexOf(group);
-    if (index < 0) return false;
-    this.notify.length = Math.max(this.notify.length, index + 1);
-    this.notify[index] = value;
-    return this.notify;
-  }
 }
 Rule.rulify(User.prototype);
 
@@ -458,7 +445,7 @@ class FairshareApp extends BasicApp {
     // nice if that didn't propogate here.
     if (key?.startsWith('Run ')) return window.open("test.html", "_blank");
 
-    if (!this.user && !this.getParameter('invitation')) return this.noCurrentUser();
+    if (!this.user && !this.getParameter('invitation') && (App.screen !== 'Add existing account')) return this.noCurrentUser();
     super.select(key);
     return null;
   }
@@ -575,12 +562,13 @@ class FairshareAuthorizeUser extends AuthorizeUser {
     Credentials.setAnswer(prompt, EditUser.canonicalizeString(answer));
     const tag = await super.onaction();
     if (usersExist) return;
-    this.hideUpdateNotification(); // No longer needed.
-    if (!this.doc$('label:has(#recommendedUpdate) md-checkbox').checked) return;
-    for (let relay of FairshareSync.instance.relaysElement.children) {
-      relay.lastElementChild.firstElementChild.click();
+    this.hideRequestUpdate(); // No longer needed.
+    if (this.doc$('#requestUpdate md-checkbox').checked) {
+      for (let relay of FairshareSync.instance.relaysElement.children) {
+	relay.lastElementChild.firstElementChild.click();
+      }
     }
-    await FairshareGroups.setNotify(App.FairShareTag, this.doc$('label:has(#recommendedNotification) md-checkbox').checked, tag);
+    await FairshareGroups.setNotify(App.FairShareTag, this.doc$('#requestNotification md-checkbox').checked, tag);
   }
   static async adopt(tag) { // Create and add a device tag using q/a, and "wear" the new tag so we can author the user item changes in super.
     if (!tag) return '';
@@ -592,19 +580,19 @@ class FairshareAuthorizeUser extends AuthorizeUser {
   usersExist() {
     return App.getDeviceUsers().length;
   }
-  hideUpdateNotification(hide = true) {
-    this.querySelectorAll('[slot="afterSecurity"]').forEach(element => element.style = hide ? 'display:none;' : '');
+  hideRequestUpdate(hide = true) {
+    this.doc$('#requestUpdate').style = hide ? 'display:none;' : '';
   }
   async afterInitialize() {
     super.afterInitialize();
     // Descriptions on the "recommended" links.
-    this.doc$('#recommendedUpdate').onclick = () => App.alert("<p>If the operating system puts the app to sleep, the relay can periodically wake it up to synchronize new data.</p><p>Neither the server nor the platform can read the messages nor know which user is subscribing</p><p>After you add an account on this device, you can control this for each relay on the <i>Relays</i> screen (cloud icon).</p>", "Subscribe to relay updates");
-    this.doc$('#recommendedNotification').onclick = () => App.alert("<p>When there are new messages and you are not already on the group's message screen, the app can give you an operating system notification with the message. (If the app has been put to sleep by the operating system, it needs to be woken up with a <i>Push update</i>.) You can then touch the notification to bring you to the messages screen.</p><p>The notification is entirely through the device, and does <i>not</i> pass through any platform server.</p><p>After you add an account on this device, you can control this for each group on the <i>Group profile</i> screen.</p>", "Subscribe to group notifications");
+    this.doc$('#requestUpdate a').onclick = () => App.alert("<p>If the operating system puts the app to sleep, the relay can wake it up to synchronize new data.</p><p>Neither the server nor the platform can read the messages nor know which user is subscribing.</p><p>After you add an account on this device, you can control this for each relay on the <i>Relays</i> screen (<i>cloud</i> button), using the <i>wake up</i> button for any relay server</p>", "Subscribe to relay updates");
+    this.doc$('#requestNotification a').onclick = () => App.alert("<p>When there are new messages and you are not already on the group's message screen, the app can give you an operating system notification with the message. (If the app has been put to sleep by the operating system, it needs to be woken up with a <i>Push update</i>.) You can then touch the notification to bring you to the messages screen.</p><p>The notification is entirely through the device, and does <i>not</i> pass through any platform server.</p><p>After you add an account on this device, you can control this for each group on the <i>Group profile</i> screen.</p>", "Subscribe to group notifications");
 
     // Ask for platform notification permission if either is checked.
     this.querySelectorAll('[slot="afterSecurity"] md-checkbox')
       .forEach(checkbox => checkbox.addEventListener('change', event => FairshareAuthorizeUser.getNotificationPermission(event.target)));
-    this.hideUpdateNotification(await this.usersExist());
+    this.hideRequestUpdate(await this.usersExist());
   }
   static async getNotificationPermission(checkbox) { // If checked, try to get permission. If denied, clear the checkbox.
     if (!checkbox.checked) return;
@@ -671,12 +659,13 @@ class FairshareGroups extends LiveList {
   get active() {
     return App.group;
   }
-  static async setNotify(tag, value, user = App.user) { // Persist whether or not changes to this group notify the given user
-    // Notify preference is per group, but set in the the private user data.
-    const record = await App.userCollection.updateLiveRecord(user); // Is this necessary? Why?
-    const notify = record.setNotify(tag, value);
-    await App.setUser(user, {notify});
-    await App.userCollection.updateLiveRecord(user);
+  // Notifications about group message is per group and device.
+  // FIXME: try to fix item 3 the plan for https://github.com/kilroy-code/fairshare/issues/46
+  static getNotify(groupTag) {
+    return App.deviceData.get(groupTag);
+  }
+  static setNotify(groupTag, value) { // Persist whether or not changes to this group notify this device.
+    return App.deviceData.put(groupTag, value);
   }
   select(tag) {
     App.resetUrl({group: tag, payee: '', amount: ''}); // Clear payee,amount when switching.
@@ -1346,40 +1335,35 @@ class FairshareChatInput extends MDElement {
     }
     return true;
   }
+
   async onupdate(verified) {
     const {protectedHeader} = verified;
     const {iss, iat, act} = protectedHeader;
+    const isCurrentGroup = iss === App.group;  // Will receive into display
+    const deviceHasGrantedPermission = Notification?.permission === "granted";
+    const messageGroupIsNotInForeground = !isCurrentGroup || (App.screen !== 'Messages') || (document.visibilityState !== 'visible');
+    const deviceRequestedGroupNotification = await FairshareGroups.getNotify(iss); // Won't be true if not one of human's groups/
+    const shouldNotify = deviceHasGrantedPermission && messageGroupIsNotInForeground && deviceRequestedGroupNotification;
 
-    const isCurrentGroup = iss === App.group;
-    if (isCurrentGroup) verified = await Collection.ensureDecrypted(verified);
+    console.log({iss, iat, act, isCurrentGroup, deviceHasGrantedPermission, messageGroupIsNotInForeground, deviceRequestedGroupNotification, shouldNotify});
+    if (!isCurrentGroup && !shouldNotify) return;
+    verified = await Collection.ensureDecrypted(verified); // Using any of this human's users, but must be current member (within about an hour).
     if (isCurrentGroup) this.receiveMessage(verified);
-    if ((Notification?.permission === "granted") &&
-	App.userRecord?.getNotify(iss) &&
-	(act !== App.user) &&
-	(!isCurrentGroup || (App.screen !== 'Messages') || (document.visibilityState !== 'visible')) &&
-	// Currently, we only show notifications from a group that the current user is a member of.
-	// IWBNI if we showed notifications that any of this device's users are a member of.
-	App.groupCollection.liveTags.includes(iss)) {
-      verified = await Collection.ensureDecrypted(verified);
-      const registration = await navigator.serviceWorker.ready;
-      const title = `${App.getUserTitle(act)} in ${App.getGroupTitle(iss)}:`;
-      const body = verified.json.text; // verified.json will have changed via decryption.
-      const icons = new URL('./images/fairshare-192.png', location.href).href;
-      const image = new URL('./images/fairshare-512.png', location.href).href;
-      const timestamp = iat;
-      const aud = App.user; // A member of the iss that is not act.
-      const data = {iss, aud};
-      const options = {body, image, timestamp, data};
-      // Here notifications are local. They don't go through any service (which is nice for security), but they
-      // only appear separately on each device that is running the app.
-      // If you have, e.g., a Mac, iPhone, and iWatch, it would be nice if any one device that was running would
-      // cause the message to show up everywhere. That could be done by going through Apple's service.
-      registration.showNotification(title, options);
-    // } else {
-    //   console.log('notification is not sent', {permission: Notification.permission, notify: App.userRecord?.getNotify(iss),
-    // 					       isCurrentUser: act === App.user, isCurrentGroup, isHistory: App.screen === 'Messages',
-    // 					       isVisible: document.visibilityState === 'visible', act, iss});
-    }
+    if (!shouldNotify) return;
+    const registration = await navigator.serviceWorker.ready;
+    const title = `${App.getUserTitle(act)} in ${App.getGroupTitle(iss)}:`;
+    const body = verified.json.text;
+    const icons = new URL('./images/fairshare-192.png', location.href).href;
+    const image = new URL('./images/fairshare-512.png', location.href).href;
+    const timestamp = iat;
+    const aud = isCurrentGroup ? App.user : undefined; // This keeps client from shifting to the first local user listed for iss.
+    const data = {iss, aud};
+    const options = {body, image, timestamp, data};
+    // Notifications are local. They don't go through any service (which is nice for security), but they
+    // only appear separately on each device that is running the app.
+    // If you have, e.g., a Mac, iPhone, and iWatch, it would be nice if any one device that was running would
+    // cause the message to show up everywhere. That could be done by going through Apple's service.
+    registration.showNotification(title, options);
   }
   get groupEffect() {
     const group = App.group;
@@ -1701,9 +1685,17 @@ class FairshareCreateUser extends CreateUser {
     super.activate();
     App.resetUrl({group: App.FairShareTag});
   }
+  afterInitialize() {
+    super.afterInitialize();
+    this.requestNotificationsCheckbox.addEventListener('change', event => FairshareAuthorizeUser.getNotificationPermission(event.target));
+  }
+  get requestNotificationsCheckbox() {
+    return this.doc$('#notification md-checkbox');
+  }
   async onaction(form) {
     await super.onaction(form);
     await FairshareGroups.adopt(App.FairShareTag);
+    await FairshareGroups.setNotify(App.FairShareTag, this.requestNotifcationsCheckbox);
   }
 }
 FairshareCreateUser.register();
@@ -1801,7 +1793,7 @@ class FairshareGroupProfile extends MDElement {
     // This next casues a warning if the screen is not actually being shown:
     // Invalid keyframe value for property transform: translateX(0px) translateY(NaNpx) scale(NaN)
     edit.usernameElement.value = title;
-    edit.notifyElement.checked = App.userRecord?.getNotify?.(App.group);
+    FairshareGroups.getNotify(App.group).then(value => edit.notifyElement.checked = value);
     // Disable editing of the FairShare title, as App.FairShareTag depends on it being constant.
     edit.usernameElement.toggleAttribute('disabled', (edit.owner === App.FairShareTag));
 
@@ -1910,6 +1902,10 @@ export class EditGroup extends MDElement {
     });
     this.notifyElement.addEventListener('change', event => FairshareAuthorizeUser.getNotificationPermission(event.target));
   }
+  get userGroupEffect() {
+    FairshareGroups.getNotify(App.group).then(value => this.notifyElement.checked = value);
+    return this.notifyElement.checked = !!FairshareGroups.getNotify(App.group);
+  }
   get usernameElement() { // A misnomer, carried over from EditUser.
     return this.shadow$('[name="title"]');
   }
@@ -1978,7 +1974,7 @@ export class EditGroup extends MDElement {
                 <div class="current">(currently <span id="currentStipend">x</span>)</div>
               </div>
               <div class="row">
-                <label><md-checkbox id="notify"></md-checkbox> Notify me about activity in this group</label>
+                <label><md-checkbox id="notify"></md-checkbox> Notify this device about group messages</label>
               </div>
             </form>
 	    <div slot="actions">

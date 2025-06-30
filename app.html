@@ -126,13 +126,14 @@
 
       <fairshare-authorize-user title="Add existing account" slot="user-menu">
 	<p slot="beforeSecurity">If you do not have a an existing account to add to this browser, then you need to get an invitation from a member.</p>
-	<div slot="afterSecurity"><label><md-checkbox></md-checkbox> Push updates from relays (<a id="recommendedUpdate" href="#">recommended</a>)</label></div>
-	<div slot="afterSecurity"><label><md-checkbox></md-checkbox> Notify me of FairShare messages (<a id="recommendedNotification" href="#">recommended</a>)</label></div>
+	<div slot="afterSecurity"><label id="requestUpdate"><md-checkbox></md-checkbox> Push updates from relays (<a href="#">recommended</a>)</label></div>
+	<div slot="afterSecurity"><label id="requestNotification"><md-checkbox></md-checkbox> Notify this device of FairShare messages (<a href="#">recommended</a>)</label></div>
       </fairshare-authorize-user>
 
       <fairshare-create-user title="Create new account" slot="user-menu">
 	<p>You can create multiple users/accounts, and switch between them with the user menu in the upper right corner of the app.</p>
 	<p>This screen will create an additional account for you to use.</p>
+	<label slot="afterSecurity" id="notification"><md-checkbox></md-checkbox> Notify this device of FairShare messages</label></div>
       </fairshare-create-user>
 
       <fairshare-share slot="user-menu" title="Invite someone">
