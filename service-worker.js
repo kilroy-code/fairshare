@@ -17,7 +17,6 @@ async function cacheFirstWithRefresh(event, request = event.request, clientId = 
 	      if (request.url.endsWith('version.txt')) {
 		const client = await self.clients.get(clientId);
 		const version = await networkResponse.clone().text();
-		console.log(request.url, client, version);
 		client.postMessage({method: 'checkSoftwareVersion', params: version});
 	      }
 	    }
@@ -43,15 +42,9 @@ async function cacheFirstWithRefresh(event, request = event.request, clientId = 
 //   await self.registration.navigationPreload.enable();
 // }
 
-async function deleteCache(key) {
-  await caches.delete(key);
-};
-
-async function deleteOldCaches(cacheKeepList = [source]) {
-  const keyList = await caches.keys();
-  const cachesToDelete = keyList.filter((key) => !cacheKeepList.includes(key));
-  await Promise.all(cachesToDelete.map(deleteCache));
-};
+async function deleteOldSource() {
+  return caches.delete(source);
+}
 
 const vaultHost = origin.startsWith('http:/localhost') ? origin : 'https://cloud.ki1r0y.com';
 const securitySource = `${vaultHost}/@ki1r0y/distributed-security/dist/`;
@@ -65,7 +58,7 @@ self.addEventListener('message', async event => {
   const {method, params} = event.data;
   switch (method) {
   case 'clearSourceCache':
-    await deleteOldCaches([]);
+    await deleteOldSource();
     if (params) event.source.postMessage({method: params});
     break;
   case 'updated':
@@ -107,7 +100,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   console.log('activate', event);
   event.waitUntil(Promise.all([
-    deleteOldCaches(),
+    deleteOldSource(),
     //enablePreload(),
     self.clients.claim() // Become available to all pages
   ]));
