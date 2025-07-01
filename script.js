@@ -1,7 +1,7 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser,
 	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule, name as uname, version as uversion } from '@kilroy-code/ui-components';
 import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, Synchronizer,
-	 StorageLocal, SharedWebRTC, name, version, uuid4 } from '@kilroy-code/flexstore';
+	 StorageLocal, SharedWebRTC, name, version, storageName, storageVersion, uuid4 } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js';
 
 
@@ -14,6 +14,30 @@ const checkSafari = setTimeout(() => {
   App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case a single reload may fix it now.',
 	    "Webworker Bug!");
 }, 6e3);
+
+async function wipeData() { // All local data except source cache.
+  await deviceData.destroy();
+  await Credentials.Storage.destroy();
+  for (let collection of appCollections) {
+    await collection.destroy();
+  }
+  localStorage.clear();
+}
+
+// async function deleteIncompatibleLocalData() { // Promise to kill any stale local data.
+//   const lead = `${storageName}_${storageVersion}`;
+//   const names = await caches.keys();
+//   const stale = names.find(name => name.startsWith(storageName) && !name.startsWith(lead));
+//   console.log({lead, names, stale});
+//   console.log(`Data version check: Looked for ${storageName} data that is not ${lead}, found ${stale || 'none'}.`);
+//   if (!stale) return;
+//   console.log('Clearing data');
+//   //if (!window.confirm(`Found stale data ${stale}. Clean up?`)) return;
+//   //await App.alert(`Removing stale data. You will need to re-create.`);
+//   await wipeData();
+//   console.log('cleared');
+// }
+
 
 /*
 Caching source code is hard. Caching source for a PWA is really hard. My intent/understanding is:
@@ -47,37 +71,40 @@ Design:
    - Tell the platform to unregister or update the service worker. (Next script.js will register, pulling in new source.)
    - Tell the platform to reload(). (Pulls in new app.html, .js, and triggering service worker.)
 */
-let softwareVersion;
-function checkSoftwareVersion(version) { // Compare against saved value if any, otherwise save the value.
+let cachedVersion, softwareVersion;
+async function checkSoftwareVersion() { // Compare against saved value if any, otherwise save the value.
   // If they do not match per versionComparison, tell the service worker to update.
   function versionComparison(semver) {
     return semver.split('.').slice(0, -1).join('.');
   }
-  console.log('checkSoftwareVersion', softwareVersion, version);
-  if (softwareVersion) {
-    const prev = versionComparison(softwareVersion);
-    const next = versionComparison(version);
-    if (prev !== next) {
-      console.log(`Updating version ${prev} to ${next}.`);
-      navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
-    }
-  } else { // It doesn't matter what order they come in.
-    softwareVersion = version;
+  console.log('comparing software versions', cachedVersion, softwareVersion);
+  if (!cachedVersion || !softwareVersion) return;
+  const prev = versionComparison(cachedVersion);
+  const next = versionComparison(softwareVersion);
+  if (prev === next) return;
+  console.log(`Updating version ${prev} to ${next}.`);
+  if (next.endsWith('x')) {
+    window.alert(`Removing stale data versions. You will need to re-create.`);
+    await wipeData();
   }
+  //await deleteIncompatibleLocalData(); // Must complete before any reloads.
+  navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
 }
 
 Promise.all([Credentials.ready, fetch('version.txt').then(response => response.text())])
-  .then(([ready, fairshareVersion]) => {
-    fairshareVersion = fairshareVersion.trim();
+  .then(async ([ready, fairshareVersion]) => {
+    cachedVersion = fairshareVersion.trim();
     ready && clearTimeout(checkSafari);
-    console.log('set software version', fairshareVersion);
-    checkSoftwareVersion(fairshareVersion);
-    App.versionedTitleBlock = `Fairshare ${fairshareVersion}
+    console.log('previous software version', fairshareVersion);
+    await checkSoftwareVersion();
+    // Used for bug reports.
+    App.versionedTitleBlock = `Fairshare ${cachedVersion}
 ${ready.name} ${ready.version}
 ${name} ${version}
 ${uname} ${uversion}`;
+    // Used for about page, with links.
     document.getElementById('versionedTitleBlock').innerHTML =
-      `<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${fairshareVersion}</a>
+      `<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${cachedVersion}</a>
 <a href="https://github.com/kilroy-code/distributed-security">${ready.name}</a> ${ready.version}
 <a href="https://github.com/kilroy-code/flexstore">${name}</a> ${version}
 <a href="https://github.com/kilroy-code/ui-components">${uname}</a> ${uversion}`;
@@ -481,19 +508,9 @@ class FairshareApp extends BasicApp {
       if (response !== 'ok') return;
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
       console.clear();
-      console.log('Removing local databases:', ...collections.map(c => c.name));
-      localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
-
+      await wipeData();
       navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache'});
-      await Promise.all(appCollections.map(async c => {
-	await c.disconnect();
-	const store = await c.persistenceStore;
-	await store.destroy();
-      }));
-      await Credentials.Storage.destroy();
-
-	localStorage.clear(); // again, because disconnect tickles relays.
-      console.log('Cleared');
+      console.log('Cleared local data and source');
     });
 
     // TODO: there is at least one menu click handler that is going down this path without being for screens. It would be
@@ -2088,7 +2105,8 @@ try {
       navigator.serviceWorker.controller.postMessage({method: 'updated'});
       break;
     case 'checkSoftwareVersion':
-      checkSoftwareVersion(params);
+      softwareVersion = params.trim();
+      checkSoftwareVersion();
       break;
     case 'sourceCleared':
       await registration.unregister();
