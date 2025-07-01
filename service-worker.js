@@ -32,7 +32,7 @@ async function cacheFirstWithRefresh(event, request = event.request, clientId = 
 	);
   // ...but without waiting, use a cache hit if there is one.
   // There are rumors of in intermittent bug (Safari) in direct use of (await caches.match(request)), so open explicitly.
-  return await caches.open(source).then(cache => cache.match(request)) ||
+  return await caches.open(source).then(cache => cache.match(request, {ignoreSearch: true})) ||
     //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
