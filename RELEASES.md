@@ -15,6 +15,9 @@ and the "About" page additionally says `Fairshare 0.2.8`. (See next.)
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
 
+## 0.3.0
+- New version.txt software versioning machinery.
+
 ## 0.2.8
 - Fix "Cannot set properties of undefined (setting 'title')".
 - Option to 'Share report' through the operating system shares, as well as through mailto: link.
@@ -22,6 +25,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 - Fix(?) Safari intermittently failing to open one of the several data channels.
 - Handle going offline/online.
 - When there is activity, wake up sleeping clients that requested it, addressing (silent push)[https://github.com/kilroy-code/fairshare/issues/61].
+- Fix (notification preferences design is a mess)[https://github.com/kilroy-code/fairshare/issues/46].
 
 ## 0.2.7
 - Fix (ios safari comes back from sleep without data or displays)[https://github.com/kilroy-code/fairshare/issues/55]

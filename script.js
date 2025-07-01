@@ -14,19 +14,74 @@ const checkSafari = setTimeout(() => {
   App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case a single reload may fix it now.',
 	    "Webworker Bug!");
 }, 6e3);
-Credentials.ready.then(ready => {
-  ready && clearTimeout(checkSafari);
-  const fairshare = '0.2.8';
-  App.versionedTitleBlock = `Fairshare ${fairshare}
+
+/*
+Caching source code is hard. Caching source for a PWA is really hard. My intent/understanding is:
+1. We want to use the cache API to store source for loading fast and working offline. We use a cacheFirstWithRefresh
+   policy for source, such that we load from cache but each request triggers a background update for next time,
+   and the background update may silently fail. But...
+2. The service worker file is registered by the the app code and then cached by the platform according to it's own rules,
+   independent of (1) E.g., it typically background fetches for next time not more frequently than 24 hours, and can be forced
+   with ServiceWorkerRegistration update(), but that is still subject to browser http caching. But...
+3. The top level .html is cached by the browser's http cache and may be locked in by the browser when the PWA is installed!
+   Clearing our cached files in the service worker won't fix this, and of course we can't ask the user to clear their full browser cache.
+   A window.reload from the main thread of the PWA does seem to do the trick.
+   This is in addition to whatever is also cached by the service worker, which is further complicated by query parameters.
+4. Browsers have behavior that varies between venders, versions, platforms, and user actions.
+5. We have a software version that for now, forces update, even if that means reloading on the user. (Later it could have a confirmation dialog.)
+   - It will happen when it sees that there is a new version in the background, which won't happen at all while the server is unreachable.
+   - This can be triggered on startup, on background sync, etc.
+   - Database format changes are separate, but require this to force the software to be consistent.
+   - None of this will pick up a manifest.json change. That can only addressed by deleting the old app and installing a new one.
+
+Design:
+1. There is a version.txt file that contains the version. It has Cache-Control:no-cache against the browser's http cache.
+2. On load and on an update push, version.txt is fetched. This doesn't block anything, but it has side effects:
+   - If the softwareVersion variable is not yet set, the value of version.text is put in a variable and fills the About screen version.
+     Note that this is filled from the service worker cacheFirstWithRefresh cache.
+   - In the special case of version.txt, our service worker fetch handler posts any ok result to the app.
+3. On such a message, the app compares versions.
+   By construction, this only happens when the server was just reachable. If it becomes unreachable during the following, the user will have to wait.
+   If the new version is higher, we:
+   - Tell the service worker to remove the old source cache and waits for a response. (Next load will pull in new source.)
+   - Tell the platform to unregister or update the service worker. (Next script.js will register, pulling in new source.)
+   - Tell the platform to reload(). (Pulls in new app.html, .js, and triggering service worker.)
+*/
+let softwareVersion;
+function checkSoftwareVersion(version) { // Compare against saved value if any, otherwise save the value.
+  // If they do not match per versionComparison, tell the service worker to update.
+  function versionComparison(semver) {
+    return semver.split('.').slice(0, -1).join('.');
+  }
+  console.log('checkSoftwareVersion', softwareVersion, version);
+  if (softwareVersion) {
+    const prev = versionComparison(softwareVersion);
+    const next = versionComparison(version);
+    if (prev !== next) {
+      console.log(`Updating version ${prev} to ${next}.`);
+      navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
+    }
+  } else { // It doesn't matter what order they come in.
+    softwareVersion = version;
+  }
+}
+
+Promise.all([Credentials.ready, fetch('version.txt').then(response => response.text())])
+  .then(([ready, fairshareVersion]) => {
+    fairshareVersion = fairshareVersion.trim();
+    ready && clearTimeout(checkSafari);
+    console.log('set software version', fairshareVersion);
+    checkSoftwareVersion(fairshareVersion);
+    App.versionedTitleBlock = `Fairshare ${fairshareVersion}
 ${ready.name} ${ready.version}
 ${name} ${version}
 ${uname} ${uversion}`;
-  document.getElementById('versionedTitleBlock').innerHTML =
-`<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${fairshare}</a>
+    document.getElementById('versionedTitleBlock').innerHTML =
+      `<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${fairshareVersion}</a>
 <a href="https://github.com/kilroy-code/distributed-security">${ready.name}</a> ${ready.version}
 <a href="https://github.com/kilroy-code/flexstore">${name}</a> ${version}
 <a href="https://github.com/kilroy-code/ui-components">${uname}</a> ${uversion}`;
-});
+  });
 
 Collection.error = error => App.error(error);
 window.onerror = (message, source, lineno, colno, error) => App.error(`${message} at ${source}:${lineno}:${colno}.`);
@@ -429,7 +484,7 @@ class FairshareApp extends BasicApp {
       console.log('Removing local databases:', ...collections.map(c => c.name));
       localStorage.clear(); // the important one is after disconnect/destroy, but if it hangs, let's at least have this much done.
 
-      navigator.serviceWorker.controller.postMessage('clearSourceCache');
+      navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache'});
       await Promise.all(appCollections.map(async c => {
 	await c.disconnect();
 	const store = await c.persistenceStore;
@@ -445,7 +500,7 @@ class FairshareApp extends BasicApp {
     // nice if that didn't propogate here.
     if (key?.startsWith('Run ')) return window.open("test.html", "_blank");
 
-    if (!this.user && !this.getParameter('invitation') && (App.screen !== 'Add existing account')) return this.noCurrentUser();
+    //if (!this.user && !this.getParameter('invitation') && (App.screen !== 'Add existing account')) return this.noCurrentUser();
     super.select(key);
     return null;
   }
@@ -1345,7 +1400,6 @@ class FairshareChatInput extends MDElement {
     const deviceRequestedGroupNotification = await FairshareGroups.getNotify(iss); // Won't be true if not one of human's groups/
     const shouldNotify = deviceHasGrantedPermission && messageGroupIsNotInForeground && deviceRequestedGroupNotification;
 
-    console.log({iss, iat, act, isCurrentGroup, deviceHasGrantedPermission, messageGroupIsNotInForeground, deviceRequestedGroupNotification, shouldNotify});
     if (!isCurrentGroup && !shouldNotify) return;
     verified = await Collection.ensureDecrypted(verified); // Using any of this human's users, but must be current member (within about an hour).
     if (isCurrentGroup) this.receiveMessage(verified);
@@ -2014,9 +2068,8 @@ export class EditGroup extends MDElement {
 }
 EditGroup.register();
 
-
 try {
-  const registration = await navigator.serviceWorker.register("/fairshare/service-worker.1.js", {
+  const registration = await navigator.serviceWorker.register("/fairshare/service-worker.js", {
     //scope: "/",
   });
   if (registration.installing) {
@@ -2028,10 +2081,18 @@ try {
   }
   navigator.serviceWorker.addEventListener("message", async event => {
     console.log('got message from service worker', event.data);
-    switch (event.data) {
-    case 'update':
+    const {method, params} = event.data;
+    switch (method) {
+    case 'update': // update/synchronize data
       await FairshareSync.update();
-      navigator.serviceWorker.controller.postMessage('updated');
+      navigator.serviceWorker.controller.postMessage({method: 'updated'});
+      break;
+    case 'checkSoftwareVersion':
+      checkSoftwareVersion(params);
+      break;
+    case 'sourceCleared':
+      await registration.unregister();
+      location.reload();
       break;
     default:
       console.warn(`Unrecognized service worker message: "${event.data}".`);

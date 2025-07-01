@@ -1,19 +1,25 @@
 const { Response, clients} = self;
-const version = 'sourceV1';
+const source = 'source';
 
 async function addResourcesToCache(resources) {
-  const cache = await caches.open(version);
+  const cache = await caches.open(source);
   await cache.addAll(resources);
 };
 
-async function cacheFirstWithRefresh(event, request = event.request) {
+async function cacheFirstWithRefresh(event, request = event.request, clientId = event.clientId) {
   // Start fetching to update cache...
   const fetchResponsePromise = fetch(request)
 	.then(
 	  async networkResponse => { // Schedule a .then to execute on response ASYNCHRONOUSLY to match or preload, below.
 	    if (networkResponse?.ok && (request.method === 'GET')) { // Cache it for next time, if we can.
-	      const cache = await caches.open(version);
-	      cache.put(request, networkResponse.clone());
+	      const cache = await caches.open(source);
+	      await cache.put(request, networkResponse.clone());
+	      if (request.url.endsWith('version.txt')) {
+		const client = await self.clients.get(clientId);
+		const version = await networkResponse.clone().text();
+		console.log(request.url, client, version);
+		client.postMessage({method: 'checkSoftwareVersion', params: version});
+	      }
 	    }
 	    return networkResponse; // Pass the networkResponse if we need it below.
 	  },
@@ -27,8 +33,7 @@ async function cacheFirstWithRefresh(event, request = event.request) {
 	);
   // ...but without waiting, use a cache hit if there is one.
   // There are rumors of in intermittent bug (Safari) in direct use of (await caches.match(request)), so open explicitly.
-  return (await caches.open(version).then(cache => cache.match(request))) ||
-    (await caches.open(version).then(cache => cache.match(request, {ignoreSearch: true}))) ||
+  return await caches.open(source).then(cache => cache.match(request)) ||
     //(await event.preloadResponse) ||
     (await fetchResponsePromise);
 }
@@ -42,7 +47,7 @@ async function deleteCache(key) {
   await caches.delete(key);
 };
 
-async function deleteOldCaches(cacheKeepList = [version]) {
+async function deleteOldCaches(cacheKeepList = [source]) {
   const keyList = await caches.keys();
   const cachesToDelete = keyList.filter((key) => !cacheKeepList.includes(key));
   await Promise.all(cachesToDelete.map(deleteCache));
@@ -57,9 +62,11 @@ const securitySource = `${vaultHost}/@ki1r0y/distributed-security/dist/`;
 let update = null;
 self.addEventListener('message', async event => {
   console.log('service worker got message', event.data);
-  switch (event.data) {
+  const {method, params} = event.data;
+  switch (method) {
   case 'clearSourceCache':
     await deleteOldCaches([]);
+    if (params) event.source.postMessage({method: params});
     break;
   case 'updated':
     update?.resolve?.(true);
@@ -75,6 +82,7 @@ self.addEventListener('install', event => {
   console.log('install', event);
   event.waitUntil(
     addResourcesToCache([
+      "./version.txt",
       "./app.html",
       "./script.js",
 
@@ -106,9 +114,9 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  const {request} = event; // It is conceivable that something might await before request is referenced, and find it missing.
+  const {request, clientId} = event; // It is conceivable that something might await before request is referenced, and find it missing.
   // E.g., Safari might define event.request only within the dynamic extent of the original event dispatch.
-  event.respondWith(cacheFirstWithRefresh(event, request));
+  event.respondWith(cacheFirstWithRefresh(event, request, clientId));
 });
 
 /*
@@ -129,7 +137,7 @@ self.addEventListener('push', event => {
 	let resolver;
 	update = new Promise(resolve => resolver = resolve);
 	update.resolve = resolver;
-	clients[0].postMessage('update');
+	clients[0].postMessage({method: 'update'});
 
 	const result = update.then(success => {
 	  if (success) {
