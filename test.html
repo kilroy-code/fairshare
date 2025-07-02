@@ -48,9 +48,8 @@
       document.currentScript.after(im);
     </script>
 
+    <script type="module" src="spec/spec.mjs"></script>
     <script type="module">
-      import "fairshare/spec/spec.mjs";
-
       async function identify(elementId, packageInfo) {
         document.getElementById(elementId).textContent = `${packageInfo.name} ${packageInfo.version}`;
         return true;
@@ -88,6 +87,7 @@
     <span id="flexstore"></span><br/>
     <span id="ui"></span><br/>
     <a href="https://google.com" target="_blank">An external link</a>
+    <a href="app.html#about" target="_blank">An internal link</a>
     <script src="/jasmine-standalone-5.7.1/lib/jasmine-5.7.1/boot1.js"></script>
   </body>
 </html>
