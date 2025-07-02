@@ -151,6 +151,7 @@ self.addEventListener('push', event => {
       console.log('notification with', {url, icon, image});
       return self.registration.showNotification(`Activity at ${url.host}.`, {
 	body: 'Click to launch app and synchronize.',
+	tag: 'update',
 	icon, image, 
 	data: {url: url.href}
       });
