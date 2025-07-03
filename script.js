@@ -24,21 +24,6 @@ async function wipeData() { // All local data except source cache.
   localStorage.clear();
 }
 
-// async function deleteIncompatibleLocalData() { // Promise to kill any stale local data.
-//   const lead = `${storageName}_${storageVersion}`;
-//   const names = await caches.keys();
-//   const stale = names.find(name => name.startsWith(storageName) && !name.startsWith(lead));
-//   console.log({lead, names, stale});
-//   console.log(`Data version check: Looked for ${storageName} data that is not ${lead}, found ${stale || 'none'}.`);
-//   if (!stale) return;
-//   console.log('Clearing data');
-//   //if (!window.confirm(`Found stale data ${stale}. Clean up?`)) return;
-//   //await App.alert(`Removing stale data. You will need to re-create.`);
-//   await wipeData();
-//   console.log('cleared');
-// }
-
-
 /*
 Caching source code is hard. Caching source for a PWA is really hard. My intent/understanding is:
 1. We want to use the cache API to store source for loading fast and working offline. We use a cacheFirstWithRefresh
@@ -628,6 +613,7 @@ FairshareAmount.register();
 
 class FairshareAuthorizeUser extends AuthorizeUser {
   async onaction() { // Capture q/a now, while we have 'this', in case super proceedes to adopt.
+    if (!await FairshareSync.synchronizationOK()) return;
     const usersExist = await this.usersExist();
     const prompt = this.userRecord.q0;
     const answer = this.answerElement.value;
@@ -707,8 +693,7 @@ class FairshareGroups extends LiveList {
     // Update persistent and live group data (which the user doesn't have yet):
     const groupRecord = await App.groupCollection.getLiveRecord(groupTag);
     if (groupRecord.title === 'unknown') {
-      App.alert(`No viable record found for ${groupTag}.`);
-      return;
+      throw new Error(`No viable record found for ${groupTag}.`);
     }
     await App.groupCollection.updateKnownRecord(groupTag, groupRecord);
     groupRecord.getBalance(App.user); // For side-effect of entering an initial balance
@@ -763,6 +748,7 @@ class FairshareJoinGroup extends MDElement {
   afterInitialize() {
     super.afterInitialize();
     this.joinElement.addEventListener('click', async event => {
+      if (!await FairshareSync.synchronizationOK()) return;
       const button = event.target;
       const menu = this.otherGroupsElement;
       const choice = menu.choice;
@@ -948,6 +934,13 @@ class FairshareSync extends MDElement {
   }
   static closeAll() {
     return Promise.all(collections.map(c => c.disconnect()));
+  }
+  static async synchronizationOK() {
+    if (App.statusElement.textContent === 'cloud_done') return true;
+    const choice = await App.confirm("You are not synchronized to the cloud. (<material-icon>cloud_done</material-icon>). Making this change with out-of-date data might not be what you want to do. Would you like to save anyway and synchronize later? (<i>Cancel</i> will go to the <i>Relays</i> screen where you can control synchronization.)", "Save locally?");
+    if (choice === 'ok') return true;
+    App.resetUrl({screen: 'Relays'});
+    return false;
   }
   async afterInitialize() {
     super.afterInitialize();
@@ -1635,6 +1628,7 @@ class FairsharePay extends MDElement {
     return true;
   }
   async pay(button) {
+    if (!await FairshareSync.synchronizationOK()) return;
     button.toggleAttribute('disabled', true);
     this.transactionElement1.memo = this.shadow$('[label=memo]').value.trim();
     const alert = await this.transactionElement1.onaction();
@@ -1756,6 +1750,9 @@ class FairshareCreateUser extends CreateUser {
     super.activate();
     App.resetUrl({group: App.FairShareTag});
   }
+  validate() {
+    return FairshareSync.synchronizationOK();
+  }
   afterInitialize() {
     super.afterInitialize();
     this.requestNotificationsCheckbox.addEventListener('change', event => FairshareAuthorizeUser.getNotificationPermission(event.target));
@@ -1774,6 +1771,9 @@ FairshareCreateUser.register();
 class FairshareCreateGroup extends MDElement {
   get template() {
     return `<edit-group><slot></slot></edit-group>`;
+  }
+  validate() {
+    return FairshareSync.synchronizationOK();
   }
   async onaction(form) {
     App.resetUrl({payee: ''}); // Any existing payee cannot possibly be a member.
@@ -1818,6 +1818,9 @@ class FairshareUserProfile extends UserProfile {
     this.shadow$('#signature').onclick = async () => showSignature(usersPrivate, App.user);
     this.shadow$('#decrypted').onclick = async () => showDecrypted(usersPrivate, App.user);
   }
+  validate() {
+    return FairshareSync.synchronizationOK();
+  }
 }
 FairshareUserProfile.register();
 
@@ -1839,6 +1842,9 @@ class FairshareGroupProfile extends MDElement {
     this.shadow$('#raw').onclick = async () => showRaw(groupsPrivate, App.group);
     this.shadow$('#signature').onclick = async () => showSignature(groupsPrivate, App.group);
     this.shadow$('#decrypted').onclick = async () => showDecrypted(groupsPrivate, App.group);
+  }
+  validate() {
+    return FairshareSync.synchronizationOK();
   }
   async onaction(form) {
     await App.groupCollection.updateLiveRecord(this.findParentComponent(form).tag);
@@ -1914,6 +1920,7 @@ export class EditGroup extends MDElement {
     return false;
   }
   async onaction(target) {
+    if (!await this.parentComponent.validate()) return;
     const data = Object.fromEntries(new FormData(target)); // Must be now, before await.
     const element = this.notifyElement;
     const checked = element.checked;
