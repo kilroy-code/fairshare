@@ -7,8 +7,8 @@ import QrScanner from './qr-scanner.min.js';
 
 const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection, Notification } = window;
 
-// Cleanup todo:
-// - Set App.mumble vs App.resetUrl. Which to use? Be consistent.
+// Use stored version, else store one. This becomes the data version for comparison during synchronization.
+Synchronizer.version = parseInt(localStorage.lastDataVersion || (localStorage.lastDataVersion = Synchronizer.version));
 
 const checkSafari = setTimeout(() => {
   App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case a single reload may fix it now.',

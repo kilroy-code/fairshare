@@ -7,7 +7,7 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.55
+@kilroy-code/flexstore 0.0.56
 @kilroy-code/ui-components 0.0.40
 ```
 
@@ -17,6 +17,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 
 ## 0.5x.0
 - Dependency bundle version skew
+- Data version sticks with data, not source, and give correct status on mismatch
 
 ## 0.4x.0
 - Check for synchronization and FairShareTag before making new records, giving the user the option to go to Relays screen if necessary.
