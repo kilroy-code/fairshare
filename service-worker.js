@@ -11,7 +11,11 @@ async function cacheFirstWithRefresh(event, request = event.request, clientId = 
   const fetchResponsePromise = fetch(request)
 	.then(
 	  async networkResponse => { // Schedule a .then to execute on response ASYNCHRONOUSLY to match or preload, below.
-	    if (networkResponse?.ok && (request.method === 'GET')) { // Cache it for next time, if we can.
+	    if (networkResponse?.ok &&
+		(request.method === 'GET') &&
+		// Never include signaling or syncing
+		!/\/flexstore\/(signal|sync)/.test(request.url)
+	       ) { // Cache it for next time, if we can.
 	      const cache = await caches.open(source);
 	      await cache.put(request, networkResponse.clone());
 	      if (request.url.endsWith('version.txt')) {
