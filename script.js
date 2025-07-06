@@ -1013,7 +1013,7 @@ class FairshareSync extends MDElement {
     for (const child of items) {
       const [checkbox, head, url] = child.children;
       const [label] = head.children;
-      data.push([label.textContent, url.textContent, checkbox.checked ? 'checked' : null]);
+      data.push([label.textContent, url.textContent, (checkbox.checked && url.textContent.includes('/sync')) ? 'checked' : null]);
     }
     App.setLocal('relays', data);
   }
@@ -1180,9 +1180,9 @@ class FairshareSync extends MDElement {
     const [alarm, cloud, remove] = trailing.children;
     checkbox.oninput = async event => {
       const element = event.target.parentElement,
-	    checkbox = element.children[2];
+	    urlElement = element.children[2];
       await this.updateRelay(element);
-      if (checkbox.textContent.includes('/sync')) this.saveRelays();
+      if (urlElement.textContent.includes('/sync')) this.saveRelays();
     };
     text.onblur = location.onblur = event => this.saveRelays();
     remove.onclick = () => this.saveRelays(item.remove());
