@@ -7,19 +7,20 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.58
+@kilroy-code/flexstore 0.0.59
 @kilroy-code/ui-components 0.0.40
 ```
 
-and the "About" page additionally says `Fairshare 0.3.2`. (See next.)
+and the "About" page additionally says `Fairshare 0.5x.2`. (See next.)
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
 
-## 0.5x.1
+## 0.5x.2
 - Dependency bundle version skew
 - Data version sticks with data, not source, and give correct status on mismatch
 - WAN signaling: Do not cache signaling service requests! Also clean up signaling service itself.
 - LAN signaling: fix (camera and/or checkbox stays on after refresh for abandoned "Private LAN" connection)[https://github.com/kilroy-code/fairshare/issues/30] and related.
+- Lower base channel id for latest version of Firefox.
 
 ## 0.4x.0
 - Check for synchronization and FairShareTag before making new records, giving the user the option to go to Relays screen if necessary.
