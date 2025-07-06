@@ -19,9 +19,9 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 - Dependency bundle version skew
 - Data version sticks with data, not source, and give correct status on mismatch
 - WAN signaling: Do not cache signaling service requests! Also clean up signaling service itself.
-- LAN signaling: fix (camera and/or checkbox stays on after refresh for abandoned "Private LAN" connection)[https://github.com/kilroy-code/fairshare/issues/30] and related.
+- LAN signaling: fix [camera and/or checkbox stays on after refresh for abandoned "Private LAN" connection](https://github.com/kilroy-code/fairshare/issues/30) and related.
 - Lower base channel id for latest version of Firefox.
-- (Tell user)[https://github.com/kilroy-code/fairshare/issues/64] if webview, unsupported browser, or safari + !installed + notification.
+- [Tell user](https://github.com/kilroy-code/fairshare/issues/64) if webview, unsupported browser, or safari + !installed + notification.
 
 ## 0.4x.0
 - Check for synchronization and FairShareTag before making new records, giving the user the option to go to Relays screen if necessary.
@@ -40,12 +40,12 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 - Bigger reset for stale clients.
 - Fix(?) Safari intermittently failing to open one of the several data channels.
 - Handle going offline/online.
-- When there is activity, wake up sleeping clients that requested it, addressing (silent push)[https://github.com/kilroy-code/fairshare/issues/61].
-- Fix (notification preferences design is a mess)[https://github.com/kilroy-code/fairshare/issues/46].
+- When there is activity, wake up sleeping clients that requested it, addressing [silent push](https://github.com/kilroy-code/fairshare/issues/61).
+- Fix [notification preferences design is a mess](https://github.com/kilroy-code/fairshare/issues/46).
 
 ## 0.2.7
-- Fix (ios safari comes back from sleep without data or displays)[https://github.com/kilroy-code/fairshare/issues/55]
-- Fix (chrome coming back from sleep with `Failed to execute 'createDataChannel' on 'RTCPeerConnection': The RTCPeerConnection's signalingState is 'closed'.`)[https://github.com/kilroy-code/fairshare/issues/57]
+- Fix [ios safari comes back from sleep without data or displays](https://github.com/kilroy-code/fairshare/issues/55)
+- Fix [chrome coming back from sleep with `Failed to execute 'createDataChannel' on 'RTCPeerConnection': The RTCPeerConnection's signalingState is 'closed'.`](https://github.com/kilroy-code/fairshare/issues/57
 - data change
 
 ## 0.2.6
