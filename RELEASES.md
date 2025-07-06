@@ -21,6 +21,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 - WAN signaling: Do not cache signaling service requests! Also clean up signaling service itself.
 - LAN signaling: fix (camera and/or checkbox stays on after refresh for abandoned "Private LAN" connection)[https://github.com/kilroy-code/fairshare/issues/30] and related.
 - Lower base channel id for latest version of Firefox.
+- Tell user if webview, unsupported browser, or safari + !installed + notification.
 
 ## 0.4x.0
 - Check for synchronization and FairShareTag before making new records, giving the user the option to go to Relays screen if necessary.

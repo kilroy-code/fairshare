@@ -290,7 +290,16 @@ class FairshareApp extends BasicApp {
     // a null record rule in the collection that will be updated when the data comes in.
     this.userCollection.updateLiveTags(this.getDeviceUsers());
   }
+  get isWebView() { return /WebView|wv|(iPhone|iPod|iPad)(?!.*Safari)/.test(navigator.userAgent); }
+  get isChrome() { return /Chrome/.test(navigator.userAgent); }
+  get isFirefox() { return /Firefox/.test(navigator.userAgent); }
+  get isSafari() { return /^((?!chrome|android).)*safari/i.test(navigator.userAgent); }
+  get isStandalone() { return window.matchMedia('(display-mode: standalone)').matches; }
+  supported = "This application is designed to run installed or directly in <i>native</i> Safari, Chrome, Edge, or Firefox.";
   afterInitialize() {
+    if (this.isWebView) App.alert(this.supported + " Embedded Web Views such as this may have issues with regard to operation of links, notifications, data access, or installation to the home screen.", "Web View not supported");
+    else if (!this.isChrome && !this.isFirefox && !this.isSafari) App.alert(this.supported, "Unsupported Browser");
+
     super.afterInitialize();
 
     // When we get the list from the network, it will contain those initial knownTags members from above
@@ -660,8 +669,12 @@ class FairshareAuthorizeUser extends AuthorizeUser {
     if (!checkbox.checked) return;
     const permission = await Notification?.requestPermission();
     console.log('notification permission', permission);
-    if (permission === 'granted') return;
-    checkbox.checked = false;
+    if (App.isSafari && !App.isStandalone) {
+      await App.alert("Notifications are not supported by Safari unless the page is installed to the home screen.", "Safari Notifications");
+      checkbox.checked = false;
+      return;
+    }
+    if (permission !== 'granted') checkbox.checked = false;
   }
 }
 FairshareAuthorizeUser.register();
