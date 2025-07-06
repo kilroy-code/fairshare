@@ -236,14 +236,14 @@ async function synchronizeCollections(service, connect = true) { // Synchronize 
   console.log(connect ? 'connecting' : 'disconnecting', service, new Date());
   try {
     if (connect) {
-      const promises = collections.map(collection => collection.synchronize(service)); // start 'em all.
+      const promise = Promise.all(collections.map(collection => collection.synchronize(service))); // start 'em all.
       if (!App.FairShareTag) {
-	promises.then(async () => {
+	promise.then(async () => {
 	  await groupsPublic.synchronized;  // Once we're in production, we can hardcode this in the rule for FairShareTag,
 	  App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
 	});
       }
-      return Promise.all(promises);
+      return promise;
     }
     return Promise.all(collections.map(collection => collection.disconnect(service)));
   } catch (error) {
