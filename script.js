@@ -237,8 +237,12 @@ async function synchronizeCollections(service, connect = true) { // Synchronize 
   try {
     if (connect) {
       const promises = collections.map(collection => collection.synchronize(service)); // start 'em all.
-      await groupsPublic.synchronized;  // Once we're in production, we can hardcode this in the rule for FairShareTag,
-      App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
+      if (!App.FairShareTag) {
+	promises.then(async () => {
+	  await groupsPublic.synchronized;  // Once we're in production, we can hardcode this in the rule for FairShareTag,
+	  App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
+	});
+      }
       return Promise.all(promises);
     }
     return Promise.all(collections.map(collection => collection.disconnect(service)));
@@ -868,7 +872,7 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
-const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
@@ -908,7 +912,8 @@ class FairshareSync extends MDElement {
       await new Promise(resolve => setTimeout(resolve, 4e3)); // Simulate scanning time.
       const generator = await localTestQrCode.generator;
       const blob = await generator.getRawData('svg');
-      return await decompress(await QrScanner.scanImage(blob));
+      const scanned = await QrScanner.scanImage(blob);
+      return !scanned.startsWith('http') && await decompress(scanned);
     }
     return new Promise(resolve => {
       let gotError = false;
@@ -1036,7 +1041,7 @@ class FairshareSync extends MDElement {
     if (checkbox.checked && isUnderWay) {
       console.log(`Service ${url} is underway.`);
       return; // Already started.
-    } else if (!checkbox.checked && !isUnderWay) {
+    } else if (!checkbox.checked && !isUnderWay && !isLanFollow) { // LAN follow doesn't get a synchronzier until well into the handshake.
       return;
     }
     status.textContent = 'cloud_off'; // In case of error.
@@ -1045,7 +1050,6 @@ class FairshareSync extends MDElement {
     // These two wacky special cases are for LAN connections by QR code.
     if (isLanLead) {
       if (checkbox.checked) { // Kick off negotiation for sender's users.
-	console.log('hrs start', {checkbox, head, urlElement, trailing, label, protocol, wake, status, kill, leadConnection, isLanLead, isLanFollow, url, isUnderWay});
 	synchronizeCollections(url, true);
 	const sender = leadConnection.synchronizers.get(url); // Again, after previous line, as first get already came up empty.
 
