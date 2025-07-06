@@ -868,7 +868,7 @@ class FairshareGroupMembersMenuButton extends MenuButton { // Chose among this g
 }
 FairshareGroupMembersMenuButton.register();
 
-const LOCAL_TEST = false; // True if looping back on same machine by reading our own qr codes as a self2self test.
+const LOCAL_TEST = true; // True if looping back on same machine by reading our own qr codes as a self2self test.
 class FairshareSync extends MDElement {
   get sendCode() { return this.shadow$('#sendCode'); }
   get receiveCode() { return this.shadow$('#receiveCode');}   
@@ -1024,7 +1024,7 @@ class FairshareSync extends MDElement {
     const [checkbox, head, urlElement, trailing] = relayElement.children;
     const [label, protocol] = head.children;
     const [wake, status, kill] = trailing.children;
-    const lead = Credentials.collections.EncryptionKey;
+    const leadConnection = Credentials.collections.EncryptionKey;
     const isLanLead = label.textContent.includes('LAN - Lead');
     const isLanFollow = label.textContent.includes('LAN - Follow');
 
@@ -1032,7 +1032,7 @@ class FairshareSync extends MDElement {
     if (isLanLead) url = 'signals'; // A serviceName of 'signals' tells the synchronizer to createDataChannel and start negotiating.
     else if (isLanFollow) url = relayElement.url; // If we've received signals from the peer, they have been stashed here.
 
-    const isUnderWay = lead.synchronizers.get(url); // Don't mess with what is already correct.
+    const isUnderWay = leadConnection.synchronizers.get(url); // Don't mess with what is already correct.
     if (checkbox.checked && isUnderWay) {
       console.log(`Service ${url} is underway.`);
       return; // Already started.
@@ -1045,8 +1045,9 @@ class FairshareSync extends MDElement {
     // These two wacky special cases are for LAN connections by QR code.
     if (isLanLead) {
       if (checkbox.checked) { // Kick off negotiation for sender's users.
+	console.log('hrs start', {checkbox, head, urlElement, trailing, label, protocol, wake, status, kill, leadConnection, isLanLead, isLanFollow, url, isUnderWay});
 	synchronizeCollections(url, true);
-	const sender = isUnderWay;
+	const sender = leadConnection.synchronizers.get(url); // Again, after previous line, as first get already came up empty.
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
 	const signals = await sender.connection.signals;
@@ -1088,7 +1089,7 @@ class FairshareSync extends MDElement {
 					   LOCAL_TEST && this.sendCode);
 	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
 	synchronizeCollections(url, true);
-	const receiver = isUnderWay;
+	const receiver = leadConnection.synchronizers.get(url);
 	this.updateText(this.receiveInstructions, `Press "scan other device's code" button on the other device, and use it to read this qr code:`);
 	this.showCode(this.receiveCode, await receiver.connection.signals);
 	this.hide(this.receiveVideo);
