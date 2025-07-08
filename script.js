@@ -86,7 +86,8 @@ Promise.all([Credentials.ready, fetch('version.txt').then(response => response.t
     App.versionedTitleBlock = `Fairshare ${cachedVersion}
 ${ready.name} ${ready.version}
 ${name} ${version}
-${uname} ${uversion}`;
+${uname} ${uversion}
+${navigator.userAgent}`;
     // Used for about page, with links.
     document.getElementById('versionedTitleBlock').innerHTML =
       `<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${cachedVersion}</a>
@@ -97,7 +98,19 @@ ${uname} ${uversion}`;
 
 Collection.error = error => App.error(error);
 window.onerror = (message, source, lineno, colno, error) => App.error(`${message} at ${source}:${lineno}:${colno}.`);
-window.onunhandledrejection = event => App.error(event);
+window.onunhandledrejection = async event => {
+  if (event.reason.message.includes('is not available')) { // special case
+    try {
+      const temp = await Credentials.create();
+      await Credentials.destroy(temp);
+    } catch (e) {
+      if (e.name === 'NotSupportedError') {
+	return App.error("This browser is out of date, and does not support the necessary cryptography.<br/><br/><b>Please update your browser.</b>");
+      }
+    }
+  }
+  App.error(event);
+};
 
 class User { // A single user, which must be one that the human has authorized on this machine.
   constructor(properties) { Object.assign(this, properties); }

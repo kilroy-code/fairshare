@@ -11,9 +11,12 @@ The bottom of "About", and the top of "tests", should say:
 @kilroy-code/ui-components 0.0.40
 ```
 
-and the "About" page additionally says `Fairshare 0.6x.1`. (See next.)
+and the "About" page additionally says `Fairshare 0.6x.2`. (See next.)
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
+
+## 0.6.2
+- On error, test for crypto support, and report browser in bug report
 
 ## 0.6x.1
 - pass validation options for existing, and generally harden merging
