@@ -36,6 +36,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   }
   // Helpers
   static retrieve(options) { return this.collection.retrieve(options); }
+  static remove(options) { return this.collection.remove(options); }
   static store(data, options) { return this.collection.store(data, options); }
 }
 
@@ -55,16 +56,16 @@ export class User extends Persistable {
     await user.adoptGroup(communityGroup);
     return userTag;
   }
-  destroy() { // Permanently removes this user from persistence.
-    return this.constructor(this.tag);
-  }
-  static async destroy(userTag) { // Permanently removes the specified user from persistence.
-    const tag = userTag;
+  async destroy() { // Permanently removes this user from persistence.
+    const tag = this.tag;
     const groupTag = Group.communityTag;
-    await User.abandonGroup(userTag, groupTag);
-    await Group.deauthorizeUser(groupTag, userTag);
-    await this.collection.remove({tag, owner: userTag, author: userTag});
-    await Credentials.destroy(userTag, {resursive: true});
+    await this.abandonGroup(groupTag);
+    await Group.deauthorizeUser(groupTag, tag);
+    await this.constructor.remove({tag, owner: tag, author: tag});
+    await Credentials.destroy(tag, {resursive: true});
+  }
+  static destroy(userTag) { // Permanently removes the specified user from persistence.
+    return User.fetch(userTag).then(user => user.destroy());
   }
   static async adoptGroup(userTag, groupTag) {
     // Used by a previously authorized user to add themselves to a group,
@@ -103,20 +104,21 @@ export class Group extends Persistable {
   static async create({author:userTag, ...properties}) { // Promises tag, not the group itself.
     // Create group with user as member.
     const groupTag = await Credentials.create(userTag); // userTag is authorized for newly create groupTag.
-    const user = await User.fetch(userTag);
+    const user = await User.fetch(userTag); // fixme: pass author object instead
     await user.adoptGroup(new this({tag: groupTag, ...properties}));
     return groupTag;
   }
-  destroy(userTag) {
-    return this.constructor.destroy(this.tag, userTag);
-  }
-  static async destroy(groupTag, userTag) {
+  async destroy(asUser) {
     // Used by last group member to destroy a group.
     // TODO? Check that we are last?
-    const tag = groupTag;
-    await this.collection.remove({tag, owner: tag, author: userTag});
-    await User.abandonGroup(userTag, groupTag);
-    await Credentials.destroy(groupTag);
+    const {tag} = this;
+    await this.constructor.remove({tag, owner: tag, author: asUser.tag});
+    await asUser.abandonGroup(tag);
+    await Credentials.destroy(tag);
+  }
+  static async destroy(groupTag, userTag) {
+    const [group, user] = await Promise.all([Group.fetch(groupTag), User.fetch(userTag)]);
+    return group.destroy(user);
   }
   authorizeUser(candidateTag) {
     return this.constructor.authorizeUser(this.tag, candidateTag);
