@@ -85,20 +85,6 @@ export class User extends Persistable {
     this.groups = this.groups.filter(tag => tag !== groupTag);
     return await this.persist(this);
   }
-  // TODO: remove these?
-  static async abandonGroup(userTag, groupTag) { // Remove group from the specified user's groups.
-    let [user, group] = await Promise.all([User.fetch(userTag), Group.fetch(groupTag)]);
-    return user.abandonGroup(group);
-  }
-  static destroy(userTag) { // Permanently removes the specified user from persistence.
-    return User.fetch(userTag).then(user => user.destroy());
-  }
-  static async adoptGroup(userTag, groupTag) {
-    // Used by a previously authorized user to add themselves to a group,
-    // changing both the group data and the user's own list of groups.
-    const [user, group] = await Promise.all([User.fetch(userTag), Group.fetch(groupTag)]);
-    return await user.adoptGroup(group);
-  }
 }
 
 export class Group extends Persistable {
@@ -124,7 +110,7 @@ export class Group extends Persistable {
     await Credentials.destroy(tag);
   }
   authorizeUser(candidate) {
-    return this.constructor.authorizeUser(this.tag, candidate.tag);
+    return Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
   }
   async deauthorizeUser(user, author = user) {
      // Used by any team member (including the user) to remove user from the group and its key.
@@ -132,21 +118,6 @@ export class Group extends Persistable {
     this.users = this.users.filter(tag => tag !== user.tag);
     this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
-  }
-  // TODO: remove these?
-  static authorizeUser(groupTag, candidateTag) {
-    // Used by an existing member to add someone to the group's key
-    // so that the candidate can then adoptGroup.
-    const tag = groupTag;
-    return Credentials.changeMembership({tag, add: [candidateTag]});
-  }
-  static async deauthorizeUser(groupTag, userTag, author = userTag) {
-    const [group, user] = await Promise.all([Group.fetch(groupTag), User.fetch(userTag)]);
-    await group.deauthorizeUser(user, author);
-  }
-  static async destroy(groupTag, userTag) {
-    const [group, user] = await Promise.all([Group.fetch(groupTag), User.fetch(userTag)]);
-    return group.destroy(user);
   }
 }
 

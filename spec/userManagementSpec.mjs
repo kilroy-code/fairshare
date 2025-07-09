@@ -73,13 +73,12 @@ describe("User management", function () {
     //await messages.store('start commonGroup', {tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
     
     authorizedMember = await User.create({title: 'user A', prompt: 'q0', answer: "17"});
-    authorizedMemberTag = authorizedMember.tag;
     await Credentials.changeMembership({tag: commonGroup, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
 
     // Check our starting conditions.
-    await expectMember(bootstrapUserTag, commonGroup, {isMember: false, expectUserData: false, groupActor: authorizedMemberTag});
-    await expectMember(authorizedMemberTag, commonGroup, {userTitle: 'user A', groupTitle: 'group A'});
+    await expectMember(bootstrapUserTag, commonGroup, {isMember: false, expectUserData: false, groupActor: authorizedMember.tag});
+    await expectMember(authorizedMember.tag, commonGroup, {userTitle: 'user A', groupTitle: 'group A'});
     await expectNoKey(bootstrapUserTag);
   }, timeLimit(3)); // Key creation is deliberately slow.
 
@@ -88,10 +87,9 @@ describe("User management", function () {
     const bootstrapUserTag = await Credentials.create(); // No user object.
     await Credentials.changeMembership({tag: commonGroup, add: [bootstrapUserTag]});
 
-    //await User.destroy(authorizedMemberTag);
     await authorizedMember.destroy();
-    await expectGone(User.collection, authorizedMemberTag);
-    await expectNoKey(authorizedMemberTag);
+    await expectGone(User.collection, authorizedMember.tag);
+    await expectNoKey(authorizedMember.tag);
     
     await Group.collection.remove({tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
     await expectGone(Group.collection, commonGroup);
@@ -105,45 +103,41 @@ describe("User management", function () {
 
   it("creates/destroys user.", async function () {
     const user = await User.create({title: 'user B', prompt: 'q1', answer: "42"});
-    const userTag = user.tag;
-    await expectMember(userTag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
+    await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
 
     await user.destroy();
-    await expectMember(userTag, Group.communityTag, {isMember: false, expectUserData: false});
-    await expectNoKey(userTag);
+    await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
+    await expectNoKey(user.tag);
   }, timeLimit(1));
 
   it("creates/destroys group.", async function () {
     const group = await authorizedMember.createGroup({title: 'group B'});
-    const groupTag = group.tag;
-    await expectMember(authorizedMemberTag, groupTag, {userTitle: 'user A', groupTitle: 'group B'});
+    await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group B'});
 
     await group.destroy(authorizedMember);
-    await expectMember(authorizedMemberTag, groupTag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
+    await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(1));
 
   it("adds/removes user from group.", async function () {
     // Setup: create group and candidate user.
     const group = await authorizedMember.createGroup({title: 'group C'});
-    const groupTag = group.tag;
-    await expectMember(authorizedMemberTag, groupTag, {userTitle: 'user A', groupTitle: 'group C'});
+    await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group C'});
     const candidate = await User.create({title: 'user C', prompt: 'q2', answer: "y"});
-    const candidateTag = candidate.tag;
-    await expectMember(candidateTag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
-    await expectMember(candidateTag, groupTag, {isMember: false, groupActor: authorizedMemberTag});
+    await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
+    await expectMember(candidate.tag, group.tag, {isMember: false, groupActor: authorizedMember.tag});
     
     await group.authorizeUser(candidate);
     await candidate.adoptGroup(group);
-    await expectMember(candidateTag, groupTag, {keyActor: authorizedMemberTag, userTitle: 'user C', groupTitle: 'group C'});
-    await expectMember(candidateTag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
+    await expectMember(candidate.tag, group.tag, {keyActor: authorizedMember.tag, userTitle: 'user C', groupTitle: 'group C'});
+    await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
 
     await group.deauthorizeUser(candidate);
     await candidate.abandonGroup(group);
-    await expectMember(candidateTag, groupTag, {isMember: false, groupActor: candidateTag, userTitle: 'user C'});
+    await expectMember(candidate.tag, group.tag, {isMember: false, groupActor: candidate.tag, userTitle: 'user C'});
 
     await candidate.destroy();
-    await expectNoKey(candidateTag);
+    await expectNoKey(candidate.tag);
     await group.destroy(authorizedMember);
-    await expectMember(authorizedMemberTag, groupTag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
+    await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(2));
 });
