@@ -967,6 +967,7 @@ class FairshareSync extends MDElement {
     return Promise.all(collections.map(c => c.disconnect()));
   }
   static async synchronizationOK() {
+    if (!App.FairShareTag) App.FairShareTag = await groupsPublic.find({title: 'FairShare'});
     if (App.FairShareTag && (App.statusElement.textContent === 'cloud_done')) return true;
     const choice = await App.confirm("You are not synchronized to the cloud. (<material-icon>cloud_done</material-icon>). Making this change with out-of-date data might not be what you want to do. Would you like to save anyway and synchronize later? (<i>Cancel</i> will go to the <i>Relays</i> screen where you can control synchronization.)", "Save locally?");
     if (choice === 'ok') return true;
