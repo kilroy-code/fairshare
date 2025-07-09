@@ -22,6 +22,7 @@ describe("User management", function () {
     isMember = true, groupActor = userTag, expectGroupData = true, groupTitle = ''
   } = {}) {
     // Confirm properties for user being a member of group.
+    // This is reaching under the hood to the level of persisted artifacts.
 
     const userData = await User.retrieve(userTag);                    // User data.
     if (expectUserData) {
@@ -113,7 +114,7 @@ describe("User management", function () {
   }, timeLimit(1));
 
   it("creates/destroys group.", async function () {
-    const group = await Group.create({title: 'group B', author: authorizedMemberTag}); // fixme author tag=>User
+    const group = await authorizedMember.createGroup({title: 'group B'});
     const groupTag = group.tag;
     await expectMember(authorizedMemberTag, groupTag, {userTitle: 'user A', groupTitle: 'group B'});
 
@@ -123,7 +124,7 @@ describe("User management", function () {
 
   it("adds/removes user from group.", async function () {
     // Setup: create group and candidate user.
-    const group = await Group.create({title: 'group C', author: authorizedMemberTag});
+    const group = await authorizedMember.createGroup({title: 'group C'});
     const groupTag = group.tag;
     await expectMember(authorizedMemberTag, groupTag, {userTitle: 'user A', groupTitle: 'group C'});
     const candidate = await User.create({title: 'user C', prompt: 'q2', answer: "y"});

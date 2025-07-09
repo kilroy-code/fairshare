@@ -23,13 +23,13 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   constructor(properties) { // Works for accessors, rules, or unspecified property names.
     Object.assign(this, properties);
   }
-  persist(options) { // Promise to save this instance.
+  persist(asUser) { // Promise to save this instance.
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
     const data = {};
     this.constructor.persistedProperties.forEach(name => data[name] = this[name]);
-    return this.constructor.persist(data, options);
+    return this.constructor.persist(data, {author: asUser.tag});
   }
   static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
     return this.store(properties, {tag, owner: tag, ...options});
@@ -65,6 +65,9 @@ export class User extends Persistable {
     await this.constructor.remove({tag, owner: tag, author: tag});
     await Credentials.destroy(tag, {resursive: true});
   }
+  createGroup(properties) { // Promise a new group with this user as member
+    return Group.create({author: this, ...properties}); // fixme this.tag
+  }
   async adoptGroup(group) {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
@@ -73,14 +76,14 @@ export class User extends Persistable {
     this.groups = [...this.groups, groupTag];
     group.users = [...group.users , userTag];
     // Not parallel: Do not store user data unless group storage succeeds.
-    await group.persist({author: userTag});
-    await this.persist({author: userTag});
+    await group.persist(this);
+    await this.persist(this);
   }
   async abandonGroup(group) {
     // Used by user to remove a group from their own user data.
     const groupTag = group.tag;
     this.groups = this.groups.filter(tag => tag !== groupTag);
-    return await this.persist({author: this.tag});
+    return await this.persist(this);
   }
   // TODO: remove these?
   static async abandonGroup(userTag, groupTag) { // Remove group from the specified user's groups.
@@ -105,9 +108,9 @@ export class Group extends Persistable {
   }
   static persistedProperties = ['tag', 'title', 'users'];
 
-  static async create({author:userTag, ...properties}) { // Promise a new Group with user as member
+  static async create({author:user, ...properties}) { // Promise a new Group with user as member
+    const userTag = user.tag;
     const groupTag = await Credentials.create(userTag); // userTag is authorized for newly create groupTag.
-    const user = await User.fetch(userTag); // fixme: pass author object instead
     const group = new this({tag: groupTag, ...properties}); // adoptGroup will persist it.
     await user.adoptGroup(group);
     return group;
@@ -127,7 +130,7 @@ export class Group extends Persistable {
      // Used by any team member (including the user) to remove user from the group and its key.
      // Does NOT change the user's data.
     this.users = this.users.filter(tag => tag !== user.tag);
-    this.persist({author: author.tag});
+    this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
   // TODO: remove these?
