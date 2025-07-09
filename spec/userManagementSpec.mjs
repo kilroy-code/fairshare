@@ -68,7 +68,7 @@ describe("User management", function () {
     // Bootstrap community group with temporary user credentials.
     const bootstrapUserTag = await Credentials.create(); // No user object.
     commonGroup = Group.communityTag = await Credentials.create(bootstrapUserTag);
-    await Group.store(Group.assign({title: 'group A'}),    {tag: commonGroup,      owner: commonGroup,      author: bootstrapUserTag});
+    await Group.store(new Group({title: 'group A'}),    {tag: commonGroup,      owner: commonGroup,      author: bootstrapUserTag});
     //await messages.store('start commonGroup', {tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
     
     authorizedMember = await User.create({title: 'user A', prompt: 'q0', answer: "17"});

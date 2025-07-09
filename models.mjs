@@ -1,33 +1,60 @@
 import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
 
-class FairshareModel {
-  static get collection() { return this._collection ??= new MutableCollection({name: this.name}); }
-  static async fetch(tag) {
-    const verified = await this.retrieve({tag, member: null});
-    return {tag, /*verified,*/ ...verified.json};
+/*
+  This is the glue between our application-specific central model objects,
+  Flexstore persistence and synchronization machinery, and
+  Rules based UI change-management.
+*/
+
+class Persistable { // Can be stored in Flexstore Collection, as a signed JSON bag of enumerated properties.
+
+  static get collection() { // The Flexstore Collection that defines the persistance behavior:
+    // sign/verify, encrypt/decrypt, local-first distribution and synchronization, merge semantics, etc.
+    // A Collection instance (such as for User or Group) does not contain instance/elements - it just manages
+    // their persisted synchronziation through tags.
+    return this._collection ??= new MutableCollection({name: this.name});
   }
-  static persist({tag, verified, ...properties}, options) {
+  static async fetch(tag) { // Promise the specified object from the collection.
+    // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
+    const verified = await this.retrieve({tag, member: null}); // null indicates that we do not
+    // verify that the signing author is STILL a member of the owning team at the time of retrieval.
+    return new this({tag, /*verified,*/ ...verified.json});
+  }
+  constructor(properties) { // Works for accessors, rules, or unspecified property names.
+    Object.assign(this, properties);
+  }
+  persist(options) { // Promise to save this instance.
+    // The list of persistedProperties is defined by subclasses and serves two purposes:
+    // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
+    // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
+    const data = {};
+    this.constructor.persistedProperties.forEach(name => data[name] = this[name]);
+    return this.constructor.persist(data, options);
+  }
+  static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
     return this.store(properties, {tag, owner: tag, ...options});
   }
-  static assign(properties, data = this.empty) {
-    return Object.assign({}, data, properties);
-  }
+  // Helpers
   static retrieve(options) { return this.collection.retrieve(options); }
   static store(data, options) { return this.collection.store(data, options); }
 }
 
-export class User extends FairshareModel {
-  static empty = {groups: []};
+export class User extends Persistable {
+  constructor(properties) { // Ensures a list of groups that to which this user belongs.
+    super({groups: [], ...properties});
+  }
+  static persistedProperties = ['tag', 'title', 'groups'];
+
   static async create({prompt, answer, ...properties}) { // Promises tag, not User object
     Credentials.setAnswer(prompt, answer);
     const userTag = await Credentials.createAuthor(prompt);
     const groupTag = Group.communityTag;
     const communityGroup = await Group.fetch(groupTag); // Could have last been written by someone no longer in the group.
     await Group.authorizeUser(groupTag, userTag);
-    await User._adoptGroup(userTag, groupTag, this.assign({tag: userTag, ...properties}), communityGroup);
+    await User._adoptGroup(new this({tag: userTag, ...properties}), communityGroup);
     return userTag;
   }
-  static async destroy(userTag) {
+  static async destroy(userTag) { // Permanently removes the specified user from persistence.
     const tag = userTag;
     const groupTag = Group.communityTag;
     await User.abandonGroup(userTag, groupTag);
@@ -39,12 +66,14 @@ export class User extends FairshareModel {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
     const [user, group] = await Promise.all([User.fetch(userTag), Group.fetch(groupTag)]);
-    return await this._adoptGroup(userTag, groupTag, user, group);
+    return await this._adoptGroup(user, group);
   }
-  static async _adoptGroup(userTag, groupTag, user, group) {
+  static async _adoptGroup(user, group) { // Internal version that works on instances instead of tags.
+    const {tag:userTag} = user,
+	  {tag:groupTag} = group;
     user.groups = [...user.groups, groupTag];
     group.users = [...group.users , userTag];
-    // No parallel: Do not store user data unless group storage succeeds.
+    // Not parallel: Do not store user data unless group storage succeeds.
     await Group.persist(group, {author: userTag});
     await User.persist( user,  {author: userTag});
   }
@@ -56,14 +85,18 @@ export class User extends FairshareModel {
   }
 }
 
-export class Group extends FairshareModel {
+export class Group extends Persistable {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
-  static empty = {users: []};
+  constructor(properties) {
+    super({users: [], ...properties});
+  }
+  static persistedProperties = ['tag', 'title', 'users'];
+
   static async create({author:userTag, ...properties}) { // Promises tag, not the group itself.
     // Create group with user as member.
     const groupTag = await Credentials.create(userTag); // userTag is authorized for newly create groupTag.
     const user = await User.fetch(userTag);
-    await User._adoptGroup(userTag, groupTag, user, this.assign({tag: groupTag, ...properties}));
+    await User._adoptGroup(user, new this({tag: groupTag, ...properties}));
     return groupTag;
   }
   static async destroy(groupTag, userTag) {
