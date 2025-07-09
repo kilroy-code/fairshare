@@ -1067,9 +1067,9 @@ class FairshareSync extends MDElement {
     const isUnderWay = leadConnection.synchronizers.get(url); // Don't mess with what is already correct.
     if (checkbox.checked && isUnderWay) {
       console.log(`Service ${url} is underway.`);
-      return; // Already started.
+      return url; // Already started.
     } else if (!checkbox.checked && !isUnderWay && !isLanFollow) { // LAN follow doesn't get a synchronzier until well into the handshake.
-      return;
+      return null;
     }
     status.textContent = 'cloud_off'; // In case of error.
     protocol.textContent = '';
@@ -1087,7 +1087,7 @@ class FairshareSync extends MDElement {
 	this.scrollElement(this.qrProceed);
 
 	await new Promise(resolve => this.proceed = resolve);
-	if (!checkbox.checked) return; // User gave up.
+	if (!checkbox.checked) return null; // User gave up.
 	this.hide(this.sendCode);
 	this.hide(this.qrProceed);
 	this.show(this.sendVideo);
@@ -1097,7 +1097,7 @@ class FairshareSync extends MDElement {
 	const scan = await this.scan(this.sendVideo.querySelector('video'),
 				     _ => _,
 				     LOCAL_TEST && this.receiveCode);
-	if (!checkbox.checked) return; // User gave up.
+	if (!checkbox.checked) return null; // User gave up.
 	await sender.completeSignalsSynchronization(scan);
 	this.hide(this.sendInstructions);
 	this.hide(this.sendVideo);
@@ -1118,7 +1118,7 @@ class FairshareSync extends MDElement {
 	url = relayElement.url = await this.scan(this.receiveVideo.querySelector('video'),
 					   _ => _,
 					   LOCAL_TEST && this.sendCode);
-	if (!checkbox.checked) return; // Because the user gave up on scanning and unchecked us.
+	if (!checkbox.checked) return null; // Because the user gave up on scanning and unchecked us.
 	synchronizeCollections(url, true);
 	const receiver = leadConnection.synchronizers.get(url);
 	this.updateText(this.receiveInstructions, `Press "scan other device's code" button on the other device, and use it to read this qr code:`);
@@ -1143,7 +1143,7 @@ class FairshareSync extends MDElement {
       const promise = synchronizeCollections(url, checkbox.checked);
       if (!checkbox.checked) await promise;
     }
-    if (!checkbox.checked) return;
+    if (!checkbox.checked) return null;
 
     // We are connecting...
     App.statusElement.textContent = status.textContent = 'cloud_upload';
@@ -1160,6 +1160,7 @@ class FairshareSync extends MDElement {
     let promiseDone = Promise.all(collections.map(collection => collection.synchronized)).then(() => {
       App.statusElement.textContent = status.textContent = 'cloud_done';
       console.log('completed synchronization for', url, new Date());
+      return url;
     });
 
     // Once closed (which might be the other end closing), indicate the change, and formally disconnect.
@@ -2140,8 +2141,11 @@ try {
     const {method, params} = event.data;
     switch (method) {
     case 'update': // update/synchronize data
-      await FairshareSync.update();
-      navigator.serviceWorker.controller.postMessage({method: 'updated'});
+      const statuses = await FairshareSync.update();
+      const result = params ?
+	    (statuses.some(status => status === params) || statuses.find(status => status)) :
+	    null;
+      navigator.serviceWorker.controller.postMessage({method: 'updated', params: result});
       break;
     case 'checkSoftwareVersion':
       softwareVersion = params.trim();

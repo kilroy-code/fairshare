@@ -17,7 +17,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 
 ## 0.7x.1
 - Fix saying that it is not synchronized and missing FairShareTag, when it is synchronized: Test for populated FairShare needs to re-find.
-- poke reports "successful" even if no servers are configured to operate
+- Fix poke reports "successful" even if no servers are configured to operate
 
 
 ## 0.6.2

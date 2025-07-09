@@ -66,7 +66,7 @@ self.addEventListener('message', async event => {
     if (params) event.source.postMessage({method: params});
     break;
   case 'updated':
-    update?.resolve?.(true);
+    update?.resolve?.(params);
     break;
   default:
     console.warn(`Unrecognized service worker message: "${event.data}".`);
@@ -138,9 +138,11 @@ self.addEventListener('push', event => {
 
 	const result = update.then(success => {
 	  if (success) {
-	    return self.registration.showNotification('poke successful', {body: "sync'd from a push"});
+	    return self.registration.showNotification('debug poke successful', {body: "sync'd " + success});
+	  } else if (success === null) {
+	    return self.registration.showNotification('debug poke', {body: "No relay server is enabled."});
 	  } else {
-	    return self.registration.showNotification('poke timeout', {body: "got a push but did not sync in time"});
+	    return self.registration.showNotification('debug poke timeout', {body: "got a push but did not sync in time"});
 	  }
 	});
 	let resultsTimer = setTimeout(() => update.resolve(false), 20e3);
