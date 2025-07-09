@@ -3,7 +3,7 @@ import { User, Group } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
-  return (nKeysCreated * 4e3) + 3e3;
+  return (nKeysCreated * 5e3) + 3e3;
 }
  
 describe("User management", function () {

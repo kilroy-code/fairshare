@@ -7,7 +7,7 @@ class FairshareModel {
     return {tag, /*verified,*/ ...verified.json};
   }
   static persist({tag, verified, ...properties}, options) {
-    return this.store(properties, {...options});
+    return this.store(properties, {tag, owner: tag, ...options});
   }
   static assign(properties, data = this.empty) {
     return Object.assign({}, data, properties);
@@ -45,14 +45,14 @@ export class User extends FairshareModel {
     user.groups = [...user.groups, groupTag];
     group.users = [...group.users , userTag];
     // No parallel: Do not store user data unless group storage succeeds.
-    await Group.persist(group, {tag: groupTag, owner: groupTag, author: userTag});
-    await User.persist( user,  {tag: userTag,  owner: userTag,  author: userTag});
+    await Group.persist(group, {author: userTag});
+    await User.persist( user,  {author: userTag});
   }
   static async abandonGroup(userTag, groupTag) {
     // Used by user to remove a group from their own user data.
     const user = await User.fetch(userTag);
     user.groups = user.groups.filter(tag => tag !== groupTag);
-    return await User.persist(user, {tag: userTag, owner: userTag, author: userTag});
+    return await User.persist(user, {author: userTag});
   }
 }
 
@@ -86,7 +86,7 @@ export class Group extends FairshareModel {
     const tag = groupTag;
     const group = await this.fetch(tag);
     group.users = group.users.filter(tag => tag !== userTag);
-    await this.persist(group, {tag, owner: tag, author});
+    await this.persist(group, {author});
     await Credentials.changeMembership({tag, remove: [userTag]});
   }
 }
