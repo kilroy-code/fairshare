@@ -71,8 +71,8 @@ describe("User management", function () {
     await Group.store(new Group({title: 'group A'}),    {tag: commonGroup,      owner: commonGroup,      author: bootstrapUserTag});
     //await messages.store('start commonGroup', {tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
     
-    authorizedMemberTag = await User.create({title: 'user A', prompt: 'q0', answer: "17"});
-    authorizedMember = await User.fetch(authorizedMemberTag); //fixme
+    authorizedMember = await User.create({title: 'user A', prompt: 'q0', answer: "17"});
+    authorizedMemberTag = authorizedMember.tag;
     await Credentials.changeMembership({tag: commonGroup, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
 
@@ -103,8 +103,8 @@ describe("User management", function () {
   }, timeLimit(1));
 
   it("creates/destroys user.", async function () {
-    const userTag = await User.create({title: 'user B', prompt: 'q1', answer: "42"});
-    const user = await User.fetch(userTag); // fixme
+    const user = await User.create({title: 'user B', prompt: 'q1', answer: "42"});
+    const userTag = user.tag;
     await expectMember(userTag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
 
     await user.destroy();
@@ -113,8 +113,8 @@ describe("User management", function () {
   }, timeLimit(1));
 
   it("creates/destroys group.", async function () {
-    const groupTag = await Group.create({title: 'group B', author: authorizedMemberTag}); // fixme author tag=>User
-    const group = await Group.fetch(groupTag); //fixme
+    const group = await Group.create({title: 'group B', author: authorizedMemberTag}); // fixme author tag=>User
+    const groupTag = group.tag;
     await expectMember(authorizedMemberTag, groupTag, {userTitle: 'user A', groupTitle: 'group B'});
 
     await group.destroy(authorizedMember);
@@ -123,21 +123,21 @@ describe("User management", function () {
 
   it("adds/removes user from group.", async function () {
     // Setup: create group and candidate user.
-    const groupTag = await Group.create({title: 'group C', author: authorizedMemberTag});
-    const group = await Group.fetch(groupTag);
+    const group = await Group.create({title: 'group C', author: authorizedMemberTag});
+    const groupTag = group.tag;
     await expectMember(authorizedMemberTag, groupTag, {userTitle: 'user A', groupTitle: 'group C'});
-    const candidateTag = await User.create({title: 'user C', prompt: 'q2', answer: "y"});
-    const candidate = await User.fetch(candidateTag);
+    const candidate = await User.create({title: 'user C', prompt: 'q2', answer: "y"});
+    const candidateTag = candidate.tag;
     await expectMember(candidateTag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
     await expectMember(candidateTag, groupTag, {isMember: false, groupActor: authorizedMemberTag});
     
-    await group.authorizeUser(candidateTag);
+    await group.authorizeUser(candidate);
     await candidate.adoptGroup(group);
     await expectMember(candidateTag, groupTag, {keyActor: authorizedMemberTag, userTitle: 'user C', groupTitle: 'group C'});
     await expectMember(candidateTag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
 
-    await group.deauthorizeUser(candidateTag);
-    await candidate.abandonGroup(groupTag);
+    await group.deauthorizeUser(candidate);
+    await candidate.abandonGroup(group);
     await expectMember(candidateTag, groupTag, {isMember: false, groupActor: candidateTag, userTitle: 'user C'});
 
     await candidate.destroy();
