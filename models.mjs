@@ -68,6 +68,9 @@ export class User extends Persistable {
   createGroup(properties) { // Promise a new group with this user as member
     return Group.create({author: this, ...properties}); // fixme this.tag
   }
+  destroyGroup(group) { // Promise to destroy group that we are the last member of
+    return group.destroy(this);
+  }
   async adoptGroup(group) {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
@@ -110,10 +113,13 @@ export class Group extends Persistable {
     await Credentials.destroy(tag);
   }
   authorizeUser(candidate) {
+    // Used by any team member to add the user to the group's key set.
+    // Note that it does not add the user to the Group data, as the user does that when they adoptGroup.
+    // This is different than deauthorizeUser
     return Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
   }
   async deauthorizeUser(user, author = user) {
-     // Used by any team member (including the user) to remove user from the group and its key.
+     // Used by any team member (including the user) to remove user from the key set AND the group.
      // Does NOT change the user's data.
     this.users = this.users.filter(tag => tag !== user.tag);
     this.persist(author);

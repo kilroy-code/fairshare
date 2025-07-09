@@ -114,7 +114,7 @@ describe("User management", function () {
     const group = await authorizedMember.createGroup({title: 'group B'});
     await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group B'});
 
-    await group.destroy(authorizedMember);
+    await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(1));
 
@@ -137,7 +137,7 @@ describe("User management", function () {
 
     await candidate.destroy();
     await expectNoKey(candidate.tag);
-    await group.destroy(authorizedMember);
+    await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(2));
 });
