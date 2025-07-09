@@ -2,11 +2,18 @@ import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
 
 class FairshareModel {
   static get collection() { return this._collection ??= new MutableCollection({name: this.name}); }
-  static retrieve(options) { return this.collection.retrieve(options); }
-  static store(data, options) { return this.collection.store(data, options); }
+  static async fetch(tag) {
+    const verified = await this.retrieve({tag, member: null});
+    return {tag, /*verified,*/ ...verified.json};
+  }
+  static persist({tag, verified, ...properties}, options) {
+    return this.store(properties, {...options});
+  }
   static assign(properties, data = this.empty) {
     return Object.assign({}, data, properties);
   }
+  static retrieve(options) { return this.collection.retrieve(options); }
+  static store(data, options) { return this.collection.store(data, options); }
 }
 
 export class User extends FairshareModel {
@@ -15,9 +22,9 @@ export class User extends FairshareModel {
     Credentials.setAnswer(prompt, answer);
     const userTag = await Credentials.createAuthor(prompt);
     const groupTag = Group.communityTag;
-    const communityGroup = await Group.retrieve({tag: groupTag, member: null}); // Could have last been written by someone no longer in the group.
+    const communityGroup = await Group.fetch(groupTag); // Could have last been written by someone no longer in the group.
     await Group.authorizeUser(groupTag, userTag);
-    await User._adoptGroup(userTag, groupTag, {json: this.assign(properties)}, communityGroup);
+    await User._adoptGroup(userTag, groupTag, this.assign({tag: userTag, ...properties}), communityGroup);
     return userTag;
   }
   static async destroy(userTag) {
@@ -31,21 +38,21 @@ export class User extends FairshareModel {
   static async adoptGroup(userTag, groupTag) {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
-    const [user, group] = await Promise.all([User.retrieve(userTag), Group.retrieve({tag: groupTag, member: null})]);
+    const [user, group] = await Promise.all([User.fetch(userTag), Group.fetch(groupTag)]);
     return await this._adoptGroup(userTag, groupTag, user, group);
   }
   static async _adoptGroup(userTag, groupTag, user, group) {
-    user.json.groups = [...user.json.groups, groupTag];
-    group.json.users = [...group.json.users , userTag];
+    user.groups = [...user.groups, groupTag];
+    group.users = [...group.users , userTag];
     // No parallel: Do not store user data unless group storage succeeds.
-    await Group.store(group.json, {tag: groupTag, owner: groupTag, author: userTag});
-    await User.store( user.json,  {tag: userTag,  owner: userTag,  author: userTag});
+    await Group.persist(group, {tag: groupTag, owner: groupTag, author: userTag});
+    await User.persist( user,  {tag: userTag,  owner: userTag,  author: userTag});
   }
   static async abandonGroup(userTag, groupTag) {
     // Used by user to remove a group from their own user data.
-    const user = await User.retrieve(userTag);
-    user.json.groups = user.json.groups.filter(tag => tag !== groupTag);
-    return await User.store(user.json, {tag: userTag, owner: userTag, author: userTag});
+    const user = await User.fetch(userTag);
+    user.groups = user.groups.filter(tag => tag !== groupTag);
+    return await User.persist(user, {tag: userTag, owner: userTag, author: userTag});
   }
 }
 
@@ -55,7 +62,8 @@ export class Group extends FairshareModel {
   static async create({author:userTag, ...properties}) { // Promises tag, not the group itself.
     // Create group with user as member.
     const groupTag = await Credentials.create(userTag); // userTag is authorized for newly create groupTag.
-    await User._adoptGroup(userTag, groupTag, await User.retrieve(userTag), {json: this.assign(properties)});
+    const user = await User.fetch(userTag);
+    await User._adoptGroup(userTag, groupTag, user, this.assign({tag: groupTag, ...properties}));
     return groupTag;
   }
   static async destroy(groupTag, userTag) {
@@ -76,9 +84,9 @@ export class Group extends FairshareModel {
     // Used by any team member (including the user) to remove user from the group and its key.
     // Does NOT change the user's data.
     const tag = groupTag;
-    const group = await this.retrieve({tag, member: null});
-    group.json.users = group.json.users.filter(tag => tag !== userTag);
-    await this.store(group.json, {tag, owner: tag, author});
+    const group = await this.fetch(tag);
+    group.users = group.users.filter(tag => tag !== userTag);
+    await this.persist(group, {tag, owner: tag, author});
     await Credentials.changeMembership({tag, remove: [userTag]});
   }
 }

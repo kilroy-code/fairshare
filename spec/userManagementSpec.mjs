@@ -10,9 +10,12 @@ describe("User management", function () {
   let authorizedMember, commonGroup, originalCommunityGroup = Group.communityTag;
 
   // Reusable assertions for our testing.
+  async function expectGone(kind, tag) { // get, so as not to get false negative if present but not valid.
+    expect(await kind.get(tag)).toBeFalsy();
+  }
   async function expectNoKey(tag) { // Confirm that tag does not exist as a key.
-    expect(await Credentials.collections.Team.retrieve(tag)).toBeFalsy();
-    expect(await Credentials.collections.EncryptionKey.retrieve(tag)).toBeFalsy();
+    await expectGone(Credentials.collections.Team, tag);
+    await expectGone(Credentials.collections.EncryptionKey, tag);
   }
   async function expectMember(userTag, groupTag, {
     expectUserData = true, userTitle = '',
@@ -84,11 +87,11 @@ describe("User management", function () {
     await Credentials.changeMembership({tag: commonGroup, add: [bootstrapUserTag]});
 
     await User.destroy(authorizedMember);
-    expect(await User.retrieve(commonGroup)).toBeFalsy();    
+    await expectGone(User.collection, authorizedMember);
     await expectNoKey(authorizedMember);
     
     await Group.collection.remove({tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
-    expect(await Group.retrieve(commonGroup)).toBeFalsy();
+    await expectGone(Group.collection, commonGroup);
     await Credentials.destroy(commonGroup);
     await expectNoKey(commonGroup);
     await Credentials.destroy(bootstrapUserTag);
