@@ -47,16 +47,15 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
 
   static get collection() { // The Flexstore Collection that defines the persistance behavior:
     // sign/verify, encrypt/decrypt, local-first distribution and synchronization, merge semantics, etc.
+    //
     // A Collection instance (such as for User or Group) does not contain instance/elements - it just manages
-    // their persisted synchronziation through tags.
-    return this._collection ??= new MutableCollection({name: this.name});
+    // their persisted synchronziation through tags. Compare uses of LiveSet, below.
+    return this._collection ??= new MutableCollection({name: this.prefix + this.name});
   }
-  static get live() {
-    return this._live ??= new LiveSet();
-  }
+  static prefix = 'social.fairshare.';
+
   constructor(properties) { // Works for accessors, rules, or unspecified property names.
     Object.assign(this, properties);
-    this.constructor.live.put(properties.tag, this);
   }
 
   // Ruled properties.
@@ -66,15 +65,10 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   static async fetch(tag) { // Promise the specified object from the collection.
     // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
     if (!tag) throw new Error("A tag is required.");
-    const {live} = this;
-    const existing = live.get(tag);
-    if (existing) return existing;
-
     // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
     const verified = await this.retrieve({tag, member: null});
     // Tag isn't directly persisted, but we have it to store in the instance.
-    const item = new this({tag, /*verified,*/ ...verified.json});
-    return item;
+    return new this({tag, /*verified,*/ ...verified.json});
   }
   persist(asUser) { // Promise to save this instance.
     // The list of persistedProperties is defined by subclasses and serves two purposes:
@@ -83,9 +77,6 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     const data = {};
     this.constructor.persistedProperties.forEach(name => data[name] = this[name]);
     return this.constructor.persist(data, {author: asUser.tag});
-  }
-  destroy() {
-    this.constructor.live.delete(this.tag);
   }
   static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
     return this.store(properties, {tag, owner: tag, ...options});
@@ -97,7 +88,29 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   static store(data, options) { return this.collection.store(data, options); }
 }
 
-export class User extends Persistable {
+export class Enumerated extends Persistable {
+  // In contrast with the collection property (which does not hold any instances), there are some type-specific
+  //  enumerations of instances. Each is implemented as a LiveSet, so that:
+  // 1. constructor/fetch/destroy can keep track of them, returning the same instance in each call.
+  // 2. Changes to their membership cause references to the enumeration to update.
+  // One such enumeration, common to both User and Group, is directory.
+  // Other examples are in the respective subclasses.
+  static get directory() {
+    return this._directory ??= new LiveSet();
+  }
+  constructor(properties) { // Works for accessors, rules, or unspecified property names.
+    super(properties);
+    this.constructor.directory.put(properties.tag, this);
+  }
+  static async fetch(tag) {
+    return this.directory.get(tag) ?? super.fetch(tag);
+  }
+  destroy() {
+    this.constructor.directory.delete(this.tag);
+  }
+}
+
+export class User extends Enumerated {
   static persistedProperties = ['tag', 'title', 'groups'];
   get groups() { return []; }
 
@@ -111,14 +124,15 @@ export class User extends Persistable {
     await user.adoptGroup(communityGroup);
     return user;
   }
-  async destroy() { // Permanently removes this user from persistence.
+  async destroy({prompt, answer}) { // Permanently removes this user from persistence.
     const tag = this.tag;
     const groupTag = Group.communityTag;
     const group = await Group.fetch(groupTag);
     await this.abandonGroup(this);
     await group.deauthorizeUser(this);
     await this.constructor.remove({tag, owner: tag, author: tag});
-    await Credentials.destroy(tag, {resursive: true});
+    Credentials.setAnswer(prompt, answer);
+    await Credentials.destroy({tag, recursiveMembers: true});
     super.destroy();
   }
   createGroup(properties) { // Promise a new group with this user as member
@@ -146,7 +160,7 @@ export class User extends Persistable {
   }
 }
 
-export class Group extends Persistable {
+export class Group extends Enumerated {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
   static persistedProperties = ['tag', 'title', 'users'];
   get users() { return []; }

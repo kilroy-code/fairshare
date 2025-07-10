@@ -15,8 +15,11 @@ describe("Model management", function () {
     expect(await kind.get(tag)).toBeFalsy();
   }
   async function expectNoKey(tag) { // Confirm that tag does not exist as a key.
+    // Note: This does not check that keys that may once have been members of tag have also been removed.
+    // To check that, one needs to manually inspect the persistent storage.
     await expectGone(Credentials.collections.Team, tag);
     await expectGone(Credentials.collections.EncryptionKey, tag);
+    await expectGone(Credentials.collections.KeyRecovery, tag);
   }
   async function expectMember(userTag, groupTag, {
     expectUserData = true, userTitle = '',
@@ -91,7 +94,7 @@ describe("Model management", function () {
     const bootstrapUserTag = await Credentials.create(); // No user object.
     await Credentials.changeMembership({tag: Group.communityTag, add: [bootstrapUserTag]});
 
-    await authorizedMember.destroy();
+    await authorizedMember.destroy({prompt: 'q0', answer: "17"});
     await expectGone(User.collection, authorizedMember.tag);
     await expectNoKey(authorizedMember.tag);
     
@@ -109,7 +112,7 @@ describe("Model management", function () {
     const user = await User.create({title: 'user B', prompt: 'q1', answer: "42"});
     await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
 
-    await user.destroy();
+    await user.destroy({prompt: 'q1', answer: "42"});
     await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
     await expectNoKey(user.tag);
   }, timeLimit(1));
@@ -139,7 +142,7 @@ describe("Model management", function () {
     await candidate.abandonGroup(group);
     await expectMember(candidate.tag, group.tag, {isMember: false, groupActor: candidate.tag, userTitle: 'user C'});
 
-    await candidate.destroy();
+    await candidate.destroy({prompt: 'q2', answer: "y"});
     await expectNoKey(candidate.tag);
     await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
@@ -150,7 +153,7 @@ describe("Model management", function () {
     class ReferencingObject {
       get communityGroup() { return Group.fetch(Group.communityTag); } // No need to await - it is automatic!
       get communityTitle() { return this.communityGroup.title; }
-      get userTitles() { return User.live.map(user => user.title); }
+      get userTitles() { return User.directory.map(user => user.title); }
     }
     Rule.rulify(ReferencingObject.prototype);
     beforeAll(function () { reference = new ReferencingObject(); });
@@ -167,8 +170,8 @@ describe("Model management", function () {
       expect(reference.userTitles).toEqual(['user A']);
       const another = await User.create({title: 'another', prompt: 'q0', answer: 'x'});
       expect(reference.userTitles).toEqual(['user A', 'another']);
-      await another.destroy();
+      await another.destroy({prompt: 'q0', answer: 'x'});
       expect(reference.userTitles).toEqual(['user A']);
-    });
+    }, timeLimit(1));
   });
 });
