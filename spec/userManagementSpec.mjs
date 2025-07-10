@@ -36,6 +36,7 @@ describe("Model management", function () {
       if (userTitle) expect(userData.json.title).toBe(userTitle);
     } else {
       expect(userData).toBeFalsy();
+      expect(await User.privateCollection.get(userTag)).toBeFalsy();
     }
 
     // Get data regardless of whether user is a member of team, as that is checked below.
@@ -53,6 +54,7 @@ describe("Model management", function () {
       }
     } else {
       expect(groupData).toBeFalsy();
+      expect(await Group.privateCollection.get(groupTag)).toBeFalsy();
     }
 
     const keyData = await Credentials.collections.Team.retrieve({tag: groupTag, member: null});         // Key data.
@@ -96,10 +98,12 @@ describe("Model management", function () {
 
     await authorizedMember.destroy({prompt: 'q0', answer: "17"});
     await expectGone(User.collection, authorizedMember.tag);
+    await expectGone(User.privateCollection, authorizedMember.tag);
     await expectNoKey(authorizedMember.tag);
     
     await Group.collection.remove({tag: Group.communityTag, owner: Group.communityTag, author: bootstrapUserTag});
     await expectGone(Group.collection, Group.communityTag);
+    await expectGone(Group.privateCollection, Group.communityTag);
     await Credentials.destroy(Group.communityTag);
     await expectNoKey(Group.communityTag);
     await Credentials.destroy(bootstrapUserTag);

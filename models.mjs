@@ -36,7 +36,8 @@ class LiveSet {
   }
   delete(tag) {
     let {items} = this;
-    items[tag] = null;
+    if (!(tag in items)) return;
+    items[tag] = null; // Any references to items[tag] will see that this was reset.
     delete items[tag];
     this.size--;
   }
@@ -57,11 +58,6 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   constructor(properties) { // Works for accessors, rules, or unspecified property names.
     Object.assign(this, properties);
   }
-
-  // Ruled properties.
-  get tag() { return ''; }
-  get title() { return ''; }  
-
   static async fetch(tag) { // Promise the specified object from the collection.
     // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
     if (!tag) throw new Error("A tag is required.");
@@ -69,6 +65,9 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     const verified = await this.retrieve({tag, member: null});
     // Tag isn't directly persisted, but we have it to store in the instance.
     return new this({tag, /*verified,*/ ...verified.json});
+  }
+  static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
+    return this.store(properties, {tag, owner: tag, ...options});
   }
   persist(asUser) { // Promise to save this instance.
     // The list of persistedProperties is defined by subclasses and serves two purposes:
@@ -78,9 +77,13 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     this.constructor.persistedProperties.forEach(name => data[name] = this[name]);
     return this.constructor.persist(data, {author: asUser.tag});
   }
-  static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
-    return this.store(properties, {tag, owner: tag, ...options});
+  destroy({tag, author = tag}) {
+    return this.constructor.remove({tag, owner: tag, author});
   }
+
+  // Ruled properties.
+  get tag() { return ''; }
+  get title() { return ''; }
 
   // Helpers
   static retrieve(options) { return this.collection.retrieve(options); }
@@ -98,19 +101,39 @@ export class Enumerated extends Persistable {
   static get directory() {
     return this._directory ??= new LiveSet();
   }
-  constructor(properties) { // Works for accessors, rules, or unspecified property names.
+  constructor(properties) { // Save it in the directory for use by fetch.
     super(properties);
-    this.constructor.directory.put(properties.tag, this);
+    this.constructor.directory.put(properties.tag, this); // Here rather than fetch, so as to include newly created stuff.
   }
-  static async fetch(tag) {
+  static async fetch(tag) { // Gets from directory cache if present.
     return this.directory.get(tag) ?? super.fetch(tag);
   }
-  destroy() {
+  destroy(options) { // Remove from directory.
+    super.destroy(options);
     this.constructor.directory.delete(this.tag);
   }
 }
 
-export class User extends Enumerated {
+export class PublicPrivate extends Enumerated {
+  // In addition to the directory, provides a second LiveSet that are the SUBSET that are mine.
+  // Automatically splits and combines from a second privateCollection that are encrypted.
+  static get privateCollection() {
+    return this._privateCollection ??= new MutableCollection({name: this.prefix + this.name + 'Private'});
+  }
+  static private = new LiveSet();
+
+  // TODO:
+  // - constructor: if some private property included, also put into private.
+  // - fetch|retrieve|??: combine properties from privateCollect
+  // - persist: store private data into privateCollection.
+  destroy(options) { // Remove from private, too.
+    super.destroy(options);
+    this.constructor.private.delete(this.tag);
+    this.constructor.privateCollection.remove(options);
+  }
+}
+
+export class User extends PublicPrivate {
   static persistedProperties = ['tag', 'title', 'groups'];
   get groups() { return []; }
 
@@ -130,10 +153,9 @@ export class User extends Enumerated {
     const group = await Group.fetch(groupTag);
     await this.abandonGroup(this);
     await group.deauthorizeUser(this);
-    await this.constructor.remove({tag, owner: tag, author: tag});
+    super.destroy({tag, author:tag});
     Credentials.setAnswer(prompt, answer);
     await Credentials.destroy({tag, recursiveMembers: true});
-    super.destroy();
   }
   createGroup(properties) { // Promise a new group with this user as member
     return Group.create({author: this, ...properties}); // fixme this.tag
@@ -160,7 +182,7 @@ export class User extends Enumerated {
   }
 }
 
-export class Group extends Enumerated {
+export class Group extends PublicPrivate {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
   static persistedProperties = ['tag', 'title', 'users'];
   get users() { return []; }
@@ -176,10 +198,9 @@ export class Group extends Enumerated {
     // Used by last group member to destroy a group.
     // TODO? Check that we are last?
     const {tag} = this;
-    await this.constructor.remove({tag, owner: tag, author: asUser.tag});
     await asUser.abandonGroup(this);
+    super.destroy({tag, author: asUser.tag});
     await Credentials.destroy(tag);
-    super.destroy();
   }
   authorizeUser(candidate) {
     // Used by any team member to add the user to the group's key set.
