@@ -1,12 +1,13 @@
 import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
+import { Rule } from '@kilroy-code/rules';
 import { User, Group } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
-  return (nKeysCreated * 6e3) + 3e3;
+  return (nKeysCreated * 6e3) + 4e3;
 }
  
-describe("User management", function () {
+describe("Model management", function () {
   let authorizedMember, authorizedMemberTag, originalCommunityGroup = Group.communityTag;
 
   // Reusable assertions for our testing.
@@ -143,4 +144,31 @@ describe("User management", function () {
     await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(2));
+
+  describe('dependency tracking', function () {
+    let reference;
+    class ReferencingObject {
+      get communityGroup() { return Group.fetch(Group.communityTag); } // No need to await - it is automatic!
+      get communityTitle() { return this.communityGroup.title; }
+      get userTitles() { return User.live.map(user => user.title); }
+    }
+    Rule.rulify(ReferencingObject.prototype);
+    beforeAll(function () { reference = new ReferencingObject(); });
+    it("tracks changes to simple property.", async function () {
+      // We're outside of a rule here, so we must await the reference to allow it to commpute through propogated promises.
+      let initialTitle = await reference.communityTitle;
+      expect(initialTitle).toBe('group A');
+      reference.communityGroup.title = 'FairShare'; // But now communityGroup has cached the non-promise value.
+      expect(reference.communityTitle).toBe('FairShare');
+      reference.communityGroup.title = initialTitle;
+      expect(reference.communityTitle).toBe('group A');
+    });
+    it("tracks the live list.", async function () {
+      expect(reference.userTitles).toEqual(['user A']);
+      const another = await User.create({title: 'another', prompt: 'q0', answer: 'x'});
+      expect(reference.userTitles).toEqual(['user A', 'another']);
+      await another.destroy();
+      expect(reference.userTitles).toEqual(['user A']);
+    });
+  });
 });

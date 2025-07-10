@@ -14,13 +14,13 @@ class LiveSet {
   forEach(iterator) {
     const {items, size} = this;
     const keys = Object.keys(items);
-    for (let index = index; index < size; index++) iterator(this.get(keys[index]), index, this);
+    for (let index = 0; index < size; index++) iterator(this.get(keys[index]), index, this);
   }
   map(iterator) {
     const {items, size} = this;
     const keys = Object.keys(items);
     const result = Array(size);
-    for (let index = index; index < size; index++) result[index] = iterator(this.get(keys[index]), index, this);
+    for (let index = 0; index < size; index++) result[index] = iterator(this.get(keys[index]), index, this);
     return result;
   }
   get(tag) {
@@ -51,11 +51,15 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // their persisted synchronziation through tags.
     return this._collection ??= new MutableCollection({name: this.name});
   }
-  static live = new LiveSet();
+  static get live() {
+    return this._live ??= new LiveSet();
+  }
   constructor(properties) { // Works for accessors, rules, or unspecified property names.
     Object.assign(this, properties);
     this.constructor.live.put(properties.tag, this);
   }
+
+  // Ruled properties.
   get tag() { return ''; }
   get title() { return ''; }  
 
@@ -65,8 +69,10 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     const {live} = this;
     const existing = live.get(tag);
     if (existing) return existing;
-    const verified = await this.retrieve({tag, member: null}); // null indicates that we do not
-    // verify that the signing author is STILL a member of the owning team at the time of retrieval.
+
+    // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
+    const verified = await this.retrieve({tag, member: null});
+    // Tag isn't directly persisted, but we have it to store in the instance.
     const item = new this({tag, /*verified,*/ ...verified.json});
     return item;
   }
