@@ -7,7 +7,7 @@ function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite 
 }
  
 describe("User management", function () {
-  let authorizedMember, authorizedMemberTag, commonGroup, originalCommunityGroup = Group.communityTag;
+  let authorizedMember, authorizedMemberTag, originalCommunityGroup = Group.communityTag;
 
   // Reusable assertions for our testing.
   async function expectGone(kind, tag) { // get, so as not to get false negative if present but not valid.
@@ -44,7 +44,9 @@ describe("User management", function () {
       } else {
 	expect(groupData.json.users).not.toContain(userTag);
       }
-      if (groupTitle) expect(groupData.json.title).toBe(groupTitle);
+      if (groupTitle) {
+	expect(groupData.json.title).toBe(groupTitle);
+      }
     } else {
       expect(groupData).toBeFalsy();
     }
@@ -68,33 +70,34 @@ describe("User management", function () {
   beforeAll(async function () {
     // Bootstrap community group with temporary user credentials.
     const bootstrapUserTag = await Credentials.create(); // No user object.
-    commonGroup = Group.communityTag = await Credentials.create(bootstrapUserTag);
-    await Group.store(new Group({title: 'group A'}),    {tag: commonGroup,      owner: commonGroup,      author: bootstrapUserTag});
-    //await messages.store('start commonGroup', {tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
+    Group.communityTag = await Credentials.create(bootstrapUserTag);
+    const group = new Group({title: 'group A', tag: Group.communityTag});
+    await group.persist({tag:bootstrapUserTag}); // Pun: {tag} looks like a store option, but it's actually a fake User with a tag property.
+    //await messages.store('start groupTag', {tag: groupTag, owner: groupTag, author: bootstrapUserTag});
     
     authorizedMember = await User.create({title: 'user A', prompt: 'q0', answer: "17"});
-    await Credentials.changeMembership({tag: commonGroup, remove: [bootstrapUserTag]});
+    await Credentials.changeMembership({tag: Group.communityTag, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
 
     // Check our starting conditions.
-    await expectMember(bootstrapUserTag, commonGroup, {isMember: false, expectUserData: false, groupActor: authorizedMember.tag});
-    await expectMember(authorizedMember.tag, commonGroup, {userTitle: 'user A', groupTitle: 'group A'});
+    await expectMember(bootstrapUserTag, Group.communityTag, {isMember: false, expectUserData: false, groupActor: authorizedMember.tag});
+    await expectMember(authorizedMember.tag, Group.communityTag, {userTitle: 'user A', groupTitle: 'group A'});
     await expectNoKey(bootstrapUserTag);
   }, timeLimit(3)); // Key creation is deliberately slow.
 
   afterAll(async function () { // Remove everything we have created. (But not whole collections as this may be "live".)
     // Same dance as in creation.
     const bootstrapUserTag = await Credentials.create(); // No user object.
-    await Credentials.changeMembership({tag: commonGroup, add: [bootstrapUserTag]});
+    await Credentials.changeMembership({tag: Group.communityTag, add: [bootstrapUserTag]});
 
     await authorizedMember.destroy();
     await expectGone(User.collection, authorizedMember.tag);
     await expectNoKey(authorizedMember.tag);
     
-    await Group.collection.remove({tag: commonGroup, owner: commonGroup, author: bootstrapUserTag});
-    await expectGone(Group.collection, commonGroup);
-    await Credentials.destroy(commonGroup);
-    await expectNoKey(commonGroup);
+    await Group.collection.remove({tag: Group.communityTag, owner: Group.communityTag, author: bootstrapUserTag});
+    await expectGone(Group.collection, Group.communityTag);
+    await Credentials.destroy(Group.communityTag);
+    await expectNoKey(Group.communityTag);
     await Credentials.destroy(bootstrapUserTag);
     await expectNoKey(bootstrapUserTag);
 

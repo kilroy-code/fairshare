@@ -1,10 +1,47 @@
 import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
+import { Rule } from '@kilroy-code/rules';
 
 /*
   This is the glue between our application-specific central model objects,
   Flexstore persistence and synchronization machinery, and
   Rules based UI change-management.
 */
+
+class LiveSet {
+  // This could be implemented differently, e.g., as a Proxy. But we don't need to, yet.
+  items = {};
+  get size() { return 0; }
+  forEach(iterator) {
+    const {items, size} = this;
+    const keys = Object.keys(items);
+    for (let index = index; index < size; index++) iterator(this.get(keys[index]), index, this);
+  }
+  map(iterator) {
+    const {items, size} = this;
+    const keys = Object.keys(items);
+    const result = Array(size);
+    for (let index = index; index < size; index++) result[index] = iterator(this.get(keys[index]), index, this);
+    return result;
+  }
+  get(tag) {
+    return this.items[tag];
+  }
+  put(tag, item) {
+    let {items} = this;
+    if (tag in items) items[tag] = item;
+    else {
+      Rule.attach(items, tag, () => item, {configurable: true}); // deletable
+      this.size++;
+    }
+  }
+  delete(tag) {
+    let {items} = this;
+    items[tag] = null;
+    delete items[tag];
+    this.size--;
+  }
+}
+Rule.rulify(LiveSet.prototype);
 
 class Persistable { // Can be stored in Flexstore Collection, as a signed JSON bag of enumerated properties.
 
@@ -14,14 +51,24 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // their persisted synchronziation through tags.
     return this._collection ??= new MutableCollection({name: this.name});
   }
-  static async fetch(tag) { // Promise the specified object from the collection.
-    // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
-    const verified = await this.retrieve({tag, member: null}); // null indicates that we do not
-    // verify that the signing author is STILL a member of the owning team at the time of retrieval.
-    return new this({tag, /*verified,*/ ...verified.json});
-  }
+  static live = new LiveSet();
   constructor(properties) { // Works for accessors, rules, or unspecified property names.
     Object.assign(this, properties);
+    this.constructor.live.put(properties.tag, this);
+  }
+  get tag() { return ''; }
+  get title() { return ''; }  
+
+  static async fetch(tag) { // Promise the specified object from the collection.
+    // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
+    if (!tag) throw new Error("A tag is required.");
+    const {live} = this;
+    const existing = live.get(tag);
+    if (existing) return existing;
+    const verified = await this.retrieve({tag, member: null}); // null indicates that we do not
+    // verify that the signing author is STILL a member of the owning team at the time of retrieval.
+    const item = new this({tag, /*verified,*/ ...verified.json});
+    return item;
   }
   persist(asUser) { // Promise to save this instance.
     // The list of persistedProperties is defined by subclasses and serves two purposes:
@@ -31,9 +78,13 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     this.constructor.persistedProperties.forEach(name => data[name] = this[name]);
     return this.constructor.persist(data, {author: asUser.tag});
   }
+  destroy() {
+    this.constructor.live.delete(this.tag);
+  }
   static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
     return this.store(properties, {tag, owner: tag, ...options});
   }
+
   // Helpers
   static retrieve(options) { return this.collection.retrieve(options); }
   static remove(options) { return this.collection.remove(options); }
@@ -41,10 +92,8 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
 }
 
 export class User extends Persistable {
-  constructor(properties) { // Ensures a list of groups that to which this user belongs.
-    super({groups: [], ...properties});
-  }
   static persistedProperties = ['tag', 'title', 'groups'];
+  get groups() { return []; }
 
   static async create({prompt, answer, ...properties}) { // Promise a provisioned instance, as a member of the community group.
     Credentials.setAnswer(prompt, answer);
@@ -64,6 +113,7 @@ export class User extends Persistable {
     await group.deauthorizeUser(this);
     await this.constructor.remove({tag, owner: tag, author: tag});
     await Credentials.destroy(tag, {resursive: true});
+    super.destroy();
   }
   createGroup(properties) { // Promise a new group with this user as member
     return Group.create({author: this, ...properties}); // fixme this.tag
@@ -92,10 +142,8 @@ export class User extends Persistable {
 
 export class Group extends Persistable {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
-  constructor(properties) {
-    super({users: [], ...properties});
-  }
   static persistedProperties = ['tag', 'title', 'users'];
+  get users() { return []; }
 
   static async create({author:user, ...properties}) { // Promise a new Group with user as member
     const userTag = user.tag;
@@ -111,6 +159,7 @@ export class Group extends Persistable {
     await this.constructor.remove({tag, owner: tag, author: asUser.tag});
     await asUser.abandonGroup(this);
     await Credentials.destroy(tag);
+    super.destroy();
   }
   authorizeUser(candidate) {
     // Used by any team member to add the user to the group's key set.
@@ -126,6 +175,10 @@ export class Group extends Persistable {
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
 }
+
+// The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".
+// As it happens, each of these three defines at least one getter.
+[Persistable, User, Group].forEach(kind => Rule.rulify(kind.prototype));
 
 // TODO
 // message
