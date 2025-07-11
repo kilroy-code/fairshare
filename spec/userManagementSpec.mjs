@@ -8,7 +8,9 @@ function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite 
 }
  
 describe("Model management", function () {
-  let authorizedMember, authorizedMemberTag, originalCommunityGroup = Group.communityTag;
+  let authorizedMember,
+      deviceName = 'test',
+      originalCommunityGroup = Group.communityTag;
 
   // Reusable assertions for our testing.
   async function expectGone(kind, tag) { // get, so as not to get false negative if present but not valid.
@@ -34,6 +36,7 @@ describe("Model management", function () {
     if (expectUserData) {
       expect(userData.protectedHeader.kid).toBe(userTag);                    // Signed by one Key IDentifer.
       expect(userPrivateData.protectedHeader.kid).toBe(userTag);
+      // FIXME: confirm private is encrypted.
       if (isMember) expect(userPrivateData.json.groups).toContain(groupTag); // User's groups list includes the specified group.
       else expect(userPrivateData.json.groups).not.toContain(groupTag);
 
@@ -51,6 +54,7 @@ describe("Model management", function () {
       expect(groupData.protectedHeader.act).toBe(groupActor);                 // Signed by a then-current member (ACTor).
       expect(groupPrivateData.protectedHeader.iss).toBe(groupTag);
       expect(groupPrivateData.protectedHeader.act).toBe(groupActor);
+      // FIXME: confirm private is encrypted.
       if (isMember) expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
       else expect(groupPrivateData.json.users).not.toContain(userTag);
 
@@ -84,7 +88,7 @@ describe("Model management", function () {
     await group.persist({tag:bootstrapUserTag}); // Pun: {tag} looks like a store option, but it's actually a fake User with a tag property.
     //await messages.store('start groupTag', {tag: groupTag, owner: groupTag, author: bootstrapUserTag});
     
-    authorizedMember = await User.create({title: 'user A', prompt: 'q0', answer: "17"});
+    authorizedMember = await User.create({title: 'user A', secrets:[['q0', "17"]], deviceName});
     await Credentials.changeMembership({tag: Group.communityTag, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
 
@@ -117,20 +121,55 @@ describe("Model management", function () {
   }, timeLimit(1));
 
   // TODO: try these with bad credentials. Make sure it doesn't leave stuff in a weird stae.
-
+  it("can edit one's own public and private data.", async function () {
+    const groups = authorizedMember.groups;            // Private data before editing.
+    await authorizedMember.edit({picture: "foo bar"}); // Change public data.
+    expect(authorizedMember.title).toBe('user A');     // Other public data unchanged.
+    const {devices} = authorizedMember;
+    devices['foo'] = 'bar';                            // Change private data.
+    await authorizedMember.edit({devices});
+    expect(authorizedMember.groups).toBe(groups);      // Other private data unchanged.
+    delete devices['foo'];                             // Restore
+    await authorizedMember.edit({devices});
+  });
   it("creates/destroys user.", async function () {
-    const user = await User.create({title: 'user B', prompt: 'q1', answer: "42"});
+    // Adds user to community group.
+    const user = await User.create({title: 'user B', secrets:[['q1', "42"]], deviceName});
     await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
 
+    // Removes user from community group.
     await user.destroy({prompt: 'q1', answer: "42"});
     await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
     await expectNoKey(user.tag);
   }, timeLimit(1));
 
+  it("authorizes/deauthorizes existing user.", async function () {
+    const prompt = 'q1', answer = "17", deviceName = "E's device";
+    const user = await User.create({title: 'user E', secrets:[[prompt, answer]], deviceName});
+
+    console.log({prompt, answer, secrets: user.secrets, hash: await Credentials.hashText(answer)});
+    expect(await user.preConfirmOwnership({prompt, answer})).toBeTruthy();
+    expect(await user.preConfirmOwnership({prompt, answer: answer+'x'})).toBeFalsy();
+
+    const removed = await user.deauthorize({prompt, answer, deviceName});
+    expectGone(Credentials.collections.EncryptionKey, removed); // Device gone, too, but we don't get to see those.
+    // This causes "Attempting access..." to be logged twice. (Once for public and once for private user collection item.)
+    expect(await user.edit({picture: 'wrong'}).catch(() =>'rejected')).toBe('rejected');
+
+    await user.authorize({prompt, answer, deviceName});
+    await user.edit({picture: 'after re-authorization'}); // Now editable.
+    expect(user.picture).toBe('after re-authorization');
+
+    await user.destroy({prompt, answer});                 // And destroyable.
+    await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
+  }, timeLimit(1));
+
   it("creates/destroys group.", async function () {
+    // Group has user as member.
     const group = await authorizedMember.createGroup({title: 'group B'});
     await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group B'});
 
+    // Destroy removes the member.
     await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(1));
@@ -139,23 +178,26 @@ describe("Model management", function () {
     // Setup: create group and candidate user.
     const group = await authorizedMember.createGroup({title: 'group C'});
     await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', groupTitle: 'group C'});
-    const candidate = await User.create({title: 'user C', prompt: 'q2', answer: "y"});
+    const candidate = await User.create({title: 'user C', secrets:[['q2', "y"]], deviceName});
     await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
     await expectMember(candidate.tag, group.tag,          {isMember: false, groupActor: authorizedMember.tag});
-    
+
+    // Add
     await group.authorizeUser(candidate);
     await candidate.adoptGroup(group);
     await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', groupTitle: 'group C', keyActor: authorizedMember.tag});
     await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
 
+    // Remove
     await group.deauthorizeUser(candidate);
     await candidate.abandonGroup(group);
     await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', isMember: false, groupActor: candidate.tag});
 
+    // Cleanup. Destroy candidate. (Removes from community group.)
     await candidate.destroy({prompt: 'q2', answer: "y"});
     await expectMember(candidate.tag, Group.communityTag, {expectUserData: false, isMember: false, groupActor: candidate.tag});
     await expectNoKey(candidate.tag);
-
+    // Cleanup. Destroy group. (Removes destroying user.)
     await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', isMember: false, expectGroupData: false});
   }, timeLimit(2));
@@ -180,7 +222,7 @@ describe("Model management", function () {
     });
     it("tracks the live list.", async function () {
       expect(reference.userTitles).toEqual(['user A']);
-      const another = await User.create({title: 'another', prompt: 'q0', answer: 'x'});
+      const another = await User.create({title: 'another', secrets:[['q0', 'x']], deviceName});
       expect(reference.userTitles).toEqual(['user A', 'another']);
       await another.destroy({prompt: 'q0', answer: 'x'});
       expect(reference.userTitles).toEqual(['user A']);

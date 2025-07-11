@@ -89,6 +89,10 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     const {tag} = this;            // FIXME: shouldn't this be leaving a tombstone??
     return this.constructor.collection.remove({tag, owner: tag, author: authorTag || tag});
   }
+  edit(changedProperties, asUser = this) {
+    Object.assign(this, changedProperties);
+    return this.persist(asUser);
+  }
 
   // Ruled properties.
   get tag() { return ''; }
@@ -130,13 +134,16 @@ export class PublicPrivate extends Enumerated {
   static async fetchPrivate(tag) { // Fetch public and additional private data, merging the decrypted private data into the object.
     const {privateDirectory} = this;
     if (privateDirectory.has(tag)) return this.privateDirectory.get(tag);
-    const [instance, privateData] = await Promise.all(this.fetch(tag), this.privateCollection.retrieve(tag));
+    const instance = await this.fetch(tag);
+    const privateData = await this.privateCollection.retrieve(tag);
+    //const [instance, privateData] = await Promise.all(this.fetch(tag), this.privateCollection.retrieve(tag));
     Object.assign(instance, privateData.json); // Merge the private data.
-    privateDirectory.put(instance);
+    privateDirectory.put(tag, instance);
     return instance;
   }
   persist(asUser) { // Promise to save this instance.
     const {privateProperties, privateCollection} = this.constructor;
+    // fixme: encrypt private
     return Promise.all([this.persistProperties(privateProperties, privateCollection, asUser.tag),
 			super.persist(asUser)]);
   }
@@ -149,40 +156,90 @@ export class PublicPrivate extends Enumerated {
 }
 
 export class User extends PublicPrivate {
-  static persistedProperties = ['title'];
-  static privateProperties = ['groups'];
-  get groups() { return []; }
+  // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
+  static persistedProperties = ['picture', 'secrets', 'title'];
+  static privateProperties = ['devices', 'groups'];
+  get picture() { return ''; } // A media tag, or empty to use identicon.
+  get devices() { return {}; } // Map of deviceName => userDeviceTag so that user can remotely deauthorize.
+  get groups() { return []; }  // Tags of the groups this user has joined.
+  get secrets() { return {}; }  // So that we know what to prompt when authorizing, and can preConfirmOwnership.
 
-  static async create({prompt, answer, ...properties}) { // Promise a provisioned instance, as a member of the community group.
-    Credentials.setAnswer(prompt, answer);
-    const userTag = await Credentials.createAuthor(prompt);
+  static async create({secrets, deviceName, ...properties}) { // Promise a provisioned instance, as a member of the community group.
+    // Create credential.
+    const hashes = {};
+    await Promise.all(secrets.map(async ([prompt, answer]) => {
+      Credentials.setAnswer(prompt, answer);
+      hashes[prompt] = Credentials.encodeBase64url(await Credentials.hashText(answer));
+    }));
+    const userTag = await Credentials.createAuthor(secrets[0][0]); // TODO: make createAuthor create multiple KeyRecovery members.
+    secrets.forEach(([prompt]) => Credentials.setAnswer(prompt, null));
+
+    // Since we just created it ourselves, we know that userTag has only one Device tag member, and the rest are KeyRecovery tags.
+    // But there's no direct way to tell if a tag is a device tag.
+    const members = await this.getMemberTags(userTag);
+    const deviceTag = await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
+    const devices = {[deviceName]: deviceTag};
+
+    const user = new this({tag: userTag, devices, secrets:hashes, ...properties}); // adoptGroup will persist it.
+
+    // Now add the community group.
     const groupTag = Group.communityTag;
     const communityGroup = await Group.fetch(groupTag); // Could have last been written by someone no longer in the group.
-    const user = new this({tag: userTag, ...properties}); // adoptGroup will persist it.
-    await communityGroup.authorizeUser(user);
+    await communityGroup.authorizeUser(user); // Requires that this be executed by someone already in that group!
     await user.adoptGroup(communityGroup);
     return user;
   }
-  async authorize({prompt, answer}) { // Add this user to the set that I have private access to on this device.
-    //const {prompt, answer} = this;
-    Credentials.setAnswer(prompt, answer);
-    // FIXME implement and test
+  async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.
+    // Can be used up front, rather than waiting and getting errors.
+    // Note that one could get a false positive by trying to, e.g., sign something, because the device might be present.
+    // (And creating the secret key from answer can be a bit slow.)
+    // Instead, we store the HASH of the answer in the user's public data, and compare.
+    // Note that prompt is actually a concatenation of multiple prompt tags,
+    // and answer is a canonicalized concatenation of the respective answers.
+    const hash = Credentials.encodeBase64url(await Credentials.hashText(answer));
+    return this.secrets[prompt] === hash;
   }
-  // FIXME deauthorize, and predicate to tell if last authorization (so that UI can tell whether to present deauthorize vs destroy
+  async authorize({prompt, answer, deviceName}) { // Add this user to the set that I have private access to on this device (not remote).
+    // Requires prompt/answer because that's what we use to gain access to the user's key set.
+    await this.preConfirmOwnership({prompt, answer});
+    const {tag} = this;
+    const deviceTag = await Credentials.create();  // This is why it cannot be remote. We cannot put a device keyset on another device.
+    Credentials.setAnswer(prompt, answer);
+    await Credentials.changeMembership({tag, add: [deviceTag]});  // Must be before fetch.
+    Credentials.setAnswer(prompt, null);
+    await User.fetchPrivate(tag); // Updates this with private data.
+    const {devices} = this;
+    devices[deviceName] = deviceTag; // TODO?: Do we want to canonicalize deviceName order?
+    await this.edit({devices});
+  }
+  async deauthorize({prompt, answer, deviceName}) { // Remove this user from the set that I have private access to on the specified device.
+    // Requires prompt/answer so that we are sure that the user will still be able to recover access somewhere.
+    await this.preConfirmOwnership({prompt, answer});
+    const {tag, devices} = this;
+    const deviceTag = devices[deviceName];
+    delete devices[deviceName];
+    await this.edit({devices});
+    await Credentials.changeMembership({tag, remove: [deviceTag]});
+    await Credentials.destroy(deviceTag)  // Might be remote: try to clean up and swallow error.
+      .catch(() => console.warn(`${this.title} device key set ${deviceTag} on ${deviceName} is not available from here.`));
+    return deviceTag; // Facilitates testing.
+  }
   async destroy({prompt, answer}) { // Permanently removes this user from persistence.
+    // Requires prompt/answer because this is such a permanent user action.
+    await this.preConfirmOwnership({prompt, answer});
     const {tag, groups} = this;
-    await this.authorize({prompt, answer}); // Get error up front if we don't have the right credentials.
     await Promise.all(groups.map(async groupTag => {
       const group = await Group.fetch(groupTag);
       await this.abandonGroup(group);
       await group.deauthorizeUser(this);
     }));
     await super.destroy(tag);
-    Credentials.setAnswer(prompt, answer);
+    Credentials.setAnswer(prompt, answer); // Allow recovery key to be destroyed, too.
     await Credentials.destroy({tag, recursiveMembers: true});
+    Credentials.setAnswer(prompt, null);
   }
   createGroup(properties) { // Promise a new group with this user as member
-    return Group.create({author: this, ...properties}); // fixme this.tag
+    return Group.create({author: this, ...properties});
   }
   destroyGroup(group) { // Promise to destroy group that we are the last member of
     return group.destroy(this);
@@ -204,6 +261,11 @@ export class User extends PublicPrivate {
     this.groups = this.groups.filter(tag => tag !== groupTag);
     this.constructor.privateDirectory.delete(groupTag);  // Does not remove data from directory.
     return await this.persist(this);
+  }
+  // Internal
+  static async getMemberTags(tag) { // List the member tags of this user: devices, recovery, and co-signers.
+    const team = await Credentials.collections.Team.retrieve({tag, member: null});
+    return team.json.recipients.map(m => m.header.kid); // IWBNI flexstore provides this.
   }
 }
 
