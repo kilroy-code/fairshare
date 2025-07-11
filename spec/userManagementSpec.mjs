@@ -36,7 +36,8 @@ describe("Model management", function () {
     if (expectUserData) {
       expect(userData.protectedHeader.kid).toBe(userTag);                    // Signed by one Key IDentifer.
       expect(userPrivateData.protectedHeader.kid).toBe(userTag);
-      // FIXME: confirm private is encrypted.
+      expect(userPrivateData.protectedHeader.cty).toContain('encrypted');
+      expect(userPrivateData.decrypted.protectedHeader.kid).toBe(userTag);
       if (isMember) expect(userPrivateData.json.groups).toContain(groupTag); // User's groups list includes the specified group.
       else expect(userPrivateData.json.groups).not.toContain(groupTag);
 
@@ -54,7 +55,8 @@ describe("Model management", function () {
       expect(groupData.protectedHeader.act).toBe(groupActor);                 // Signed by a then-current member (ACTor).
       expect(groupPrivateData.protectedHeader.iss).toBe(groupTag);
       expect(groupPrivateData.protectedHeader.act).toBe(groupActor);
-      // FIXME: confirm private is encrypted.
+      expect(groupPrivateData.protectedHeader.cty).toContain('encrypted');
+      expect(groupPrivateData.decrypted.protectedHeader.kid).toBe(groupTag);
       if (isMember) expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
       else expect(groupPrivateData.json.users).not.toContain(userTag);
 
@@ -147,7 +149,6 @@ describe("Model management", function () {
     const prompt = 'q1', answer = "17", deviceName = "E's device";
     const user = await User.create({title: 'user E', secrets:[[prompt, answer]], deviceName});
 
-    console.log({prompt, answer, secrets: user.secrets, hash: await Credentials.hashText(answer)});
     expect(await user.preConfirmOwnership({prompt, answer})).toBeTruthy();
     expect(await user.preConfirmOwnership({prompt, answer: answer+'x'})).toBeFalsy();
 

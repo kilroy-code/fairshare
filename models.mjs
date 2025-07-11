@@ -69,7 +69,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // Tag isn't directly persisted, but we have it to store in the instance.
     return new this({tag, /*verified,*/ ...verified.json});
   }
-  persistProperties(propertyNames, collection, authorTag)  {
+  persistProperties(propertyNames, collection, authorTag, encryption = '')  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
@@ -79,7 +79,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
       const value = this[name];
       if (value) data[name] = value;
     });
-    return collection.store(data, {tag, owner: tag, author: authorTag});
+    return collection.store(data, {tag, owner: tag, author: authorTag, encryption});
   }
   persist(asUser) { // Promise to save this instance.
     const {persistedProperties, collection} = this.constructor;
@@ -144,7 +144,7 @@ export class PublicPrivate extends Enumerated {
   persist(asUser) { // Promise to save this instance.
     const {privateProperties, privateCollection} = this.constructor;
     // fixme: encrypt private
-    return Promise.all([this.persistProperties(privateProperties, privateCollection, asUser.tag),
+    return Promise.all([this.persistProperties(privateProperties, privateCollection, asUser.tag, this.tag),
 			super.persist(asUser)]);
   }
   async destroy(authorTag = undefined) { // Remove from private, too.
