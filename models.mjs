@@ -23,12 +23,15 @@ class LiveSet {
     for (let index = 0; index < size; index++) result[index] = iterator(this.get(keys[index]), index, this);
     return result;
   }
+  has(tag) {
+    return tag in this.items;
+  }
   get(tag) {
     return this.items[tag];
   }
   put(tag, item) {
     let {items} = this;
-    if (tag in items) items[tag] = item;
+    if (this.has(tag)) items[tag] = item;
     else {
       Rule.attach(items, tag, () => item, {configurable: true}); // deletable
       this.size++;
@@ -36,7 +39,7 @@ class LiveSet {
   }
   delete(tag) {
     let {items} = this;
-    if (!(tag in items)) return;
+    if (!this.has(tag)) return;
     items[tag] = null; // Any references to items[tag] will see that this was reset.
     delete items[tag];
     this.size--;
@@ -62,33 +65,34 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
     if (!tag) throw new Error("A tag is required.");
     // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
-    const verified = await this.retrieve({tag, member: null});
+    const verified = await this.collection.retrieve({tag, member: null});
     // Tag isn't directly persisted, but we have it to store in the instance.
     return new this({tag, /*verified,*/ ...verified.json});
   }
-  static persist({tag, verified, ...properties}, options) { // Pulls out the internal parts to produce the correct signature.
-    return this.store(properties, {tag, owner: tag, ...options});
-  }
-  persist(asUser) { // Promise to save this instance.
+  persistProperties(propertyNames, collection, authorTag)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
-    const data = {};
-    this.constructor.persistedProperties.forEach(name => data[name] = this[name]);
-    return this.constructor.persist(data, {author: asUser.tag});
+    if (!propertyNames.length) return null; // Useful in debugging, but otherwise can be removed.
+    const data = {}, tag = this.tag;
+    propertyNames.forEach(name => {
+      const value = this[name];
+      if (value) data[name] = value;
+    });
+    return collection.store(data, {tag, owner: tag, author: authorTag});
   }
-  destroy({tag, author = tag}) {
-    return this.constructor.remove({tag, owner: tag, author});
+  persist(asUser) { // Promise to save this instance.
+    const {persistedProperties, collection} = this.constructor;
+    return this.persistProperties(persistedProperties, collection, asUser.tag);
+  }
+  destroy(authorTag = undefined) { // Remove item from collection, as the specified author.
+    const {tag} = this;            // FIXME: shouldn't this be leaving a tombstone??
+    return this.constructor.collection.remove({tag, owner: tag, author: authorTag || tag});
   }
 
   // Ruled properties.
   get tag() { return ''; }
   get title() { return ''; }
-
-  // Helpers
-  static retrieve(options) { return this.collection.retrieve(options); }
-  static remove(options) { return this.collection.remove(options); }
-  static store(data, options) { return this.collection.store(data, options); }
 }
 
 export class Enumerated extends Persistable {
@@ -105,11 +109,11 @@ export class Enumerated extends Persistable {
     super(properties);
     this.constructor.directory.put(properties.tag, this); // Here rather than fetch, so as to include newly created stuff.
   }
-  static async fetch(tag) { // Gets from directory cache if present.
+  static fetch(tag) { // Gets from directory cache if present.
     return this.directory.get(tag) ?? super.fetch(tag);
   }
-  destroy(options) { // Remove from directory.
-    super.destroy(options);
+  async destroy(authorTag = undefined) { // Remove from directory.
+    await super.destroy(authorTag);
     this.constructor.directory.delete(this.tag);
   }
 }
@@ -120,21 +124,33 @@ export class PublicPrivate extends Enumerated {
   static get privateCollection() {
     return this._privateCollection ??= new MutableCollection({name: this.prefix + this.name + 'Private'});
   }
-  static private = new LiveSet();
-
-  // TODO:
-  // - constructor: if some private property included, also put into private.
-  // - fetch|retrieve|??: combine properties from privateCollect
-  // - persist: store private data into privateCollection.
-  destroy(options) { // Remove from private, too.
-    super.destroy(options);
-    this.constructor.private.delete(this.tag);
-    this.constructor.privateCollection.remove(options);
+  static get privateDirectory() {
+    return this._privateDirectory ?? new LiveSet();
+  }
+  static async fetchPrivate(tag) { // Fetch public and additional private data, merging the decrypted private data into the object.
+    const {privateDirectory} = this;
+    if (privateDirectory.has(tag)) return this.privateDirectory.get(tag);
+    const [instance, privateData] = await Promise.all(this.fetch(tag), this.privateCollection.retrieve(tag));
+    Object.assign(instance, privateData.json); // Merge the private data.
+    privateDirectory.put(instance);
+    return instance;
+  }
+  persist(asUser) { // Promise to save this instance.
+    const {privateProperties, privateCollection} = this.constructor;
+    return Promise.all([this.persistProperties(privateProperties, privateCollection, asUser.tag),
+			super.persist(asUser)]);
+  }
+  async destroy(authorTag = undefined) { // Remove from private, too.
+    const {tag} = this;
+    await super.destroy(authorTag);
+    await this.constructor.privateDirectory.delete(this.tag);
+    await this.constructor.privateCollection.remove({tag, owner: tag, author: authorTag || tag});
   }
 }
 
 export class User extends PublicPrivate {
-  static persistedProperties = ['tag', 'title', 'groups'];
+  static persistedProperties = ['title'];
+  static privateProperties = ['groups'];
   get groups() { return []; }
 
   static async create({prompt, answer, ...properties}) { // Promise a provisioned instance, as a member of the community group.
@@ -147,13 +163,21 @@ export class User extends PublicPrivate {
     await user.adoptGroup(communityGroup);
     return user;
   }
+  async authorize({prompt, answer}) { // Add this user to the set that I have private access to on this device.
+    //const {prompt, answer} = this;
+    Credentials.setAnswer(prompt, answer);
+    // FIXME implement and test
+  }
+  // FIXME deauthorize, and predicate to tell if last authorization (so that UI can tell whether to present deauthorize vs destroy
   async destroy({prompt, answer}) { // Permanently removes this user from persistence.
-    const tag = this.tag;
-    const groupTag = Group.communityTag;
-    const group = await Group.fetch(groupTag);
-    await this.abandonGroup(this);
-    await group.deauthorizeUser(this);
-    super.destroy({tag, author:tag});
+    const {tag, groups} = this;
+    await this.authorize({prompt, answer}); // Get error up front if we don't have the right credentials.
+    await Promise.all(groups.map(async groupTag => {
+      const group = await Group.fetch(groupTag);
+      await this.abandonGroup(group);
+      await group.deauthorizeUser(this);
+    }));
+    await super.destroy(tag);
     Credentials.setAnswer(prompt, answer);
     await Credentials.destroy({tag, recursiveMembers: true});
   }
@@ -178,13 +202,15 @@ export class User extends PublicPrivate {
     // Used by user to remove a group from their own user data.
     const groupTag = group.tag;
     this.groups = this.groups.filter(tag => tag !== groupTag);
+    this.constructor.privateDirectory.delete(groupTag);  // Does not remove data from directory.
     return await this.persist(this);
   }
 }
 
 export class Group extends PublicPrivate {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
-  static persistedProperties = ['tag', 'title', 'users'];
+  static persistedProperties = ['title'];
+  static privateProperties = ['users'];
   get users() { return []; }
 
   static async create({author:user, ...properties}) { // Promise a new Group with user as member
@@ -199,13 +225,13 @@ export class Group extends PublicPrivate {
     // TODO? Check that we are last?
     const {tag} = this;
     await asUser.abandonGroup(this);
-    super.destroy({tag, author: asUser.tag});
+    await super.destroy(asUser.tag);
     await Credentials.destroy(tag);
   }
   authorizeUser(candidate) {
     // Used by any team member to add the user to the group's key set.
     // Note that it does not add the user to the Group data, as the user does that when they adoptGroup.
-    // This is different than deauthorizeUser
+    // This is different than deauthorizeUser.
     return Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
   }
   async deauthorizeUser(user, author = user) {

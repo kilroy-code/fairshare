@@ -4,7 +4,7 @@ import { User, Group } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
-  return (nKeysCreated * 6e3) + 4e3;
+  return (nKeysCreated * 6e3) + 5e3;
 }
  
 describe("Model management", function () {
@@ -12,7 +12,8 @@ describe("Model management", function () {
 
   // Reusable assertions for our testing.
   async function expectGone(kind, tag) { // get, so as not to get false negative if present but not valid.
-    expect(await kind.get(tag)).toBeFalsy();
+    const signature = await kind.get(tag);
+    expect(signature).toBeFalsy();
   }
   async function expectNoKey(tag) { // Confirm that tag does not exist as a key.
     // Note: This does not check that keys that may once have been members of tag have also been removed.
@@ -28,30 +29,32 @@ describe("Model management", function () {
     // Confirm properties for user being a member of group.
     // This is reaching under the hood to the level of persisted artifacts.
 
-    const userData = await User.retrieve(userTag);                    // User data.
+    const userData = await User.collection.retrieve(userTag);               // User data.
+    const userPrivateData = await User.privateCollection.retrieve(userTag);
     if (expectUserData) {
-      expect(userData.protectedHeader.kid).toBe(userTag);             // Signed by one Key IDentifer.
-      if (isMember) expect(userData.json.groups).toContain(groupTag); // User's groups list includes the specified group.
-      else expect(userData.json.groups).not.toContain(groupTag);
+      expect(userData.protectedHeader.kid).toBe(userTag);                    // Signed by one Key IDentifer.
+      expect(userPrivateData.protectedHeader.kid).toBe(userTag);
+      if (isMember) expect(userPrivateData.json.groups).toContain(groupTag); // User's groups list includes the specified group.
+      else expect(userPrivateData.json.groups).not.toContain(groupTag);
+
       if (userTitle) expect(userData.json.title).toBe(userTitle);
     } else {
       expect(userData).toBeFalsy();
-      expect(await User.privateCollection.get(userTag)).toBeFalsy();
+      expect(userPrivateData).toBeFalsy();
     }
 
     // Get data regardless of whether user is a member of team, as that is checked below.
-    const groupData = await Group.retrieve({tag: groupTag, member: null});  // Group Data
+    const groupData = await Group.collection.retrieve({tag: groupTag, member: null});  // Group Data
+    const groupPrivateData = await Group.privateCollection.retrieve({tag: groupTag, member: null});
     if (expectGroupData) {
       expect(groupData.protectedHeader.iss).toBe(groupTag);                   // Signed by the group itself (ISSuer).
       expect(groupData.protectedHeader.act).toBe(groupActor);                 // Signed by a then-current member (ACTor).
-      if (isMember) {
-	expect(groupData.json.users).toContain(userTag);                      // Group's user data list includes the specified user.
-      } else {
-	expect(groupData.json.users).not.toContain(userTag);
-      }
-      if (groupTitle) {
-	expect(groupData.json.title).toBe(groupTitle);
-      }
+      expect(groupPrivateData.protectedHeader.iss).toBe(groupTag);
+      expect(groupPrivateData.protectedHeader.act).toBe(groupActor);
+      if (isMember) expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
+      else expect(groupPrivateData.json.users).not.toContain(userTag);
+
+      if (groupTitle) expect(groupData.json.title).toBe(groupTitle);
     } else {
       expect(groupData).toBeFalsy();
       expect(await Group.privateCollection.get(groupTag)).toBeFalsy();
@@ -102,6 +105,7 @@ describe("Model management", function () {
     await expectNoKey(authorizedMember.tag);
     
     await Group.collection.remove({tag: Group.communityTag, owner: Group.communityTag, author: bootstrapUserTag});
+    await Group.privateCollection.remove({tag: Group.communityTag, owner: Group.communityTag, author: bootstrapUserTag});
     await expectGone(Group.collection, Group.communityTag);
     await expectGone(Group.privateCollection, Group.communityTag);
     await Credentials.destroy(Group.communityTag);
@@ -111,6 +115,8 @@ describe("Model management", function () {
 
     Group.communityTag = originalCommunityGroup; // Restore in case anything shared with live data.
   }, timeLimit(1));
+
+  // TODO: try these with bad credentials. Make sure it doesn't leave stuff in a weird stae.
 
   it("creates/destroys user.", async function () {
     const user = await User.create({title: 'user B', prompt: 'q1', answer: "42"});
@@ -132,24 +138,26 @@ describe("Model management", function () {
   it("adds/removes user from group.", async function () {
     // Setup: create group and candidate user.
     const group = await authorizedMember.createGroup({title: 'group C'});
-    await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group C'});
+    await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', groupTitle: 'group C'});
     const candidate = await User.create({title: 'user C', prompt: 'q2', answer: "y"});
     await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
-    await expectMember(candidate.tag, group.tag, {isMember: false, groupActor: authorizedMember.tag});
+    await expectMember(candidate.tag, group.tag,          {isMember: false, groupActor: authorizedMember.tag});
     
     await group.authorizeUser(candidate);
     await candidate.adoptGroup(group);
-    await expectMember(candidate.tag, group.tag, {keyActor: authorizedMember.tag, userTitle: 'user C', groupTitle: 'group C'});
+    await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', groupTitle: 'group C', keyActor: authorizedMember.tag});
     await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
 
     await group.deauthorizeUser(candidate);
     await candidate.abandonGroup(group);
-    await expectMember(candidate.tag, group.tag, {isMember: false, groupActor: candidate.tag, userTitle: 'user C'});
+    await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', isMember: false, groupActor: candidate.tag});
 
     await candidate.destroy({prompt: 'q2', answer: "y"});
+    await expectMember(candidate.tag, Group.communityTag, {expectUserData: false, isMember: false, groupActor: candidate.tag});
     await expectNoKey(candidate.tag);
+
     await authorizedMember.destroyGroup(group);
-    await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
+    await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', isMember: false, expectGroupData: false});
   }, timeLimit(2));
 
   describe('dependency tracking', function () {
