@@ -73,23 +73,27 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
     const verified = await this.collection.retrieve({tag, member: null});
     // Tag isn't directly persisted, but we have it to store in the instance.
-    return new this({tag, /*verified,*/ ...verified.json});
+    return new this({tag, verified, ...verified.json});
+  }
+  persistOptions({author = this.author, owner = this, tag = this.tag, ...rest}) {
+    return {tag, ...rest, owner: owner?.tag || tag, author: author?.tag || tag};
   }
   persistProperties(propertyNames, collection, options)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
     if (!propertyNames.length) return null; // Useful in debugging, but otherwise can be removed.
-    const data = {}, tag = this.tag;
+    const data = {};
+    const persistOptions = this.persistOptions(options);
     propertyNames.forEach(name => {
       const value = this[name];
       if (value) data[name] = value;
     });
-    return collection.store(data, {tag, owner: tag, ...options});
+    return collection.store(data, persistOptions);
   }
-  persist(asUser) { // Promise to save this instance.
+  persist(author) { // Promise to save this instance.
     const {persistedProperties, collection} = this.constructor;
-    return this.persistProperties(persistedProperties, collection, {author: asUser.tag});
+    return this.persistProperties(persistedProperties, collection, {author});
   }
   destroy(authorTag = undefined) { // Remove item from collection, as the specified author.
     const {tag} = this;            // FIXME: shouldn't this be leaving a tombstone??
@@ -148,10 +152,12 @@ export class PublicPrivate extends Enumerated {
     privateDirectory.put(tag, instance);
     return instance;
   }
-  async persist(asUser) { // Promise to save this instance.
+  async persist(author) { // Promise to save this instance.
     const {privateProperties, privateCollection} = this.constructor;
-    return Promise.all([this.persistProperties(privateProperties, privateCollection, {author: asUser.tag, encryption: this.tag}),
-                        super.persist(asUser)]);
+    const pprivate = await this.persistProperties(privateProperties, privateCollection, {author, encryption: this.tag});
+    const ppublic = await super.persist(author);
+    if (pprivate !== ppublic) throw new Error(`Unexpected producted different tags ${pprivate} and ${ppublic} for ${this.title}.`);
+    return pprivate;
   }
   async destroy(authorTag = undefined) { // Remove from private, too.
     const {tag} = this;
@@ -162,12 +168,6 @@ export class PublicPrivate extends Enumerated {
 }
 
 ////////////////////////////////
-
-export class Message extends Persistable {
-  // A lightweight immutable object, belonging to a group.
-  static privateCollectionType = VersionedCollection;
-  static persistedProperties = ['sender', 'time', 'title'];
-}
 
 export class User extends PublicPrivate {
   // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
@@ -293,12 +293,33 @@ export class User extends PublicPrivate {
   }
 }
 
+export class Message extends Persistable {
+  // A lightweight immutable object, belonging to a group.
+  //static privateCollectionType = VersionedCollection;
+  static persistedProperties = ['title'];
+  get author() { return ''; }
+  get timestamp() { return new Date(); }
+  constructor(properties) {
+    super(properties);
+    if (this.verified) { // Fetched.
+      const {iat, act} = this.verified.protectedHeader;
+      this.timestamp = new Date(iat);
+      this.author = User.fetch(act);
+    }
+  }
+  // persist(author) {
+  //   this.author = author;
+  //   return super.persist(author);
+  // }
+}
+
 export class Group extends PublicPrivate {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
   static privateCollectionType = VersionedCollection;
   static persistedProperties = ['picture', 'title'];
   static privateProperties = ['users'];
   get users() { return []; }
+  messages = new LiveSet();
 
   static async create({author:user, ...properties}) { // Promise a new Group with user as member
     const userTag = user.tag;
@@ -325,14 +346,20 @@ export class Group extends PublicPrivate {
      // Used by any team member (including the user) to remove user from the key set AND the group.
      // Does NOT change the user's data.
     this.users = this.users.filter(tag => tag !== user.tag);
-    this.persist(author);
+    await this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
+  }
+  async send(properties, author) {
+    const message = new Message(properties);
+    console.log({properties, group: this, tag: this.tag, author, authorTag: author.tag, message, title: message.title});
+    const tag = await message.persist(author);
+    //this.messages.put(tag, message);
   }
 }
 
 // The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".
 // As it happens, each of these three defines at least one getter.
-[Persistable, User, Group].forEach(kind => Rule.rulify(kind.prototype));
+[Persistable, User, Message, Group].forEach(kind => Rule.rulify(kind.prototype));
 
 // TODO
 // message

@@ -1,6 +1,6 @@
 import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
 import { Rule } from '@kilroy-code/rules';
-import { User, Group } from '../models.mjs';
+import { User, Group, Message } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
@@ -201,6 +201,22 @@ describe("Model management", function () {
     // Cleanup. Destroy group. (Removes destroying user.)
     await authorizedMember.destroyGroup(group);
     await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', isMember: false, expectGroupData: false});
+  }, timeLimit(2));
+
+  it("handles messages.", async function () {
+    const group = await authorizedMember.createGroup({title: 'chat'});
+    const prompt = 'p1', answer = "a1";
+    const partner = await User.create({title: 'user B', secrets:[[prompt, answer]], deviceName});
+    const {tag} = group;
+    const retrieved = await Message.collection.retrieve({tag, team:null});
+    console.log({authorizedMember: authorizedMember.tag, tag, retrieved});
+    //await group.send({title: "Hello, world!"}, authorizedMember);
+    //group.send({title: "Goodbye!"}, partner);
+    console.log('sent');
+    //group.messages.forEach(console.log);
+
+    await partner.destroy({prompt, answer});
+    await authorizedMember.destroyGroup(group);
   }, timeLimit(2));
 
   describe('dependency tracking', function () {
