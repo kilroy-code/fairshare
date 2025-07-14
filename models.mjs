@@ -1,10 +1,15 @@
-import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, VersionedCollection } from '@kilroy-code/flexstore';
 import { Rule } from '@kilroy-code/rules';
 
 /*
   This is the glue between our application-specific central model objects,
   Flexstore persistence and synchronization machinery, and
   Rules based UI change-management.
+
+  TODO: The lower level VersionedCollection is currently defined independently of messages, and I now
+        think that is wrong. To merge forked states, we need to be able to replay messages against
+        a common earlier state. Fixing that will interact with the code here.
+  TODO: I'm not sure that we need a community group. Get rid of it?
 */
 
 class LiveSet {
@@ -54,9 +59,10 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     //
     // A Collection instance (such as for User or Group) does not contain instance/elements - it just manages
     // their persisted synchronziation through tags. Compare uses of LiveSet, below.
-    return this._collection ??= new MutableCollection({name: this.prefix + this.name});
+    return this._collection ??= new this.collectionType({name: this.prefix + this.name});
   }
   static prefix = 'social.fairshare.';
+  static collectionType = MutableCollection
 
   constructor(properties) { // Works for accessors, rules, or unspecified property names.
     Object.assign(this, properties);
@@ -69,7 +75,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // Tag isn't directly persisted, but we have it to store in the instance.
     return new this({tag, /*verified,*/ ...verified.json});
   }
-  persistProperties(propertyNames, collection, authorTag, encryption = '')  {
+  persistProperties(propertyNames, collection, options)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
@@ -79,11 +85,11 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
       const value = this[name];
       if (value) data[name] = value;
     });
-    return collection.store(data, {tag, owner: tag, author: authorTag, encryption});
+    return collection.store(data, {tag, owner: tag, ...options});
   }
   persist(asUser) { // Promise to save this instance.
     const {persistedProperties, collection} = this.constructor;
-    return this.persistProperties(persistedProperties, collection, asUser.tag);
+    return this.persistProperties(persistedProperties, collection, {author: asUser.tag});
   }
   destroy(authorTag = undefined) { // Remove item from collection, as the specified author.
     const {tag} = this;            // FIXME: shouldn't this be leaving a tombstone??
@@ -95,8 +101,8 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   }
 
   // Ruled properties.
-  get tag() { return ''; }
-  get title() { return ''; }
+  get tag() { return ''; }   // A string that identifies the item, as used by fetch, e.g. Typically base64url.
+  get title() { return ''; } // A string that is enough for a human to say, roughly, "that one".
 }
 
 export class Enumerated extends Persistable {
@@ -126,8 +132,9 @@ export class PublicPrivate extends Enumerated {
   // In addition to the directory, provides a second LiveSet that are the SUBSET that are mine.
   // Automatically splits and combines from a second privateCollection that are encrypted.
   static get privateCollection() {
-    return this._privateCollection ??= new MutableCollection({name: this.prefix + this.name + 'Private'});
+    return this._privateCollection ??= new this.privateCollectionType({name: this.prefix + this.name + 'Private'});
   }
+  static privateCollectionType = MutableCollection;
   static get privateDirectory() {
     return this._privateDirectory ?? new LiveSet();
   }
@@ -141,11 +148,10 @@ export class PublicPrivate extends Enumerated {
     privateDirectory.put(tag, instance);
     return instance;
   }
-  persist(asUser) { // Promise to save this instance.
+  async persist(asUser) { // Promise to save this instance.
     const {privateProperties, privateCollection} = this.constructor;
-    // fixme: encrypt private
-    return Promise.all([this.persistProperties(privateProperties, privateCollection, asUser.tag, this.tag),
-			super.persist(asUser)]);
+    return Promise.all([this.persistProperties(privateProperties, privateCollection, {author: asUser.tag, encryption: this.tag}),
+                        super.persist(asUser)]);
   }
   async destroy(authorTag = undefined) { // Remove from private, too.
     const {tag} = this;
@@ -153,6 +159,14 @@ export class PublicPrivate extends Enumerated {
     await this.constructor.privateDirectory.delete(this.tag);
     await this.constructor.privateCollection.remove({tag, owner: tag, author: authorTag || tag});
   }
+}
+
+////////////////////////////////
+
+export class Message extends Persistable {
+  // A lightweight immutable object, belonging to a group.
+  static privateCollectionType = VersionedCollection;
+  static persistedProperties = ['sender', 'time', 'title'];
 }
 
 export class User extends PublicPrivate {
@@ -203,11 +217,13 @@ export class User extends PublicPrivate {
     // Requires prompt/answer because that's what we use to gain access to the user's key set.
     await this.preConfirmOwnership({prompt, answer});
     const {tag} = this;
+
+    // Creat a local device key set, and add to user team.
     const deviceTag = await Credentials.create();  // This is why it cannot be remote. We cannot put a device keyset on another device.
     Credentials.setAnswer(prompt, answer);
     await Credentials.changeMembership({tag, add: [deviceTag]});  // Must be before fetch.
     Credentials.setAnswer(prompt, null);
-    await User.fetchPrivate(tag); // Updates this with private data.
+    await User.fetchPrivate(tag); // Updates this with private data, adding devices entry.
     const {devices} = this;
     devices[deviceName] = deviceTag; // TODO?: Do we want to canonicalize deviceName order?
     await this.edit({devices});
@@ -216,24 +232,32 @@ export class User extends PublicPrivate {
     // Requires prompt/answer so that we are sure that the user will still be able to recover access somewhere.
     await this.preConfirmOwnership({prompt, answer});
     const {tag, devices} = this;
-    const deviceTag = devices[deviceName];
+    const deviceTag = devices[deviceName];  // Remove device key tag from user private data.
     delete devices[deviceName];
     await this.edit({devices});
-    await Credentials.changeMembership({tag, remove: [deviceTag]});
-    await Credentials.destroy(deviceTag)  // Might be remote: try to clean up and swallow error.
+
+    await Credentials.changeMembership({tag, remove: [deviceTag]}); // Remove device key tag from user team.
+    await Credentials.destroy(deviceTag)  // Might be remote: try to destroy device key, and swallow error.
       .catch(() => console.warn(`${this.title} device key set ${deviceTag} on ${deviceName} is not available from here.`));
+
     return deviceTag; // Facilitates testing.
   }
   async destroy({prompt, answer}) { // Permanently removes this user from persistence.
     // Requires prompt/answer because this is such a permanent user action.
     await this.preConfirmOwnership({prompt, answer});
     const {tag, groups} = this;
+
+    // Leave every group that are a member of.
     await Promise.all(groups.map(async groupTag => {
       const group = await Group.fetch(groupTag);
       await this.abandonGroup(group);
       await group.deauthorizeUser(this);
     }));
+
+    // Get rid of User data from collections and LiveSets.
     await super.destroy(tag);
+
+    // Get rid of credential.
     Credentials.setAnswer(prompt, answer); // Allow recovery key to be destroyed, too.
     await Credentials.destroy({tag, recursiveMembers: true});
     Credentials.setAnswer(prompt, null);
@@ -271,7 +295,8 @@ export class User extends PublicPrivate {
 
 export class Group extends PublicPrivate {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
-  static persistedProperties = ['title'];
+  static privateCollectionType = VersionedCollection;
+  static persistedProperties = ['picture', 'title'];
   static privateProperties = ['users'];
   get users() { return []; }
 
@@ -311,13 +336,7 @@ export class Group extends PublicPrivate {
 
 // TODO
 // message
-// edit user
-// edit group
 // pay user
 // is voting an edit group operation? a message operation?
 // request join
 // invite non-member
-// encryption/decryption
-// live objects
-// title/picture
-// dependency tracking
