@@ -134,7 +134,7 @@ self.addEventListener('push', event => {
 	let resolver;
 	update = new Promise(resolve => resolver = resolve);
 	update.resolve = resolver;
-	clients[0].postMessage({method: 'update'});
+	clients[0].postMessage({method: 'update', params: new URL('/flexstore/sync', url).href});
 
 	const result = update.then(success => {
 	  if (success) {

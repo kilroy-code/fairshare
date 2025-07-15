@@ -17,6 +17,7 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 
 ### 0.8.1
 - Another way for Chrome to capture in-scope links.
+- Communicate source of wake-up push to app.
 
 ## 0.8x.0
 - Data version
