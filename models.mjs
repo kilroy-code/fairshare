@@ -34,6 +34,11 @@ class LiveSet {
   get(tag) {
     return this.items[tag];
   }
+  at(index) {
+    const {items} = this;
+    const keys = Object.keys(items);
+    return items[keys[index]];
+  }
   put(tag, item) {
     let {items} = this;
     if (this.has(tag)) items[tag] = item;
@@ -306,10 +311,12 @@ export class Message extends Persistable {
       this.timestamp = new Date(iat);
       this.author = User.fetch(act);
       this.owner = User.fetch(iss);
-    }
+    } // Else properties should include author and owner objects.
   }
   persistOptions({author = this.author, ...options}) {
-    return {time: this.timestamp.getTime(), tag: this.owner.tag, owner: this.owner.tag, author: author.tag, ...options};
+    return {time: this.timestamp.getTime(), tag: this.owner.tag,
+	    owner: this.owner.tag, author: author.tag, encryption: this.owner.tag,
+	    ...options};
   }
 }
 

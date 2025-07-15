@@ -216,7 +216,8 @@ describe("Model management", function () {
       {title: "Hello, world!", from: authorizedMember.title, in: group.title},
       {title: "Goodbye!", from: partner.title, in: group.title}
     ]);
-    //await Promise.all(group.messages.map(m => m.destroy()));
+    const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
+    expect(fetched.protectedHeader.cty).toContain('encrypted');
     await partner.destroy({prompt, answer});
     await authorizedMember.destroyGroup(group);
     expectGone(Message.collection, group.tag);
