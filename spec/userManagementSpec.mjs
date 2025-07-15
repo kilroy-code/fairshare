@@ -219,6 +219,7 @@ describe("Model management", function () {
     //await Promise.all(group.messages.map(m => m.destroy()));
     await partner.destroy({prompt, answer});
     await authorizedMember.destroyGroup(group);
+    expectGone(Message.collection, group.tag);
   }, timeLimit(2));
 
   describe('dependency tracking', function () {

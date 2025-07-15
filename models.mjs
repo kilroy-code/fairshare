@@ -332,6 +332,7 @@ export class Group extends PublicPrivate {
     // Used by last group member to destroy a group.
     // TODO? Check that we are last?
     const {tag} = this;
+    await Message.collection.remove({tag, owner: tag, author: author.tag});
     await author.abandonGroup(this);
     await super.destroy({author});
     await Credentials.destroy(tag);
