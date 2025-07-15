@@ -95,9 +95,9 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     const {persistedProperties, collection} = this.constructor;
     return this.persistProperties(persistedProperties, collection, {author});
   }
-  destroy(authorTag = undefined) { // Remove item from collection, as the specified author.
-    const {tag} = this;            // FIXME: shouldn't this be leaving a tombstone??
-    return this.constructor.collection.remove({tag, owner: tag, author: authorTag || tag});
+  destroy(options) { // Remove item from collection, as the specified author.
+    // FIXME: shouldn't this be leaving a tombstone??
+    return this.constructor.collection.remove(this.persistOptions(options));
   }
   edit(changedProperties, asUser = this) {
     Object.assign(this, changedProperties);
@@ -126,8 +126,8 @@ export class Enumerated extends Persistable {
   static fetch(tag) { // Gets from directory cache if present.
     return this.directory.get(tag) ?? super.fetch(tag);
   }
-  async destroy(authorTag = undefined) { // Remove from directory.
-    await super.destroy(authorTag);
+  async destroy(options) { // Remove from directory.
+    await super.destroy(options);
     this.constructor.directory.delete(this.tag);
   }
 }
@@ -159,11 +159,11 @@ export class PublicPrivate extends Enumerated {
     if (pprivate !== ppublic) throw new Error(`Unexpected producted different tags ${pprivate} and ${ppublic} for ${this.title}.`);
     return pprivate;
   }
-  async destroy(authorTag = undefined) { // Remove from private, too.
+  async destroy(options) { // Remove from private, too.
     const {tag} = this;
-    await super.destroy(authorTag);
+    await super.destroy(options);
     await this.constructor.privateDirectory.delete(this.tag);
-    await this.constructor.privateCollection.remove({tag, owner: tag, author: authorTag || tag});
+    await this.constructor.privateCollection.remove(this.persistOptions(options));
   }
 }
 
@@ -255,7 +255,7 @@ export class User extends PublicPrivate {
     }));
 
     // Get rid of User data from collections and LiveSets.
-    await super.destroy(tag);
+    await super.destroy({});
 
     // Get rid of credential.
     Credentials.setAnswer(prompt, answer); // Allow recovery key to be destroyed, too.
@@ -295,22 +295,22 @@ export class User extends PublicPrivate {
 
 export class Message extends Persistable {
   // A lightweight immutable object, belonging to a group.
-  //static privateCollectionType = VersionedCollection;
+  static collectionType = VersionedCollection;
   static persistedProperties = ['title'];
-  get author() { return ''; }
+  get author() { return null; }
   get timestamp() { return new Date(); }
   constructor(properties) {
     super(properties);
     if (this.verified) { // Fetched.
-      const {iat, act} = this.verified.protectedHeader;
+      const {iat, act, iss} = this.verified.protectedHeader;
       this.timestamp = new Date(iat);
       this.author = User.fetch(act);
+      this.owner = User.fetch(iss);
     }
   }
-  // persist(author) {
-  //   this.author = author;
-  //   return super.persist(author);
-  // }
+  persistOptions({author = this.author, ...options}) {
+    return {time: this.timestamp.getTime(), tag: this.owner.tag, owner: this.owner.tag, author: author.tag, ...options};
+  }
 }
 
 export class Group extends PublicPrivate {
@@ -328,12 +328,12 @@ export class Group extends PublicPrivate {
     await user.adoptGroup(group);
     return group;
   }
-  async destroy(asUser) {
+  async destroy(author) {
     // Used by last group member to destroy a group.
     // TODO? Check that we are last?
     const {tag} = this;
-    await asUser.abandonGroup(this);
-    await super.destroy(asUser.tag);
+    await author.abandonGroup(this);
+    await super.destroy({author});
     await Credentials.destroy(tag);
   }
   authorizeUser(candidate) {
@@ -350,10 +350,12 @@ export class Group extends PublicPrivate {
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
   async send(properties, author) {
-    const message = new Message(properties);
-    console.log({properties, group: this, tag: this.tag, author, authorTag: author.tag, message, title: message.title});
-    const tag = await message.persist(author);
-    //this.messages.put(tag, message);
+    const message = new Message({...properties, author, owner: this});
+    await message.persist();
+    const collection = message.constructor.collection; // It's a shame we have reconstruct the following.
+    const versions = await collection.getVersions(this.tag);
+    const hash = message.tag = versions[versions.latest];
+    this.messages.put(hash, message);
   }
 }
 

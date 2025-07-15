@@ -207,14 +207,16 @@ describe("Model management", function () {
     const group = await authorizedMember.createGroup({title: 'chat'});
     const prompt = 'p1', answer = "a1";
     const partner = await User.create({title: 'user B', secrets:[[prompt, answer]], deviceName});
-    const {tag} = group;
-    const retrieved = await Message.collection.retrieve({tag, team:null});
-    console.log({authorizedMember: authorizedMember.tag, tag, retrieved});
-    //await group.send({title: "Hello, world!"}, authorizedMember);
-    //group.send({title: "Goodbye!"}, partner);
-    console.log('sent');
-    //group.messages.forEach(console.log);
-
+    await group.authorizeUser(partner);
+    await partner.adoptGroup(group);
+    await group.send({title: "Hello, world!"}, authorizedMember);
+    await group.send({title: "Goodbye!"}, partner);
+    let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title}));
+    expect(messages).toEqual([
+      {title: "Hello, world!", from: authorizedMember.title, in: group.title},
+      {title: "Goodbye!", from: partner.title, in: group.title}
+    ]);
+    //await Promise.all(group.messages.map(m => m.destroy()));
     await partner.destroy({prompt, answer});
     await authorizedMember.destroyGroup(group);
   }, timeLimit(2));
