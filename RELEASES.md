@@ -17,7 +17,10 @@ If it doesn't, then please reload twice. Why twice? The app is designed to start
 
 ### 0.8.1
 - Another way for Chrome to capture in-scope links.
-- Communicate source of wake-up push to app.
+- Communicate source of wake-up push to app, so as to not falsely report 'No relay server is enabled' when it should say 'debug poke successful'
+- Shift 'debug poke successful' notification to console instead.
+- Get rid of disconnecting null console spam
+- FIXME: Fix [remember last user, group, and screen on restart](https://github.com/kilroy-code/fairshare/issues/54).
 
 ## 0.8x.0
 - Data version

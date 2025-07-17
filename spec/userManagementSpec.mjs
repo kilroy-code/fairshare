@@ -4,7 +4,7 @@ import { User, Group, Message } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
-  return (nKeysCreated * 6e3) + 5e3;
+  return (nKeysCreated * 6e3) + 6e3;
 }
  
 describe("Model management", function () {
@@ -51,10 +51,12 @@ describe("Model management", function () {
     const groupData = await Group.collection.retrieve({tag: groupTag, member: null});  // Group Data
     const groupPrivateData = await Group.privateCollection.retrieve({tag: groupTag, member: null});
     if (expectGroupData) {
-      expect(groupData.protectedHeader.iss).toBe(groupTag);                   // Signed by the group itself (ISSuer).
-      expect(groupData.protectedHeader.act).toBe(groupActor);                 // Signed by a then-current member (ACTor).
-      expect(groupPrivateData.protectedHeader.iss).toBe(groupTag);
-      expect(groupPrivateData.protectedHeader.act).toBe(groupActor);
+      const {kid:ukid, iss:uowner = ukid, act:uauthor = ukid} = groupData.protectedHeader;
+      const {kid:vkid, iss:vowner = vkid, act:vauthor = vkid} = groupPrivateData.protectedHeader;
+      expect(uowner).toBe(groupTag);                   // Signed by the group itself (ISSuer).
+      expect(vowner).toBe(groupTag);
+      expect(uauthor).toBe(groupActor);                 // Signed by a then-current member (ACTor).
+      expect(vauthor).toBe(groupActor);
       expect(groupPrivateData.protectedHeader.cty).toContain('encrypted');
       expect(groupPrivateData.decrypted.protectedHeader.kid).toBe(groupTag);
       if (isMember) expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
@@ -73,7 +75,9 @@ describe("Model management", function () {
       // a member that you are entitled to use. Thus in this testing, a different member such as authorizedMember may be chosen.
       // expect(keyData.protectedHeader.act).toBe(keyActor);  // Signed by a then-current member (ACTor).
       if (isMember) {
-	expect(keyData.json.recipients.some(recipient => recipient.header.kid === userTag)).toBeTruthy(); // User can decode group key.
+	expect((groupTag === userTag) || // Personal group tag is same as it's user tag
+	       keyData.json.recipients.some(recipient => recipient.header.kid === userTag)
+	      ).toBeTruthy(); // User can decode group key.
       } else {
 	expect(keyData.json.recipients.some(recipient => recipient.header.kid === userTag)).toBeFalsy();
       }
@@ -135,12 +139,16 @@ describe("Model management", function () {
     await authorizedMember.edit({devices});
   });
   it("creates/destroys user.", async function () {
-    // Adds user to community group.
     const user = await User.create({title: 'user B', secrets:[['q1', "42"]], deviceName});
-    await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
 
-    // Removes user from community group.
+    // Adds user to personal and community groups.
+    await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: 'Yourself'});
+    await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
+    // FIXME: personal group is private -- no public entry
+    
     await user.destroy({prompt: 'q1', answer: "42"});
+    // Removes user from personal and community groups.
+    await expectMember(user.tag, user.tag,           {isMember: false, expectUserData: false, expectGroupData: false});    
     await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
     await expectNoKey(user.tag);
   }, timeLimit(1));
@@ -175,6 +183,28 @@ describe("Model management", function () {
     await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
   }, timeLimit(1));
 
+  it("Group of one title defaults to 'Yourself'.", async function () {
+    const group = await authorizedMember.createGroup();
+    expect(group.title).toBe("Yourself");
+    await authorizedMember.destroyGroup(group);
+  }, timeLimit(1));
+  it("Group of many title defaults to list of short names.", async function () {
+    const group = await authorizedMember.createGroup();
+    const prompt = 'q1', answer = 'a2', deviceName = 'x';
+    const u1 = await User.create({title: "Yours truly", secrets:[[prompt, answer]], deviceName});
+    const u2 = await User.create({title: "milton bradley", secrets:[[prompt, answer]], deviceName});
+    await group.authorizeUser(u1);
+    await group.authorizeUser(u2);
+    await u1.adoptGroup(group);
+    await u2.adoptGroup(group);    
+
+    expect(group.title).toBe("U.A., Y.T., M.B.");
+
+    await u1.destroy({prompt, answer});
+    await u2.destroy({prompt, answer});
+    await authorizedMember.destroyGroup(group);
+  }, timeLimit(3));
+
   it("adds/removes user from group.", async function () {
     // Setup: create group and candidate user.
     const group = await authorizedMember.createGroup({title: 'group C'});
@@ -206,7 +236,7 @@ describe("Model management", function () {
   it("handles messages.", async function () {
     const group = await authorizedMember.createGroup({title: 'chat'});
     const prompt = 'p1', answer = "a1";
-    const stranger = await User.create({title: 'user B', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
+    const stranger = await User.create({title: 'user D', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
     await group.send({title: "Hello, world!"}, authorizedMember);
     await group.send({title: "Goodbye!", type: 'welcome'}, stranger); // Can inject a message.
     let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
