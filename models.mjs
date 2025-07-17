@@ -184,6 +184,8 @@ export class User extends PublicPrivate {
   get secrets() { return {}; }  // So that we know what to prompt when authorizing, and can preConfirmOwnership.
 
   static async create({secrets, deviceName, ...properties}) { // Promise a provisioned instance, as a member of the community group.
+    // PERSISTS Credentials, then Group, then User
+
     // Create credential.
     const hashes = {};
     await Promise.all(secrets.map(async ([prompt, answer]) => {
@@ -219,6 +221,7 @@ export class User extends PublicPrivate {
     return this.secrets[prompt] === hash;
   }
   async authorize({prompt, answer, deviceName}) { // Add this user to the set that I have private access to on this device (not remote).
+    // PERSISTS Credential
     // Requires prompt/answer because that's what we use to gain access to the user's key set.
     await this.preConfirmOwnership({prompt, answer});
     const {tag} = this;
@@ -234,6 +237,7 @@ export class User extends PublicPrivate {
     await this.edit({devices});
   }
   async deauthorize({prompt, answer, deviceName}) { // Remove this user from the set that I have private access to on the specified device.
+    // PERSISTS Credential.
     // Requires prompt/answer so that we are sure that the user will still be able to recover access somewhere.
     await this.preConfirmOwnership({prompt, answer});
     const {tag, devices} = this;
@@ -248,6 +252,7 @@ export class User extends PublicPrivate {
     return deviceTag; // Facilitates testing.
   }
   async destroy({prompt, answer}) { // Permanently removes this user from persistence.
+    // PERSISTS User and Credentials interleaved.
     // Requires prompt/answer because this is such a permanent user action.
     await this.preConfirmOwnership({prompt, answer});
     const {tag, groups} = this;
@@ -276,6 +281,7 @@ export class User extends PublicPrivate {
   async adoptGroup(group) {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
+    // PERSISTS Group, then User
     const {tag:userTag} = this,
 	  {tag:groupTag} = group;
     this.groups = [...this.groups, groupTag];
@@ -286,6 +292,7 @@ export class User extends PublicPrivate {
   }
   async abandonGroup(group) {
     // Used by user to remove a group from their own user data.
+    // PERSISTS User
     const groupTag = group.tag;
     this.groups = this.groups.filter(tag => tag !== groupTag);
     this.constructor.privateDirectory.delete(groupTag);  // Does not remove data from directory.
@@ -301,21 +308,25 @@ export class User extends PublicPrivate {
 export class Message extends Persistable {
   // A lightweight immutable object, belonging to a group.
   static collectionType = VersionedCollection;
-  static persistedProperties = ['title'];
+  static persistedProperties = ['title']; // Type, timestamp, and author are in the protectedHeader vis persistOptions.
   get author() { return null; }
   get timestamp() { return new Date(); }
+  get type() { return 'text'; }
   constructor(properties) {
     super(properties);
     if (this.verified) { // Fetched.
-      const {iat, act, iss} = this.verified.protectedHeader;
+      const {iat, act, iss, mt} = this.verified.protectedHeader;
       this.timestamp = new Date(iat);
       this.author = User.fetch(act);
       this.owner = User.fetch(iss);
+      if (mt) this.type = mt;
     } // Else properties should include author and owner objects.
   }
   persistOptions({author = this.author, ...options}) {
     return {time: this.timestamp.getTime(), tag: this.owner.tag,
-	    owner: this.owner.tag, author: author.tag, encryption: this.owner.tag,
+	    owner: author.tag, author: author.tag,
+	    encryption: this.owner.tag,
+	    mt: this.type === 'text' ? undefined : this.type,
 	    ...options};
   }
 }
@@ -329,6 +340,7 @@ export class Group extends PublicPrivate {
   messages = new LiveSet();
 
   static async create({author:user, ...properties}) { // Promise a new Group with user as member
+    // PERSISTS Group, then User
     const userTag = user.tag;
     const groupTag = await Credentials.create(userTag); // userTag is authorized for newly create groupTag.
     const group = new this({tag: groupTag, ...properties}); // adoptGroup will persist it.
@@ -337,6 +349,7 @@ export class Group extends PublicPrivate {
   }
   async destroy(author) {
     // Used by last group member to destroy a group.
+    // PERSISTS Messages, then User, then Group, then Credential
     // TODO? Check that we are last?
     const {tag} = this;
     await Message.collection.remove({tag, owner: tag, author: author.tag});
@@ -346,18 +359,21 @@ export class Group extends PublicPrivate {
   }
   authorizeUser(candidate) {
     // Used by any team member to add the user to the group's key set.
+    // PERSISTS Credential
     // Note that it does not add the user to the Group data, as the user does that when they adoptGroup.
     // This is different than deauthorizeUser.
     return Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
   }
   async deauthorizeUser(user, author = user) {
-     // Used by any team member (including the user) to remove user from the key set AND the group.
-     // Does NOT change the user's data.
+    // Used by any team member (including the user) to remove user from the key set AND the group.
+    // PERSISTS Group then Credential
+    // Does NOT change the user's data.
     this.users = this.users.filter(tag => tag !== user.tag);
     await this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
-  async send(properties, author) {
+  async send(properties, author) { // Sends Messages as author.
+    // PERSISTS Message
     const message = new Message({...properties, author, owner: this});
     await message.persist();
     const collection = message.constructor.collection; // It's a shame we have reconstruct the following.

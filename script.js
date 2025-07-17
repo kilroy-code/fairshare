@@ -37,21 +37,21 @@ Caching source code is hard. Caching source for a PWA is really hard. My intent/
    A window.reload from the main thread of the PWA does seem to do the trick.
    This is in addition to whatever is also cached by the service worker, which is further complicated by query parameters.
 4. Browsers have behavior that varies between venders, versions, platforms, and user actions.
-5. We have a software version that for now, forces update, even if that means reloading on the user. (Later it could have a confirmation dialog.)
+5. We have a software version that for now, can forc update, even if that means reloading on the user. (Later it could have a confirmation dialog.)
    - It will happen when it sees that there is a new version in the background, which won't happen at all while the server is unreachable.
    - This can be triggered on startup, on background sync, etc.
    - Database format changes are separate, but require this to force the software to be consistent.
    - None of this will pick up a manifest.json change. That can only addressed by deleting the old app and installing a new one.
 
 Design:
-1. There is a version.txt file that contains the version. It has Cache-Control:no-cache against the browser's http cache.
+1. There is a version.txt file that contains the version. It sets proper ETag, Lst-Modified, etc.
 2. On load and on an update push, version.txt is fetched. This doesn't block anything, but it has side effects:
    - If the softwareVersion variable is not yet set, the value of version.text is put in a variable and fills the About screen version.
      Note that this is filled from the service worker cacheFirstWithRefresh cache.
    - In the special case of version.txt, our service worker fetch handler posts any ok result to the app.
 3. On such a message, the app compares versions.
    By construction, this only happens when the server was just reachable. If it becomes unreachable during the following, the user will have to wait.
-   If the new version is higher, we:
+   If the new version is different (ignoring semvar patch number), we:
    - Tell the service worker to remove the old source cache and waits for a response. (Next load will pull in new source.)
    - Tell the platform to unregister or update the service worker. (Next script.js will register, pulling in new source.)
    - Tell the platform to reload(). (Pulls in new app.html, .js, and triggering service worker.)
@@ -62,24 +62,28 @@ async function checkSoftwareVersion() { // Compare against saved value if any, o
   function versionComparison(semver) {
     return semver.split('.').slice(0, -1).join('.');
   }
-  console.log('comparing software versions', cachedVersion, softwareVersion);
+  console.log('comparing software versions cached:', cachedVersion, 'current:', softwareVersion);
   if (!cachedVersion || !softwareVersion) return;
   const prev = versionComparison(cachedVersion);
   const next = versionComparison(softwareVersion);
   if (prev === next) return;
-  console.log(`Updating version ${prev} to ${next}.`);
-  if (next.endsWith('x')) {
+  console.log(`Updating version ${prev} to ${next}.`);  
+  if (next.endsWith('x')) { // In addition to the source reloading we can force local data to be wiped by giving m.nx.p (with an x).
+    // If a single synchronizer is an incompatible version with the user's data, we disconnect and tell the user.
+    // But we can't force a wipe from that merely because one relay is stale. (That would be a griefing vector!)
+    // So, if we know that the source requires new data, we can force wipeData here.
     window.alert(`Removing stale data versions. You will need to re-create.`);
     await wipeData();
   }
+  // Will unregister worker when it responds with sourceCleared.
   navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
 }
 
+// On startup, update version reporting data from modules and explicitly fetched version.txt.
 Promise.all([Credentials.ready, fetch('version.txt').then(response => response.text())])
   .then(async ([ready, fairshareVersion]) => {
-    cachedVersion = fairshareVersion.trim();
+    cachedVersion = fairshareVersion.trim(); // This is the version immediately returned from our source cache, not any new value on server.
     ready && clearTimeout(checkSafari);
-    console.log('previous software version', fairshareVersion);
     await checkSoftwareVersion();
     // Used for bug reports.
     App.versionedTitleBlock = `Fairshare ${cachedVersion}
@@ -2147,7 +2151,7 @@ try {
       navigator.serviceWorker.controller.postMessage({method: 'updated', params: result});
       break;
     case 'checkSoftwareVersion':
-      softwareVersion = params.trim();
+      softwareVersion = params.trim(); // This is the version explicitly sent over by the service worker, via a direct background fetch.
       checkSoftwareVersion();
       break;
     case 'sourceCleared':

@@ -206,19 +206,17 @@ describe("Model management", function () {
   it("handles messages.", async function () {
     const group = await authorizedMember.createGroup({title: 'chat'});
     const prompt = 'p1', answer = "a1";
-    const partner = await User.create({title: 'user B', secrets:[[prompt, answer]], deviceName});
-    await group.authorizeUser(partner);
-    await partner.adoptGroup(group);
+    const stranger = await User.create({title: 'user B', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
     await group.send({title: "Hello, world!"}, authorizedMember);
-    await group.send({title: "Goodbye!"}, partner);
-    let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title}));
+    await group.send({title: "Goodbye!", type: 'welcome'}, stranger); // Can inject a message.
+    let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
     expect(messages).toEqual([
-      {title: "Hello, world!", from: authorizedMember.title, in: group.title},
-      {title: "Goodbye!", from: partner.title, in: group.title}
+      {title: "Hello, world!", from: authorizedMember.title, in: group.title, type: 'text'},
+      {title: "Goodbye!", from: stranger.title, in: group.title, type: 'welcome'}
     ]);
     const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
     expect(fetched.protectedHeader.cty).toContain('encrypted');
-    await partner.destroy({prompt, answer});
+    await stranger.destroy({prompt, answer});
     await authorizedMember.destroyGroup(group);
     expectGone(Message.collection, group.tag);
   }, timeLimit(2));
