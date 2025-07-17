@@ -72,7 +72,6 @@ async function checkSoftwareVersion() { // Compare against saved value if any, o
     window.alert(`Removing stale data versions. You will need to re-create.`);
     await wipeData();
   }
-  //await deleteIncompatibleLocalData(); // Must complete before any reloads.
   navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
 }
 
@@ -1131,7 +1130,7 @@ class FairshareSync extends MDElement {
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
       } else { // Disconnect
-	await synchronizeCollections(url, false);
+	if (url) await synchronizeCollections(url, false); // Hasn't started yet if no url.
 	this.hide(this.receiveInstructions);
 	this.hide(this.receiveCode);
 	this.hide(this.receiveVideo);
