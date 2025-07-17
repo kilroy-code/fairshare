@@ -138,7 +138,8 @@ self.addEventListener('push', event => {
 
 	const result = update.then(success => {
 	  if (success) {
-	    return self.registration.showNotification('debug poke successful', {body: "sync'd " + success});
+	    //return self.registration.showNotification('debug poke successful', {body: "sync'd " + success});
+	    return console.log('debug poke successful', {body: "sync'd " + success});
 	  } else if (success === null) {
 	    return self.registration.showNotification('debug poke', {body: "No relay server is enabled."});
 	  } else {
