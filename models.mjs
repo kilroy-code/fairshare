@@ -41,11 +41,11 @@ class LiveSet {
   }
   put(tag, item) {
     let {items} = this;
-    if (this.has(tag)) items[tag] = item;
-    else {
-      Rule.attach(items, tag, () => item, {configurable: true}); // deletable
+    if (!this.has(tag)) {
+      Rule.attach(items, tag, () => null, {configurable: true}); // deletable
       this.size++;
     }
+    items[tag] = item;
   }
   delete(tag) {
     let {items} = this;
@@ -69,15 +69,20 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   static prefix = 'social.fairshare.';
   static collectionType = MutableCollection
 
-  constructor(properties) { // Works for accessors, rules, or unspecified property names.
-    Object.assign(this, properties);
+  constructor({verified = null, ...properties}) { // Works for accessors, rules, or unspecified property names.
+    // Verified is null for constructed stuff, and non-null if successfully fetched.
+    // But see PublicPrivate persist().
+    Object.assign(this, {verified, ...properties});
+    this.fixmeCounter = this.constructor.fixmeCounter++;
   }
+  static fixmeCounter = 0;
   static async fetch(tag) { // Promise the specified object from the collection.
     // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
     if (!tag) throw new Error("A tag is required.");
     // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
     const verified = await this.collection.retrieve({tag, member: null});
     // Tag isn't directly persisted, but we have it to store in the instance.
+    // Note that if verified comes back with an empty string, this produces an empty object with tag and verified.
     return new this({tag, verified, ...verified.json});
   }
   persistOptions({author = this.author, owner = this, tag = this.tag, ...rest}) {
@@ -149,9 +154,13 @@ export class PublicPrivate extends Enumerated {
   static get privateDirectory() {
     return this._privateDirectory ?? new LiveSet();
   }
+  // fetchPrivate() will only work if you have access (e.g., the private data exists and you can decrypt it),
+  //   and will always produce the same instance. PublicPrivate.privateDirectory lists the one's you've seen.
+  // fetch() will work for anyone, using a tag that appears on a public collection (e.g., tags returned by Collection.list
+  //   or otherwise known), and will always produce the same instance. Enumerated.directory lists the one's you've seen.
   static async fetchPrivate(tag) { // Fetch public and additional private data, merging the decrypted private data into the object.
     const {privateDirectory} = this;
-    if (privateDirectory.has(tag)) return this.privateDirectory.get(tag);
+    if (privateDirectory.has(tag)) return privateDirectory.get(tag);
     const [instance, privateData] = await Promise.all([this.fetch(tag), this.privateCollection.retrieve(tag)]);
     Object.assign(instance, privateData.json); // Merge the private data.
     privateDirectory.put(tag, instance);
@@ -160,7 +169,10 @@ export class PublicPrivate extends Enumerated {
   async persist(author) { // Promise to save this instance.
     const {privateProperties, privateCollection} = this.constructor;
     const pprivate = await this.persistProperties(privateProperties, privateCollection, {author, encryption: this.tag});
-    const ppublic = await super.persist(author);
+    // A private object has no public data. A fetch will produce empty string in the 'verified' property.
+    // We explicitly set that on creation, too.
+    // Either way, we don't persist an empty string in the public colleciton.
+    const ppublic = this.verified !== '' ? await super.persist(author) : pprivate;
     if (pprivate !== ppublic) throw new Error(`Unexpected producted different tags ${pprivate} and ${ppublic} for ${this.title}.`);
     return pprivate;
   }
@@ -205,7 +217,7 @@ export class User extends PublicPrivate {
     const user = new this({tag: userTag, devices, secrets:hashes, ...properties}); // adoptGroup will persist it.
 
     // Add personal group-of-one (for notes, and for receiving /welcome messages.
-    await user.createGroup({tag: userTag});
+    await user.createGroup({tag: userTag, verified: ''});
 
     // Now add the community group.
     const groupTag = Group.communityTag;
@@ -220,7 +232,7 @@ export class User extends PublicPrivate {
     await this.preConfirmOwnership({prompt, answer});
     const {tag} = this;
 
-    await this.destroyGroup(await Group.fetch(tag)); // Destroy personal group while we're still a member.
+    await this.destroyGroup(await Group.fetchPrivate(tag)); // Destroy personal group while we're still a member.
     
     // Leave every group that are a member of.
     await Promise.all(this.groups.map(async groupTag => {
@@ -353,7 +365,8 @@ export class Group extends PublicPrivate {
   static async create({author:user, tag = Credentials.create(user.tag), ...properties}) { // Promise a new Group with user as member
     // PERSISTS Credential (unless provided), then Group, then User
     // userTag is authorized for newly create groupTag.
-    const group = new this({tag: await tag, ...properties}); // adoptGroup will persist it.
+    tag = await tag;
+    const group = new this({tag, ...properties}); // adoptGroup will persist it.
     await user.adoptGroup(group);
     return group;
   }
