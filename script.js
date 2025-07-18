@@ -298,6 +298,8 @@ async function getGroupModel(tag) {
 class FairshareApp extends BasicApp {
   constructor(...rest) {
     super(...rest);
+    if (!this.getParameter('user') && localStorage.lastUser) App.resetUrl({user: localStorage.lastUser});
+    if (!this.getParameter('group') && localStorage.lastGroup) App.resetUrl({group: localStorage.lastGroup});
     // SUBTLE
     // We want to read locally stored collection lists and allow them to be set from that, BEFORE
     // the default liveMumbleEffect rules fire during update (which fire on the initial empty values if not already set).
@@ -494,6 +496,7 @@ class FairshareApp extends BasicApp {
   }
 
   get userEffect() {
+    localStorage.lastUser = this.user;
     return Credentials.author = this.user || '';
   }
   get userRecordEffect() {
@@ -505,6 +508,7 @@ class FairshareApp extends BasicApp {
   //   return Credentials.owner = this.groupRecord?.owner || '';
   // }
   get groupEffect() {
+    localStorage.lastGroup = this.group;
     this.resetUrl({group: this.group});
     return Credentials.owner = this.group || '';
   }
