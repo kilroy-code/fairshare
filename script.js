@@ -1450,10 +1450,10 @@ class FairshareChatInput extends MDElement {
     const deviceRequestedGroupNotification = await FairshareGroups.getNotify(iss); // Won't be true if not one of human's groups/
     const shouldNotify = deviceHasGrantedPermission && messageGroupIsNotInForeground && deviceRequestedGroupNotification;
 
-    if (!isCurrentGroup && !shouldNotify) return;
+    if (!isCurrentGroup) return console.log('Message for not current group');
     verified = await Collection.ensureDecrypted(verified); // Using any of this human's users, but must be current member (within about an hour).
-    if (isCurrentGroup) this.receiveMessage(verified);
-    if (!shouldNotify) return;
+    this.receiveMessage(verified);
+    if (!shouldNotify) return console.log('Message for group with notification off');
     const registration = await navigator.serviceWorker.ready;
     const title = `${App.getUserTitle(act)} in ${App.getGroupTitle(iss)}:`;
     const body = verified.json.text;
@@ -1467,7 +1467,8 @@ class FairshareChatInput extends MDElement {
     // only appear separately on each device that is running the app.
     // If you have, e.g., a Mac, iPhone, and iWatch, it would be nice if any one device that was running would
     // cause the message to show up everywhere. That could be done by going through Apple's service.
-    registration.showNotification(title, options);
+    console.log('notify', title, options);
+    return registration.showNotification(title, options);
   }
   get groupEffect() {
     const group = App.group;

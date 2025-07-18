@@ -27,7 +27,7 @@ async function cacheFirstWithRefresh(event, request = event.request, clientId = 
 	    return networkResponse; // Pass the networkResponse if we need it below.
 	  },
 	  error => { // If it fails (e.g., offline), cons a valid non-ok response to pass back to app.
-	    console.log('service worker fetch failed', error);
+	    console.error(request.url, error);
 	    return new Response("Network error", {
 	      status: 408,
 	      headers: { "Content-Type": "text/plain" },
@@ -182,8 +182,10 @@ self.addEventListener('notificationclick', event => {
 	console.log('notification', {title, body, data, url, clientList});
         for (const client of clientList) {
 	  // focus first, because client may be different after navigation.
+	  console.log('notification click found client', url);
 	  return client.focus().then(() => client.navigate(url));
         }
+	console.log('notification click opening client', url);
 	return clients.openWindow(url);
       }),
   );
