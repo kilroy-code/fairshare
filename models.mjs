@@ -73,9 +73,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // Verified is null for constructed stuff, and non-null if successfully fetched.
     // But see PublicPrivate persist().
     Object.assign(this, {verified, ...properties});
-    this.fixmeCounter = this.constructor.fixmeCounter++;
   }
-  static fixmeCounter = 0;
   static async fetch(tag) { // Promise the specified object from the collection.
     // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
     if (!tag) throw new Error("A tag is required.");
@@ -88,18 +86,18 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   persistOptions({author = this.author, owner = this, tag = this.tag, ...rest}) {
     return {tag, ...rest, owner: owner?.tag || tag, author: author?.tag || tag};
   }
-  persistProperties(propertyNames, collection, options)  {
+  async persistProperties(propertyNames, collection, options)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
     if (!propertyNames.length) return null; // Useful in debugging, but otherwise can be removed.
     const data = {};
     const persistOptions = this.persistOptions(options);
-    propertyNames.forEach(name => {
-      const value = this[name];
+    for (const name of propertyNames) {
+      const value = await this[name]; // May be a rule that has not yet be resolved.
       if (value) data[name] = value;
-    });
-    return collection.store(data, persistOptions);
+    }
+    return await collection.store(data, persistOptions);
   }
   persist(author) { // Promise to save this instance.
     const {persistedProperties, collection} = this.constructor;
@@ -112,6 +110,9 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   edit(changedProperties, asUser = this) {
     Object.assign(this, changedProperties);
     return this.persist(asUser);
+  }
+  static async update(tag, verified) {
+    Object.assign(await this.fetch(tag), {verified, ...verified.json});
   }
 
   // Ruled properties.
@@ -161,8 +162,8 @@ export class PublicPrivate extends Enumerated {
   static async fetchPrivate(tag) { // Fetch public and additional private data, merging the decrypted private data into the object.
     const {privateDirectory} = this;
     if (privateDirectory.has(tag)) return privateDirectory.get(tag);
-    const [instance, privateData] = await Promise.all([this.fetch(tag), this.privateCollection.retrieve(tag)]);
-    Object.assign(instance, privateData.json); // Merge the private data.
+    const [instance, verifiedPrivate] = await Promise.all([this.fetch(tag), this.privateCollection.retrieve(tag)]);
+    Object.assign(instance, {verifiedPrivate, ...verifiedPrivate.json}); // Merge the private data.
     privateDirectory.put(tag, instance);
     return instance;
   }
@@ -181,6 +182,12 @@ export class PublicPrivate extends Enumerated {
     await super.destroy(options);
     await this.constructor.privateDirectory.delete(this.tag);
     await this.constructor.privateCollection.remove(this.persistOptions(options));
+  }
+  static async updatePrivate(tag, verifiedPrivate) {
+    // The 'update' event machinery cannot decrypt payloads for us, because the data might not be ours.
+    // But if it is one of ours, then surely we can decrypt it, which we need to do so that the properties can be updated.
+    const decrypted = await MutableCollection.ensureDecrypted(verifiedPrivate);
+    Object.assign(await this.fetchPrivate(tag), {verifiedPrivate, ...decrypted.json});
   }
 }
 
@@ -328,6 +335,7 @@ export class Message extends Persistable {
   static collectionType = VersionedCollection;
   static persistedProperties = ['title']; // Type, timestamp, and author are in the protectedHeader vis persistOptions.
   get author() { return null; }
+  get owner() { return this.author; }
   get timestamp() { return new Date(); }
   get type() { return 'text'; }
   constructor(properties) {
@@ -340,12 +348,50 @@ export class Message extends Persistable {
       if (mt) this.type = mt;
     } // Else properties should include author and owner objects.
   }
-  persistOptions({author = this.author, ...options}) {
+  persistOptions({author = this.author, owner = this.owner, ...options}) {
+    console.log('persist message', {author, tag: author.tag, owner, ownerTag: owner.tag});
     return {time: this.timestamp.getTime(), tag: this.owner.tag,
-	    owner: author.tag, author: author.tag,
+	    owner: owner.tag, author: author.tag,
 	    encryption: this.owner.tag,
 	    mt: this.type === 'text' ? undefined : this.type,
 	    ...options};
+  }
+}
+
+const DIVISIONS = 100; // for now
+const MILLISECONDS_PER_DAY = 1e3 * 60 * 60 * 24;
+export class Member {
+  get balance() { return 0; }
+  get lastUpdate() { return Date.now(); }
+  toPOJO() {
+    const {balance, lastUpdates, votes} = this;
+    return {balance, lastUpdates, votes};
+  }
+  constructor({votes, ...properties}) {
+    Object.assign(this, properties);
+    for (let [key, value] of Object.entries(votes)) {
+      votes.put(key, value);
+    }
+  }
+  votes = new LiveSet();
+  getVote(proposition) {
+    return this.votes.get(proposition);
+  }
+  setVote(proposition, value) {
+    this.votes.put(proposition, value);
+  }
+  updateBalance(stipend, increment = 0) {
+    const now = Date.now();
+    let {balance, lastStipend = now} = this;
+    const daysSince = Math.floor((now - lastStipend) / MILLISECONDS_PER_DAY);
+    lastStipend = now;
+    return this.balance = this.roundDownToNearest(balance + (stipend * daysSince) + increment);
+  }
+  roundUpToNearest(number, unit = DIVISIONS) { // Rounds up to nearest whole value of unit.
+    return Math.ceil(number * unit) / unit;
+  }
+  roundDownToNearest(number, unit = DIVISIONS) { // Rounds up to nearest whole value of unit.
+    return Math.floor(number * unit) / unit;
   }
 }
 
@@ -354,6 +400,7 @@ export class Group extends PublicPrivate {
   static privateCollectionType = VersionedCollection;
   static persistedProperties = ['picture', 'title'];
   static privateProperties = ['users'];
+
   get users() { return []; }
   get title() {
     if (this.users.length === 1) return "Yourself";
@@ -375,6 +422,7 @@ export class Group extends PublicPrivate {
     // PERSISTS Messages, then User, then Group, then Credential
     // TODO? Check that we are last?
     const {tag} = this;
+    if (Credentials.fixme) console.log(await Message.collection.retrieve({tag}), tag, author.tag);
     await Message.collection.remove({tag, owner: tag, author: author.tag});
     await author.abandonGroup(this);
     await super.destroy({author});
@@ -397,23 +445,19 @@ export class Group extends PublicPrivate {
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
   async send(properties, author) { // Sends Messages as author.
-    // PERSISTS Message
+    // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
+    if (Credentials.fixme) console.log('send', {properties, author, owner: this});
     const message = new Message({...properties, author, owner: this});
-    await message.persist();
+    const tag = await message.persist();
+    if (tag !== this.tag) throw new Error(`Mismatched message collection tag: ${tag}. Should be ${this.tag}.`);
     const collection = message.constructor.collection; // It's a shame we have reconstruct the following.
-    const versions = await collection.getVersions(this.tag);
-    const hash = message.tag = versions[versions.latest];
+    const hash = message.tag = await collection.getVersions(this.tag);
+    console.log({message, tag, collection, hash});
     this.messages.put(hash, message);
+    return message;
   }
 }
 
 // The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".
 // As it happens, each of these three defines at least one getter.
 [Persistable, User, Message, Group].forEach(kind => Rule.rulify(kind.prototype));
-
-// TODO
-// message
-// pay user
-// is voting an edit group operation? a message operation?
-// request join
-// invite non-member

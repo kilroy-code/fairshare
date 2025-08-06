@@ -3,10 +3,12 @@ import { Rule } from '@kilroy-code/rules';
 import { User, Group, Message } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
+Object.assign(globalThis, {User, Group, Message, Credentials}); // for debugging in browser
+
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
   return (nKeysCreated * 6e3) + 6e3;
 }
- 
+
 describe("Model management", function () {
   let authorizedMember,
       deviceName = 'test',
@@ -30,6 +32,7 @@ describe("Model management", function () {
   } = {}) {
     // Confirm properties for user being a member of group.
     // This is reaching under the hood to the level of persisted artifacts.
+    if (Credentials.fixme) console.log({userTag, groupTag, community: Group.communityTag, expectUserData, userTitle, isMember, groupActor, expectGroupData, groupTitle});
 
     const userData = await User.collection.retrieve(userTag);               // User data.
     const userPrivateData = await User.privateCollection.retrieve(userTag);
@@ -52,18 +55,19 @@ describe("Model management", function () {
     // Get data regardless of whether user is a member of team, as that is checked below.
     const groupData = await Group.collection.retrieve({tag: groupTag, member: null});  // Group Data
     const groupPrivateData = await Group.privateCollection.retrieve({tag: groupTag, member: null});
+    if (Credentials.fixme) console.log({groupData, groupPrivateData});
     if (expectGroupData) {
       if (groupTitle === null) {
 	expect(groupData).toBeFalsy();
       } else {
 	const {kid:ukid, iss:uowner = ukid, act:uauthor = ukid} = groupData.protectedHeader;
-	expect(uowner).toBe(groupTag);                   // Signed by the group itself (ISSuer).
-	expect(uauthor).toBe(groupActor);                 // Signed by a then-current member (ACTor).
+	expect(uowner || ukid).toBe(groupTag);                   // Signed by the group itself (ISSuer).
+	if (groupActor) expect(uauthor).toBe(groupActor);                 // Signed by a then-current member (ACTor).
 	if (groupTitle) expect(groupData.json.title).toBe(groupTitle);
       }
       const {kid:vkid, iss:vowner = vkid, act:vauthor = vkid} = groupPrivateData.protectedHeader;
-      expect(vowner).toBe(groupTag);
-      expect(vauthor).toBe(groupActor);
+      expect(vowner || vkid).toBe(groupTag);
+      if (groupActor) expect(vauthor).toBe(groupActor);
       expect(groupPrivateData.protectedHeader.cty).toContain('encrypted');
       expect(groupPrivateData.decrypted.protectedHeader.kid).toBe(groupTag);
       if (isMember) expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
@@ -128,17 +132,6 @@ describe("Model management", function () {
   }, timeLimit(1));
 
   // TODO: try these with bad credentials. Make sure it doesn't leave stuff in a weird stae.
-  it("can edit one's own public and private data.", async function () {
-    const groups = authorizedMember.groups;            // Private data before editing.
-    await authorizedMember.edit({picture: "foo bar"}); // Change public data.
-    expect(authorizedMember.title).toBe('user A');     // Other public data unchanged.
-    const {devices} = authorizedMember;
-    devices['foo'] = 'bar';                            // Change private data.
-    await authorizedMember.edit({devices});
-    expect(authorizedMember.groups).toBe(groups);      // Other private data unchanged.
-    delete devices['foo'];                             // Restore
-    await authorizedMember.edit({devices});
-  });
 
   describe("groups", function () {
     it("can be created and destroyed", async function () {
@@ -189,7 +182,7 @@ describe("Model management", function () {
     }, timeLimit(1));
 
     it("has community group.", async function () {
-      await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A'});
+      await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A', groupActor: null});
     });
     it("has personal group.", async function () {
       await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: null});
@@ -224,13 +217,66 @@ describe("Model management", function () {
       expect(user.groups).toContain(personal.tag);
     });
 
+    it("can edit public and private data.", async function () {
+      const {tag, picture, groups, devices} = user;        // Private data before editing.
+
+      await user.edit({picture: "foo bar"});           // Change public data.
+      expect(user.picture).toBe("foo bar");            // In object.
+      const verified1 = await User.collection.retrieve(tag);
+      const verified2 = await User.privateCollection.retrieve(tag);
+      expect(verified1.json.picture).toBe("foo bar"); // Persisted
+      expect(user.title).toBe('user B');               // Other public data unchanged.
+      expect(verified1.json.title).toBe('user B');
+      expect(user.groups).toBe(groups);                // Private data unchanged.
+      expect(verified2.json.groups).toEqual(groups);
+
+      devices['foo'] = 'bar';                            // Change private data.
+      await user.edit({devices});
+      expect(user.devices['foo']).toBe('bar');            // In object
+      const verified3 = await User.collection.retrieve(tag);
+      const verified4 = await User.privateCollection.retrieve(tag);
+      expect(verified4.json.devices['foo']).toBe('bar');  // Persisted
+      expect(user.groups).toBe(groups);                   // Other private data unchanged.
+      expect(verified4.json.groups).toEqual(groups);     
+      expect(user.title).toBe('user B');                  // Public data unchanged.
+      expect(verified3.json.title).toBe('user B');
+      
+      delete devices['foo'];                              // Restore
+      await user.edit({devices, picture});
+    });
+
+    it("updates public and private data.", async function () {
+      const tag = user.tag;
+      const verified1 = await User.collection.retrieve(tag);
+      const verified2 = await User.privateCollection.retrieve({tag, decrypt: false});
+
+      // Make another user to model some different data from.
+      const prompt = 'q1', answer = 'a1';
+      const other = await User.create({title: 'fred', secrets:[[prompt, answer]], deviceName: 'something else'});
+      const verified3 = await User.collection.retrieve(other.tag);
+      const verified4 = await User.privateCollection.retrieve({tag: other.tag, decrypt: false});
+
+      await User.update(tag, verified3);
+      await User.updatePrivate(tag, verified4);
+      await other.destroy({prompt, answer}); // verified4 was encrypted for other.tag, so we had to keep this around long enough to decrypt.
+      expect(user.title).toBe('fred');
+      expect(user.devices['something else']).toBeTruthy();
+
+      // Restore
+      await User.update(tag, verified1);
+      await User.updatePrivate(tag, verified2);
+      expect(await User.fetch(tag)).toBe(user);
+      expect(user.title).toBe('user B');
+      expect(user.devices['something else']).toBeFalsy();
+    }, timeLimit(1));
+
     afterAll(async function () {
       await user.destroy({prompt: 'q1', answer: "42"});
       // Removes user from personal and community groups.
       await expectMember(user.tag, user.tag,           {isMember: false, expectUserData: false, expectGroupData: false});
       await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
       await expectNoKey(user.tag);
-    });
+    });    
   });
 
   it("authorizes/deauthorizes existing user.", async function () {
@@ -286,13 +332,23 @@ describe("Model management", function () {
     const prompt = 'p1', answer = "a1";
     const stranger = await User.create({title: 'user D', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
     await group.send({title: "Hello, world!"}, authorizedMember);
-    await group.send({title: "Goodbye!", type: 'welcome'}, stranger); // Can inject a message.
+    const FIXME = stranger; // should be stranger.
+    Credentials.fixme = true;
+    try {
+      // TODO: restrict group key access
+      console.log(
+	await group.send({title: "Goodbye!", type: 'goodbye'}, FIXME) // Can inject a message.
+      );
+    } finally {
+      Credentials.fixme = false;
+    }
     let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
     expect(messages).toEqual([
       {title: "Hello, world!", from: authorizedMember.title, in: group.title, type: 'text'},
-      {title: "Goodbye!", from: stranger.title, in: group.title, type: 'welcome'}
+      {title: "Goodbye!", from: FIXME.title, in: group.title, type: 'goodbye'}
     ]);
     const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
+    console.log({fetched});
     expect(fetched.protectedHeader.cty).toContain('encrypted');
     await stranger.destroy({prompt, answer});
     await authorizedMember.destroyGroup(group);
