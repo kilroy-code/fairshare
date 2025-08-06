@@ -15,6 +15,11 @@ and the "About" page additionally gives the current FairShare version. (See next
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
 
+### 0.9.1
+- Don't complain about: cancelled shares, missing group tag.
+- Enforce a FairShare tag when creating a user.
+
+
 ### 0.9x.0
 - Fix infinite loop on sync, and use new versioned data that supports rollback.
 

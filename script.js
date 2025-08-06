@@ -1802,6 +1802,7 @@ class FairshareCreateUser extends CreateUser {
     return this.doc$('#notification md-checkbox');
   }
   async onaction(form) {
+    if (!await FairshareSync.synchronizationOK()) return;
     await super.onaction(form);
     await FairshareGroups.adopt(App.FairShareTag);
     await FairshareGroups.setNotify(App.FairShareTag, this.requestNotificationsCheckbox.checked);
@@ -1888,8 +1889,12 @@ class FairshareGroupProfile extends MDElement {
     return FairshareSync.synchronizationOK();
   }
   async onaction(form) {
-    await App.groupCollection.updateLiveRecord(this.findParentComponent(form).tag);
-    App.resetUrl({screen: App.defaultScreenTitle});
+    const component = this.findParentComponent(form);
+    if (!component) return console.error("Cannot find form component", form);
+    const tag = component.tag;
+    if (!tag) return console.error("No tag specified", component);
+    await App.groupCollection.updateLiveRecord(tag);
+    return App.resetUrl({screen: App.defaultScreenTitle});
   }
   get editElement() {
     return this.content.firstElementChild;
