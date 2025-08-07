@@ -92,13 +92,12 @@ describe("Model management", function () {
   }
 
   beforeAll(async function () {
-    // Bootstrap community group with temporary user credentials.
+    // Bootstrap community group using temporary user credentials.
     const bootstrapUserTag = await Credentials.create(); // No user object.
     Group.communityTag = await Credentials.create(bootstrapUserTag);
     const group = new Group({title: 'group A', tag: Group.communityTag});
     await group.persist({tag:bootstrapUserTag}); // Pun: {tag} looks like a store option, but it's actually a fake User with a tag property.
-    //await messages.store('start groupTag', {tag: groupTag, owner: groupTag, author: bootstrapUserTag});
-    
+    // Using the bootstrap uers, construct a real authorized member of the community group.
     authorizedMember = await User.create({title: 'user A', secrets:[['q0', "17"]], deviceName});
     await Credentials.changeMembership({tag: Group.communityTag, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
@@ -135,7 +134,7 @@ describe("Model management", function () {
 
   describe("groups", function () {
     it("can be created and destroyed", async function () {
-      // Group has user as member.
+      // Have authorizedMember create a Group.
       const group = await authorizedMember.createGroup({title: 'group B'});
       await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group B'});
 
@@ -149,6 +148,7 @@ describe("Model management", function () {
       expect(group.title).toBe("Yourself");
       await authorizedMember.destroyGroup(group);
     }, timeLimit(1));
+
     it("has title defaulting to list of multiple short member names.", async function () {
       const group = await authorizedMember.createGroup();
       const prompt = 'q1', answer = 'a2', deviceName = 'x';
