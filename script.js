@@ -70,18 +70,18 @@ async function checkSoftwareVersion() { // Compare against saved value if any, o
   const prev = versionComparison(cachedVersion);
   const next = versionComparison(softwareVersion);
   if (prev === next) return;
-  console.log(`Updating version ${prev} to ${next}.`);  
-  if (next.endsWith('x')) { // In addition to the source reloading we can force local data to be wiped by giving m.nx.p (with an x).
+  console.log(`Updating version ${prev} to ${next}.`);
+  const hammer = next.endsWith('x');
+  if (hammer) await FairshareSync.closeAll();
+  // Will unregister worker when it responds with sourceCleared.
+  navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
+  if (hammer) { // In addition to the source reloading we can force local data to be wiped by giving m.nx.p (with an x).
     // If a single synchronizer is an incompatible version with the user's data, we disconnect and tell the user.
     // But we can't force a wipe from that merely because one relay is stale. (That would be a griefing vector!)
     // So, if we know that the source requires new data, we can force wipeData here.
-    console.log('closing relays');
-    await FairshareSync.closeAll();
     window.alert(`Removing stale data versions. You will need to re-create.`);
     await wipeData();
   }
-  // Will unregister worker when it responds with sourceCleared.
-  navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
 }
 
 // On startup, update version reporting data from modules and explicitly fetched version.txt.
