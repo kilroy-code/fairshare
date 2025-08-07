@@ -114,6 +114,9 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   static async update(tag, verified) {
     Object.assign(await this.fetch(tag), {verified, ...verified.json});
   }
+  assert(boolean, label, ...labelArgs) {
+    if (!boolean) throw new Error(label, ...labelArgs);
+  }
 
   // Ruled properties.
   get tag() { return ''; }   // A string that identifies the item, as used by fetch, e.g. Typically base64url.
@@ -333,7 +336,7 @@ export class User extends PublicPrivate {
 export class Message extends Persistable {
   // A lightweight immutable object, belonging to a group.
   static collectionType = VersionedCollection;
-  static persistedProperties = ['title']; // Type, timestamp, and author are in the protectedHeader vis persistOptions.
+  static persistedProperties = ['title']; // Type, timestamp, and author are in the protectedHeader via persistOptions.
   get author() { return null; }
   get owner() { return this.author; }
   get timestamp() { return new Date(); }
@@ -349,12 +352,20 @@ export class Message extends Persistable {
     } // Else properties should include author and owner objects.
   }
   persistOptions({author = this.author, owner = this.owner, ...options}) {
-    console.log('persist message', {author, tag: author.tag, owner, ownerTag: owner.tag});
-    return {time: this.timestamp.getTime(), tag: this.owner.tag,
-	    owner: owner.tag, author: author.tag,
-	    encryption: this.owner.tag,
-	    mt: this.type === 'text' ? undefined : this.type,
-	    ...options};
+    const ownershipType = owner.users.includes(author.tag) ? 'owner' :
+	  ((owner instanceof User) ? 'individual' : 'group');
+    const authorTag = author.tag;
+    const ownerTag = owner.tag;
+    const signing = {
+      ...options, 
+      time: this.timestamp.getTime(),
+      tag: this.owner.tag, // Messages are accumulated in same id as owner
+      author: authorTag,
+      [ownershipType]: ownerTag,
+      encryption: ownerTag,
+      mt: this.type === 'text' ? undefined : this.type
+    };
+    return signing;
   }
 }
 
@@ -422,7 +433,6 @@ export class Group extends PublicPrivate {
     // PERSISTS Messages, then User, then Group, then Credential
     // TODO? Check that we are last?
     const {tag} = this;
-    if (Credentials.fixme) console.log(await Message.collection.retrieve({tag}), tag, author.tag);
     await Message.collection.remove({tag, owner: tag, author: author.tag});
     await author.abandonGroup(this);
     await super.destroy({author});
@@ -446,13 +456,11 @@ export class Group extends PublicPrivate {
   }
   async send(properties, author) { // Sends Messages as author.
     // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
-    if (Credentials.fixme) console.log('send', {properties, author, owner: this});
     const message = new Message({...properties, author, owner: this});
     const tag = await message.persist();
-    if (tag !== this.tag) throw new Error(`Mismatched message collection tag: ${tag}. Should be ${this.tag}.`);
-    const collection = message.constructor.collection; // It's a shame we have reconstruct the following.
-    const hash = message.tag = await collection.getVersions(this.tag);
-    console.log({message, tag, collection, hash});
+    this.assert(tag === this.tag, "Mismatched message collection tag", tag, this.tag);
+    const collection = message.constructor.collection;
+    const hash = message.tag = await collection.getRoot(this.tag);
     this.messages.put(hash, message);
     return message;
   }

@@ -332,23 +332,13 @@ describe("Model management", function () {
     const prompt = 'p1', answer = "a1";
     const stranger = await User.create({title: 'user D', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
     await group.send({title: "Hello, world!"}, authorizedMember);
-    const FIXME = stranger; // should be stranger.
-    Credentials.fixme = true;
-    try {
-      // TODO: restrict group key access
-      console.log(
-	await group.send({title: "Goodbye!", type: 'goodbye'}, FIXME) // Can inject a message.
-      );
-    } finally {
-      Credentials.fixme = false;
-    }
+    await group.send({title: "Goodbye!", type: 'goodbye'}, stranger); // Can inject a message.
     let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
     expect(messages).toEqual([
       {title: "Hello, world!", from: authorizedMember.title, in: group.title, type: 'text'},
-      {title: "Goodbye!", from: FIXME.title, in: group.title, type: 'goodbye'}
+      {title: "Goodbye!", from: stranger.title, in: group.title, type: 'goodbye'}
     ]);
     const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
-    console.log({fetched});
     expect(fetched.protectedHeader.cty).toContain('encrypted');
     await stranger.destroy({prompt, answer});
     await authorizedMember.destroyGroup(group);
