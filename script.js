@@ -16,10 +16,13 @@ const checkSafari = setTimeout(() => {
 }, 6e3);
 
 async function wipeData() { // All local data except source cache.
+  console.log('clearing local');
   localStorage.clear();
+  console.log('clearing data');
   for (let collection of appCollections) {
     await collection.destroy();
   }
+  console.log('clearing credentials');
   await Credentials.Storage.destroy();
   await deviceData.destroy();
 }
@@ -72,6 +75,7 @@ async function checkSoftwareVersion() { // Compare against saved value if any, o
     // If a single synchronizer is an incompatible version with the user's data, we disconnect and tell the user.
     // But we can't force a wipe from that merely because one relay is stale. (That would be a griefing vector!)
     // So, if we know that the source requires new data, we can force wipeData here.
+    console.log('closing relays');
     await FairshareSync.closeAll();
     window.alert(`Removing stale data versions. You will need to re-create.`);
     await wipeData();
