@@ -30,6 +30,8 @@ const securitySource = `${vaultHost}/@ki1r0y/distributed-security/dist/`;
 const sources = [
   "./app.html",
   "./script.js",
+  "./manifest.json",
+  "/favicon.ico",
 
   "/@kilroy-code/ui-components/bundle.mjs",
   "/@kilroy-code/flexstore/bundle.mjs",
