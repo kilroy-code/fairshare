@@ -7,7 +7,7 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.67
+@kilroy-code/flexstore 0.0.69
 @kilroy-code/ui-components 0.0.41
 ```
 
