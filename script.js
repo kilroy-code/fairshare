@@ -31,7 +31,11 @@ const sources = [
   "./app.html",
   "./script.js",
   "./manifest.json",
+
   "/favicon.ico",
+  "./images/fairshare-512.png",
+  "./images/fairshare-192.png",
+  "./images/fairshare.webp",
 
   "/@kilroy-code/ui-components/bundle.mjs",
   "/@kilroy-code/flexstore/bundle.mjs",
