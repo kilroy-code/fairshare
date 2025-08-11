@@ -1,113 +1,16 @@
 import { App, MDElement,  BasicApp, AppShare, CreateUser, LiveCollection, MenuButton, LiveList, AvatarImage, AuthorizeUser,
 	 UserProfile, EditUser, SwitchUser, AppQrcode, Rule, name as uname, version as uversion } from '@kilroy-code/ui-components';
 import { Credentials, MutableCollection, ImmutableCollection, VersionedCollection, Collection, Synchronizer,
-	 StorageLocal, SharedWebRTC, name, version, storageName, storageVersion, uuid4 } from '@kilroy-code/flexstore';
+	 StorageLocal, SharedWebRTC, name as fname, version as fversion, storageName, storageVersion, uuid4 } from '@kilroy-code/flexstore';
 import QrScanner from './qr-scanner.min.js';
 
-
-const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection, Notification } = window;
-
-// Use stored version, else store one. This becomes the data version for comparison during synchronization.
-Synchronizer.version = parseInt(localStorage.lastDataVersion || (localStorage.lastDataVersion = Synchronizer.version));
-
-const checkSafari = setTimeout(() => {
-  App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case a single reload may fix it now.',
-	    "Webworker Bug!");
-}, 6e3);
-
-async function wipeData() { // All local data except source cache.
-  console.log('clearing local');
-  localStorage.clear();
-  console.log('clearing data');
-  for (let collection of appCollections) {
-    await collection.destroy();
-  }
-  console.log('clearing credentials');
-  await Credentials.Storage.destroy();
-  await deviceData.destroy();
-}
-
-/*
-Caching source code is hard. Caching source for a PWA is really hard. My intent/understanding is:
-1. We want to use the cache API to store source for loading fast and working offline. We use a cacheFirstWithRefresh
-   policy for source, such that we load from cache but each request triggers a background update for next time,
-   and the background update may silently fail. But...
-2. The service worker file is registered by the the app code and then cached by the platform according to it's own rules,
-   independent of (1) E.g., it typically background fetches for next time not more frequently than 24 hours, and can be forced
-   with ServiceWorkerRegistration update(), but that is still subject to browser http caching. But...
-3. The top level .html is cached by the browser's http cache and may be locked in by the browser when the PWA is installed!
-   Clearing our cached files in the service worker won't fix this, and of course we can't ask the user to clear their full browser cache.
-   A window.reload from the main thread of the PWA does seem to do the trick.
-   This is in addition to whatever is also cached by the service worker, which is further complicated by query parameters.
-4. Browsers have behavior that varies between venders, versions, platforms, and user actions.
-5. We have a software version that for now, can forc update, even if that means reloading on the user. (Later it could have a confirmation dialog.)
-   - It will happen when it sees that there is a new version in the background, which won't happen at all while the server is unreachable.
-   - This can be triggered on startup, on background sync, etc.
-   - Database format changes are separate, but require this to force the software to be consistent.
-   - None of this will pick up a manifest.json change. That can only addressed by deleting the old app and installing a new one.
-
-Design:
-1. There is a version.txt file that contains the version. It sets proper ETag, Lst-Modified, etc.
-2. On load and on an update push, version.txt is fetched. This doesn't block anything, but it has side effects:
-   - If the softwareVersion variable is not yet set, the value of version.text is put in a variable and fills the About screen version.
-     Note that this is filled from the service worker cacheFirstWithRefresh cache.
-   - In the special case of version.txt, our service worker fetch handler posts any ok result to the app.
-3. On such a message, the app compares versions.
-   By construction, this only happens when the server was just reachable. If it becomes unreachable during the following, the user will have to wait.
-   If the new version is different (ignoring semvar patch number), we:
-   - Tell the service worker to remove the old source cache and waits for a response. (Next load will pull in new source.)
-   - Tell the platform to unregister or update the service worker. (Next script.js will register, pulling in new source.)
-   - Tell the platform to reload(). (Pulls in new app.html, .js, and triggering service worker.)
-*/
-let cachedVersion, softwareVersion;
-async function checkSoftwareVersion() { // Compare against saved value if any, otherwise save the value.
-  // If they do not match per versionComparison, tell the service worker to update.
-  function versionComparison(semver) {
-    return semver.split('.').slice(0, -1).join('.');
-  }
-  console.log('comparing software versions cached:', cachedVersion, 'current:', softwareVersion);
-  if (!cachedVersion || !softwareVersion) return;
-  const prev = versionComparison(cachedVersion);
-  const next = versionComparison(softwareVersion);
-  if (prev === next) return;
-  console.log(`Updating version ${prev} to ${next}.`);
-  const hammer = next.endsWith('x');
-  if (hammer) await FairshareSync.closeAll();
-  // Will unregister worker when it responds with sourceCleared.
-  navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache', params: 'sourceCleared'});
-  if (hammer) { // In addition to the source reloading we can force local data to be wiped by giving m.nx.p (with an x).
-    // If a single synchronizer is an incompatible version with the user's data, we disconnect and tell the user.
-    // But we can't force a wipe from that merely because one relay is stale. (That would be a griefing vector!)
-    // So, if we know that the source requires new data, we can force wipeData here.
-    window.alert(`Removing stale data versions. You will need to re-create.`);
-    await wipeData();
-  }
-}
-
-// On startup, update version reporting data from modules and explicitly fetched version.txt.
-Promise.all([Credentials.ready, fetch('version.txt').then(response => response.text())])
-  .then(async ([ready, fairshareVersion]) => {
-    cachedVersion = fairshareVersion.trim(); // This is the version immediately returned from our source cache, not any new value on server.
-    ready && clearTimeout(checkSafari);
-    await checkSoftwareVersion();
-    // Used for bug reports.
-    App.versionedTitleBlock = `Fairshare ${cachedVersion}
-${ready.name} ${ready.version}
-${name} ${version}
-${uname} ${uversion}
-${navigator.userAgent}`;
-    // Used for about page, with links.
-    document.getElementById('versionedTitleBlock').innerHTML =
-      `<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${cachedVersion}</a>
-<a href="https://github.com/kilroy-code/distributed-security">${ready.name}</a> ${ready.version}
-<a href="https://github.com/kilroy-code/flexstore">${name}</a> ${version}
-<a href="https://github.com/kilroy-code/ui-components">${uname}</a> ${uversion}`;
-  });
+const { localStorage, URL, crypto, TextEncoder, FormData, RTCPeerConnection, Notification, Request, vaultHost, appVersion } = window;
 
 Collection.error = error => App.error(error);
 window.onerror = (message, source, lineno, colno, error) => App.error(`${message} at ${source}:${lineno}:${colno}.`);
 window.onunhandledrejection = async event => {
-  if (event.reason.message.includes('is not available')) { // special case
+  const message = event.reason.message || event.reason;
+  if (message.includes?.('is not available')) { // special case
     try {
       const temp = await Credentials.create();
       await Credentials.destroy(temp);
@@ -120,6 +23,166 @@ window.onunhandledrejection = async event => {
   App.error(event);
 };
 
+/*********************
+ Manage source code
+*********************/
+const securitySource = `${vaultHost}/@ki1r0y/distributed-security/dist/`;
+const sources = [
+  "./app.html",
+  "./script.js",
+
+  "/@kilroy-code/ui-components/bundle.mjs",
+  "/@kilroy-code/flexstore/bundle.mjs",
+  securitySource + "index-bundle.mjs",
+  securitySource + "worker-bundle.mjs",
+  securitySource + "vault.html",
+  securitySource + "vault-bundle.mjs",
+
+  "./style.css",
+  "https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap",
+  "https://fonts.googleapis.com/icon?family=Material+Icons",
+  "https://fonts.gstatic.com/s/roboto/v48/KFO7CnqEu92Fr1ME7kSn66aGLdTylUAMa3yUBHMdazQ.woff2",
+  "https://fonts.gstatic.com/s/materialicons/v143/flUhRq6tzZclQEJ-Vdg-IuiaDsNcIhQ8tQ.woff2",
+
+  "./qr-scanner.min.js",
+  "https://cdn.jsdelivr.net/npm/jdenticon@3.3.0/dist/jdenticon.min.js",
+  "https://cdn.jsdelivr.net/npm/jdenticon@3.3.0/dist/jdenticon.min.js.map",
+  "https://unpkg.com/qr-code-styling@1.8.0/lib/qr-code-styling.js",
+  "https://unpkg.com/qr-code-styling@1.8.0/lib/qr-code-styling.js.map"
+];
+async function downloadSource(cacheName) { // Promise to get latest version of all sources into cacheName IFF cacheName exists.
+  const cache = await caches.open(cacheName);
+  if (await caches.has(cacheName)) {
+    const keys = await cache.keys();
+    console.log('cache', cacheName, 'contains', keys);
+    if (keys.length >= sources.length) return;
+  }
+    else console.log('no cache', cacheName, 'yet');
+  await cache.addAll(sources.map(name => new Request(name, {cache: 'no-store'})));
+  console.log('captured source');
+}
+
+// There are a few things that have to happen before we can check storageVersion and synchronize.
+const {promise:promiseAppVersion, resolve:checkedAppVersion} = Promise.withResolvers();
+const promiseSourceReady = Promise.all([
+  downloadSource(appVersion),  // Start it now.
+  promiseAppVersion            // app.html and other source matches the service worker.
+]);
+function getServiceVersion(registration) { // Ask the service worker to send back it's version, which will trigger a compare.
+  registration.active.postMessage({method: 'version', params: appVersion});
+}
+navigator.serviceWorker // without waiting
+  .register("/fairshare/service-worker.js", {updateViaCache: 'none'})
+  .then(registration => {
+    const checkButton = document.getElementById('checkForUpdates');
+    const updateText = document.getElementById('updateStatus');
+    console.log('registered', registration, navigator.serviceWorker.controller);
+    checkButton.onclick = async () => {
+      await registration.update();
+      updateText.textContent = `No update at ${new Date().toLocaleString()}.`;
+    };
+    registration.onupdatefound = () => { // A new service worker has been installed because of a service worker script change.
+      const newWorker = registration.installing;
+      console.log('updatefound', newWorker.state, navigator.serviceWorker.controller);
+      newWorker.onstatechange = () => {
+	console.log('statechange', newWorker.state, navigator.serviceWorker.controller);
+	if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+	  // Enable the downloadUpdates button.
+	  checkButton.style = 'display:none;';
+	  const downloadButton = document.getElementById('downloadUpdates');
+	  downloadButton.style = '';
+	  updateText.textContent = `Update available.`;
+	  // No need to reset button/status on click, because we will be reloading.
+	  downloadButton.onclick = () => getServiceVersion(registration); // We don't know the new version here yet.
+	  App.confirm("Would you like to update now? (You can update later through the button in menu => About.)",
+		      "New version available").then(response => (response === 'ok') && getServiceVersion(registration));
+	}
+      };
+    };
+    navigator.serviceWorker.onmessage = async event => {
+      console.log('got message from service worker', event.data);
+      const {method, params} = event.data;
+      switch (method) {
+      case 'version':
+	console.log('Comparing service worker version', params, 'to app version', appVersion);
+	if (params === appVersion) checkedAppVersion(true);
+	else {
+	  await caches.delete(appVersion);
+	  await downloadSource(params);
+	  alert(`About to reload from ${appVersion} to ${params}.`);
+	  location.reload();
+	}
+	break;
+      case 'update': // A push has asked us to synchronize data (not source) from applicable relays
+	const statuses = await FairshareSync.update();
+	const result = params ?
+	      (statuses.some(status => status === params) || statuses.find(status => status)) :
+	      null;
+	navigator.serviceWorker.controller.postMessage({method: 'updated', params: result});
+	break;
+      default:
+	console.warn(`Unrecognized service worker message: "${event.data}".`);
+      }
+    };
+    navigator.serviceWorker.ready.then(getServiceVersion);
+  });
+// Record versions
+Credentials.ready.then(ready => {
+  App.versionedTitleBlock = `Fairshare ${appVersion}
+${ready.name} ${ready.version}
+${fname} ${fversion}
+${uname} ${uversion}
+${navigator.userAgent}`;
+    // Used for about page, with links.
+    document.getElementById('versionedTitleBlock').innerHTML =
+      `<a href="https://github.com/kilroy-code/fairshare">Fairshare</a> <a href="https://github.com/kilroy-code/fairshare/blob/main/RELEASES.md">${appVersion}</a>
+<a href="https://github.com/kilroy-code/distributed-security">${ready.name}</a> ${ready.version}
+<a href="https://github.com/kilroy-code/flexstore">${fname}</a> ${fversion}
+<a href="https://github.com/kilroy-code/ui-components">${uname}</a> ${uversion}`;
+});
+Promise.race([Credentials.ready, new Promise(resolve => setTimeout(resolve, 6e3))]) // Do not silently let the user wait for ready forever.
+  .then(isReady => {
+    if (isReady) return;
+    App.alert('The Webworker script did not reload properly. It may have just been from a "double reload", in which case a single reload may fix it now.',
+	      "Webworker Bug!");
+    location.reload();
+  });
+
+
+/*********************
+ Manage data version
+ *********************/
+let promiseDataVersion = promiseSourceReady.then(async () => {
+  // Use stored version, else store one.
+  const inUse = parseInt(localStorage.lastDataVersion || (localStorage.lastDataVersion = Synchronizer.version));
+  // This becomes the data version for comparison during synchronization.
+  if (inUse === Synchronizer.version) return;
+  await App.alert(`Removing stale data version ${inUse}. You will need to re-create with ${Synchronizer.version}.`);
+  await wipeData();
+  localStorage.lastDataVersion = Synchronizer.version;
+  location.reload(); // Collections have already created their persistent stores that are now empty. Need to start over.
+});
+
+async function wipeData() { // All local data except source cache.
+  await FairshareSync.closeAll();
+  console.log('clearing local');
+  localStorage.clear();
+  console.log('clearing persistence'); // Not source or device keys
+  // The API for destroying CURRENT version would be:
+  // for (let collection of appCollections) await collection.destroy();
+  // await Credentials.Storage.destroy();
+  // But we want to destroy old versions, too. So we reach under the hood to the underlying storage mechanism:
+  for (const name of await caches.keys()) {
+    if (name.startsWith(storageName)) await caches.delete(name);
+  }
+  await deviceData.destroy(); // unversioned
+  console.log('data wiped');
+}
+
+
+/*********************
+ App models
+ *********************/
 class User { // A single user, which must be one that the human has authorized on this machine.
   constructor(properties) { Object.assign(this, properties); }
   isLiveRecord = true;
@@ -254,6 +317,12 @@ const guidPromise = deviceData.get(guidKey).then(guid => {
   return guid;
 });
 async function synchronizeCollections(service, connect = true) { // Synchronize ALL collections with the specified service, resolving when all have started.
+  console.log('synchronizeCollection is checking promises');
+  console.log('versions',
+	      await promiseDataVersion,
+	      await Credentials.ready,
+	      await caches.keys()
+	     );
   console.log(connect ? 'connecting' : 'disconnecting', service, new Date());
   try {
     if (connect) {
@@ -299,6 +368,11 @@ async function getUserModel(tag) {
 async function getGroupModel(tag) {
   return new Group(await getCombinedData(groupsPublic, groupsPrivate, tag));
 }
+
+
+/*********************
+ User Interface
+ *********************/
 
 class FairshareApp extends BasicApp {
   constructor(...rest) {
@@ -532,8 +606,10 @@ class FairshareApp extends BasicApp {
       // TODO: Also need to tell Credentials to destroy the device keys, which are in the domain of the web worker.
       console.clear();
       await wipeData();
-      navigator.serviceWorker.controller.postMessage({method: 'clearSourceCache'});
+      for (let name of await caches.keys()) await caches.delete(name);
+      await navigator.serviceWorker.getRegistrations().then(registrations => Promise.all(registrations.map(r => r.unregister())));
       console.log('Cleared local data and source');
+      alert("Please manually close this tab.");
     });
 
     // TODO: there is at least one menu click handler that is going down this path without being for screens. It would be
@@ -1152,8 +1228,7 @@ class FairshareSync extends MDElement {
 
     } else { // The usual case
       await guidPromise;
-      const promise = synchronizeCollections(url, checkbox.checked);
-      if (!checkbox.checked) await promise;
+      await synchronizeCollections(url, checkbox.checked);
     }
     if (!checkbox.checked) return null;
 
@@ -2143,43 +2218,6 @@ export class EditGroup extends MDElement {
 }
 EditGroup.register();
 
-try {
-  const registration = await navigator.serviceWorker.register("/fairshare/service-worker.js", {
-    //scope: "/",
-  });
-  if (registration.installing) {
-    console.log("Service worker installing");
-  } else if (registration.waiting) {
-    console.log("Service worker installed");
-  } else if (registration.active) {
-    console.log("Service worker active");
-  }
-  navigator.serviceWorker.addEventListener("message", async event => {
-    console.log('got message from service worker', event.data);
-    const {method, params} = event.data;
-    switch (method) {
-    case 'update': // update/synchronize data
-      const statuses = await FairshareSync.update();
-      const result = params ?
-	    (statuses.some(status => status === params) || statuses.find(status => status)) :
-	    null;
-      navigator.serviceWorker.controller.postMessage({method: 'updated', params: result});
-      break;
-    case 'checkSoftwareVersion':
-      softwareVersion = params.trim(); // This is the version explicitly sent over by the service worker, via a direct background fetch.
-      checkSoftwareVersion();
-      break;
-    case 'sourceCleared':
-      await registration.unregister();
-      location.reload();
-      break;
-    default:
-      console.warn(`Unrecognized service worker message: "${event.data}".`);
-    }
-  });
-} catch (error) {
-  App.error(`Registration failed with ${error.message}`);
-}
 window.bootstrap = async function bootstrap() { // Used to get the system started from nothing.
   Credentials.author = await Credentials.createAuthor('-'); // Create invite.
   Credentials.owner = await Credentials.create(Credentials.author); // Create Fairshare owner team, with that member.

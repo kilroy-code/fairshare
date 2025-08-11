@@ -4,21 +4,13 @@
     <link rel="manifest" href="manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <script>
+      var appVersion = "0.10.0";
+      var vaultHost = origin.startsWith('http://localhost') ? 'http://localhost:59693' : 'https://cloud.ki1r0y.com';
       // See https://github.com/WICG/import-maps#dynamic-import-map-example
-      const url = new URL(location.href);
-      if (url.hostname === 'localhost') {
-	url.port = 59693;
-      } else {
-	url.protocol = "https:"
-	url.host = "cloud.ki1r0y.com";
-	url.port = "";
-      }
-      url.pathname = "/@ki1r0y/distributed-security/dist/index-bundle.mjs";
-      url.search = url.hash = '';
       const importMap = {
 	"imports": {
           "uuid4": "./node_modules/uuid4/browser.mjs",
-	  "@ki1r0y/distributed-security": url.href,	  
+	  "@ki1r0y/distributed-security": `${vaultHost}/@ki1r0y/distributed-security/dist/index-bundle.mjs`,
           "@kilroy-code/ui-components": "/@kilroy-code/ui-components/bundle.mjs",
           "@kilroy-code/flexstore": "/@kilroy-code/flexstore/bundle.mjs",
 
@@ -91,6 +83,11 @@
       <section title="About">
 	<p>
 	  <i><b>Under construction.</b></i>
+	</p>
+	<p>
+	  <md-filled-button id="checkForUpdates">Check for updates</md-filled-button>
+	  <md-filled-button id="downloadUpdates" style="display:none;">Download updates</md-filled-button>
+	  <span id="updateStatus"></span>
 	</p>
 	<p>FairShare lets you share money and messages amongst a group of humans.</p>
 	<p>As a payment program, the group sets its own fees, which are then distributed to members.</p>
