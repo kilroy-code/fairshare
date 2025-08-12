@@ -1,5 +1,5 @@
 const { Response, clients} = self;
-const version = "0.10.3";
+const version = "0.10.4";
 
 async function getResource(request) { // Answer the previously cached source code, else just fetch normally.
   // There are rumors of in intermittent bug (Safari) in direct use of (await caches.match(request)), so open explicitly.

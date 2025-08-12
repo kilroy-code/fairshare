@@ -178,10 +178,8 @@ async function wipeData() { // All local data except source cache.
   // for (let collection of appCollections) await collection.destroy();
   // await Credentials.Storage.destroy();
   // But we want to destroy old versions, too. So we reach under the hood to the underlying storage mechanism:
-  for (const name of await caches.keys()) {
-    if (name.startsWith(storageName)) await caches.delete(name);
-  }
-  await deviceData.destroy(); // unversioned
+  for (const name of await caches.keys()) await caches.delete(name); // source AND non-vault keys
+  await Credentials.wipeDeviceKeys();
   console.log('data wiped');
 }
 
@@ -489,7 +487,7 @@ class FairshareApp extends BasicApp {
     return tag;
   }
 
-  deviceData = deviceData;
+  deviceData = deviceData; // For debugging.
   getRequestUpdates(url) { // Does the human want the relay at this url to wake this device from sleep?
     return this.deviceData.get(url);
   }
@@ -803,7 +801,8 @@ FairshareOpener.register();
 
 class FairshareGroups extends LiveList {
   static async addToOwner(userTag, groupTag = App.FairShareTag) { // Adds userTag to the owning team of group, of which we must be a member.
-    await Credentials.changeMembership({tag: App.groupCollection[groupTag].owner, add: [userTag]});
+    const owner = App.groupCollection[groupTag].owner;
+    await Credentials.changeMembership({tag: owner, add: [userTag]});
     return groupTag;
   }
   static async adopt(groupTag) { // Add user to group data and group to user's data, updates live records, and makes group active.
