@@ -1,62 +1,89 @@
 import { Credentials, MutableCollection, VersionedCollection } from '@kilroy-code/flexstore';
 import { Rule } from '@kilroy-code/rules';
-
 /*
-  This is the glue between our application-specific central model objects,
+  All this is the glue between our application-specific central model objects,
   Flexstore persistence and synchronization machinery, and
   Rules based UI change-management.
-
-  TODO: The lower level VersionedCollection is currently defined independently of messages, and I now
-        think that is wrong. To merge forked states, we need to be able to replay messages against
-        a common earlier state. Fixing that will interact with the code here.
-  TODO: I'm not sure that we need a community group. Get rid of it?
 */
 
-class LiveSet {
+export { Rule };
+export class LiveSet { // A Rules-based cross between a Map and an Array. It is used to represent a
+  // a dynamic set of values, each identified by a key string, such as tags by which a collection of datum
+  // are persisted. Rules can reference the values by key, or as a group by map/forEach.
+  //
+  // A LiveSet can be mutated by changing the value at a keys through the Map-like set/delete operations.
+  // The value can themselves be Rulified objcts, or any other value EXCEPT undefined or null.
+  // Other Rules can reference these values though Map-like get/has, or through Array-like map/forEach,
+  // and those rules will track the changes.
+  //
   // This could be implemented differently, e.g., as a Proxy. But we don't need to, yet.
   items = {};
-  get size() { return 0; }
+  // Becomes are computed rule when explicitly specifying ruleNames, below.
+  examined() { return true; } // Purpose is to be a tracked reference that is reset by set/delete.
+  // We do not currently support length/at(), as these would need to managed deleted items.
   forEach(iterator) {
-    const {items, size} = this;
+    const {items, examined} = this;
     const keys = Object.keys(items);
-    for (let index = 0; index < size; index++) iterator(this.get(keys[index]), index, this);
+    const length = examined && keys.length;
+    for (let index = 0; index < length; index++) {
+      const value = items[keys[index]];
+      if (value === null) continue;
+      iterator(value, index, this);
+    }
   }
   map(iterator) {
-    const {items, size} = this;
+    const {items, examined} = this;
     const keys = Object.keys(items);
-    const result = Array(size);
-    for (let index = 0; index < size; index++) result[index] = iterator(this.get(keys[index]), index, this);
+    const length = examined && keys.length;    
+    const result = Array(length);
+    let skipped = 0;
+    for (let index = 0; index < length; index++) {
+      const value = items[keys[index]];
+      if (value === null) { skipped++; continue; }
+      result[index - skipped] = iterator(value, index, this);
+    }
+    result.length -= skipped;
     return result;
   }
-  has(tag) {
-    return tag in this.items;
+  has(key) {
+    const {items, examined} = this;
+    return examined && (key in items) && items[key] !== null;
   }
-  get(tag) {
-    return this.items[tag];
+  get(key) {
+    const {items, examined} = this;
+    return examined && items[key];
   }
-  at(index) {
-    const {items} = this;
-    const keys = Object.keys(items);
-    return items[keys[index]];
-  }
-  put(tag, item) {
+  set(key, item) {
     let {items} = this;
-    if (!this.has(tag)) {
-      Rule.attach(items, tag, () => null, {configurable: true}); // deletable
-      this.size++;
+    this.examined = undefined;
+    if (key in items) {
+      items[key] = item;
+    } else {
+      Rule.attach(items, key, item); // If we deleted (see comment below), we would need to additionally pass {configurable: true})
     }
-    items[tag] = item;
   }
-  delete(tag) {
+  delete(key) { // has/get/at will answer as falsy, and existing references will be reset.
+    // Note however, that it does not actually remove key, but sets its value to null. (See next comment.)
     let {items} = this;
-    if (!this.has(tag)) return;
-    items[tag] = null; // Any references to items[tag] will see that this was reset.
-    delete items[tag];
-    this.size--;
+    this.examined = undefined;
+    if (!(key in items)) return;
+    items[key] = null; // Any references to items[key] will see that this was reset.
+    // We COULD do the following, and remove the key until such time that something later sets it.
+    // HOWEVER, any rules that referenced the key would be stuck knowing only that their referencee
+    // was set to null (above). It wouldn't know about any NEW rule created later at that key.
+    // So... we have to leave the rule intact.
+    //delete items[key];
   }
 }
-Rule.rulify(LiveSet.prototype);
+Rule.rulify(LiveSet.prototype, {ruleNames: ['examined']});
 
+////////////////////////////////
+/// Base persistence classes
+////////////////////////////////
+
+// Defines persist/edit/destroy instance methods that manage the object's persistence, which retain the tag through which it is persisted.
+// Defines fetch/update class methods that operate on tags, creating the instance.
+// Data is persisted as a canonicalized JSON, including title, which is a reference-tracking (Rule) property.
 class Persistable { // Can be stored in Flexstore Collection, as a signed JSON bag of enumerated properties.
 
   static get collection() { // The Flexstore Collection that defines the persistance behavior:
@@ -123,6 +150,8 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   get title() { return ''; } // A string that is enough for a human to say, roughly, "that one".
 }
 
+// Additionally keeps track of the instances that have been fetched, so that fetch can return previously generated instances.
+// The directory is a LiveSet that tracks (by tag) all the instances that have been fetched so far.
 export class Enumerated extends Persistable {
   // In contrast with the collection property (which does not hold any instances), there are some type-specific
   //  enumerations of instances. Each is implemented as a LiveSet, so that:
@@ -135,7 +164,7 @@ export class Enumerated extends Persistable {
   }
   constructor(properties) { // Save it in the directory for use by fetch.
     super(properties);
-    this.constructor.directory.put(properties.tag, this); // Here rather than fetch, so as to include newly created stuff.
+    this.constructor.directory.set(properties.tag, this); // Here rather than fetch, so as to include newly created stuff.
   }
   static fetch(tag) { // Gets from directory cache if present. Still a promise.
     const cached = this.directory.get(tag);
@@ -148,6 +177,9 @@ export class Enumerated extends Persistable {
   }
 }
 
+// Splits the persisted data into public/unencrypted and private/encrypted parts, persisted in separate collections with the same tag.
+// If the static directory propery includes all known-to-you objects, the static privateDirectory includes only the ones you have access to.
+// (Where the tag belongs in both, the instance in each LiveSet is the same.)
 export class PublicPrivate extends Enumerated {
   // In addition to the directory, provides a second LiveSet that are the SUBSET that are mine.
   // Automatically splits and combines from a second privateCollection that are encrypted.
@@ -167,7 +199,7 @@ export class PublicPrivate extends Enumerated {
     if (privateDirectory.has(tag)) return privateDirectory.get(tag);
     const [instance, verifiedPrivate] = await Promise.all([this.fetch(tag), this.privateCollection.retrieve(tag)]);
     Object.assign(instance, {verifiedPrivate, ...verifiedPrivate.json}); // Merge the private data.
-    privateDirectory.put(tag, instance);
+    privateDirectory.set(tag, instance);
     return instance;
   }
   async persist(author) { // Promise to save this instance.
@@ -195,7 +227,13 @@ export class PublicPrivate extends Enumerated {
 }
 
 ////////////////////////////////
+/// Application Classes
+////////////////////////////////
 
+// Your own personas have non-empty devices on which it is authorized and groups to which it belongs.
+// All users have title, picture, and interestingly, a map of secret prompt => hash of answer, so that you can authorize additional personas on the current device.
+// There are instance methods to create/destroy and authorize/deauthorize,
+// and create/destroyGroup and adopt/abandonGroup.
 export class User extends PublicPrivate {
   // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
   static persistedProperties = ['picture', 'secrets', 'title'];
@@ -333,6 +371,8 @@ export class User extends PublicPrivate {
   }
 }
 
+// Persists as a history, under the same tag as the (User or Group) owner (for which it is always encrypted).
+// Has additional properties author, timestamp, and type, which are currently unencrypted in the header. (We may encrypt author tag.)
 export class Message extends Persistable {
   // A lightweight immutable object, belonging to a group.
   static collectionType = VersionedCollection;
@@ -381,7 +421,7 @@ export class Member {
   constructor({votes, ...properties}) {
     Object.assign(this, properties);
     for (let [key, value] of Object.entries(votes)) {
-      votes.put(key, value);
+      votes.set(key, value);
     }
   }
   votes = new LiveSet();
@@ -389,7 +429,7 @@ export class Member {
     return this.votes.get(proposition);
   }
   setVote(proposition, value) {
-    this.votes.put(proposition, value);
+    this.votes.set(proposition, value);
   }
   updateBalance(stipend, increment = 0) {
     const now = Date.now();
@@ -408,17 +448,33 @@ export class Member {
 
 export class Group extends PublicPrivate {
   static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
+
+  // Persistables, either public or private:
   static privateCollectionType = VersionedCollection;
   static persistedProperties = ['picture', 'title'];
   static privateProperties = ['users'];
-
-  get users() { return []; }
-  get title() {
+  get title() { // A string by which the group is known.
     if (this.users.length === 1) return "Yourself";
     return Promise.all(this.users.map(tag => User.fetch(tag).then(user => user.shortName)))
       .then(shorts => shorts.join(', '));
   }
+  get users() { // A list of tags.
+    return [];
+  }
+
+  // Messages are persisted through a VersionedCollection with the same tag as us.
+  // As they become known (sent by our user or from a connection), the are added here.
   messages = new LiveSet();
+  async send(properties, author) { // Sends Messages as author.
+    // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
+    const message = new Message({...properties, author, owner: this});
+    const tag = await message.persist();
+    this.assert(tag === this.tag, "Mismatched message collection tag", tag, this.tag);
+    const collection = message.constructor.collection;
+    const hash = message.tag = await collection.getRoot(this.tag);
+    this.messages.set(hash, message);
+    return message;
+  }
 
   static async create({author:user, tag = Credentials.create(user.tag), ...properties}) { // Promise a new Group with user as member
     // PERSISTS Credential (unless provided), then Group, then User
@@ -453,16 +509,6 @@ export class Group extends PublicPrivate {
     this.users = this.users.filter(tag => tag !== user.tag);
     await this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
-  }
-  async send(properties, author) { // Sends Messages as author.
-    // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
-    const message = new Message({...properties, author, owner: this});
-    const tag = await message.persist();
-    this.assert(tag === this.tag, "Mismatched message collection tag", tag, this.tag);
-    const collection = message.constructor.collection;
-    const hash = message.tag = await collection.getRoot(this.tag);
-    this.messages.put(hash, message);
-    return message;
   }
 }
 
