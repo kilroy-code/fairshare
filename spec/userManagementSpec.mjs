@@ -32,8 +32,6 @@ describe("Model management", function () {
   } = {}) {
     // Confirm properties for user being a member of group.
     // This is reaching under the hood to the level of persisted artifacts.
-    if (Credentials.fixme) console.log({userTag, groupTag, community: Group.communityTag, expectUserData, userTitle, isMember, groupActor, expectGroupData, groupTitle});
-
     const userData = await User.collection.retrieve(userTag);               // User data.
     const userPrivateData = await User.privateCollection.retrieve(userTag);
     if (expectUserData) {
@@ -55,7 +53,6 @@ describe("Model management", function () {
     // Get data regardless of whether user is a member of team, as that is checked below.
     const groupData = await Group.collection.retrieve({tag: groupTag, member: null});  // Group Data
     const groupPrivateData = await Group.privateCollection.retrieve({tag: groupTag, member: null});
-    if (Credentials.fixme) console.log({groupData, groupPrivateData});
     if (expectGroupData) {
       if (groupTitle === null) {
 	expect(groupData).toBeFalsy();
@@ -97,7 +94,7 @@ describe("Model management", function () {
     Group.communityTag = await Credentials.create(bootstrapUserTag);
     const group = new Group({title: 'group A', tag: Group.communityTag});
     await group.persist({tag:bootstrapUserTag}); // Pun: {tag} looks like a store option, but it's actually a fake User with a tag property.
-    // Using the bootstrap uers, construct a real authorized member of the community group.
+    // Using the bootstrap users, construct a real authorized member of the community group.
     authorizedMember = await User.create({title: 'user A', secrets:[['q0', "17"]], deviceName});
     await Credentials.changeMembership({tag: Group.communityTag, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
@@ -154,10 +151,16 @@ describe("Model management", function () {
       const prompt = 'q1', answer = 'a2', deviceName = 'x';
       const u1 = await User.create({title: "Yours truly", secrets:[[prompt, answer]], deviceName});
       const u2 = await User.create({title: "milton bradley", secrets:[[prompt, answer]], deviceName});
-      await group.authorizeUser(u1);
-      await group.authorizeUser(u2);
-      await u1.adoptGroup(group);
-      await u2.adoptGroup(group);
+
+      // Authorize by current group member (the creator).
+      await User.collection.withRestrictedTags(await Credentials.teamMembers(authorizedMember.tag, true),
+					       () => Promise.all([group.authorizeUser(u1), group.authorizeUser(u2)]));
+
+      // Each use then adopts.
+      await User.collection.withRestrictedTags(await Credentials.teamMembers(u1.tag, true),
+					       () => u1.adoptGroup(group));
+      await User.collection.withRestrictedTags(await Credentials.teamMembers(u2.tag, true),
+					       () => u2.adoptGroup(group));
 
       expect(group.title).toBe("U.A., Y.T., M.B.");
 
@@ -288,8 +291,12 @@ describe("Model management", function () {
 
     const removed = await user.deauthorize({prompt, answer, deviceName});
     expectGone(Credentials.collections.EncryptionKey, removed); // Device gone, too, but we don't get to see those.
-    // This causes "Attempting access..." to be logged twice. (Once for public and once for private user collection item.)
-    expect(await user.edit({picture: 'wrong'}).catch(() =>'rejected')).toBe('rejected');
+    // Tests behavior with access to user.tag allowed and even the device tag allowed in principle, but they have to be be re-fetched
+    // which will fail without access to the recovery tag (which is not enumerated here).
+    // (Console will log an attempt to access the recovery tag.)
+    const attempt = await User.collection.withRestrictedTags([user.tag, removed], () =>
+      user.edit({picture: 'wrong'}).catch(() =>'rejected'));
+    expect(attempt).toBe('rejected');
 
     await user.authorize({prompt, answer, deviceName});
     await user.edit({picture: 'after re-authorization'}); // Now editable.

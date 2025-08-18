@@ -138,7 +138,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     Object.assign(this, changedProperties);
     return this.persist(asUser);
   }
-  static async update(tag, verified) {
+  static async update(tag, verified) { // Suitable for use in a Collection update event handler.
     Object.assign(await this.fetch(tag), {verified, ...verified.json});
   }
   assert(boolean, label, ...labelArgs) {
@@ -258,7 +258,7 @@ export class User extends PublicPrivate {
 
     // Since we just created it ourselves, we know that userTag has only one Device tag member, and the rest are KeyRecovery tags.
     // But there's no DIRECT way to tell if a tag is a device tag.
-    const members = await this.getMemberTags(userTag);
+    const members = await Credentials.teamMembers(userTag);
     const deviceTag = await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
     const devices = {[deviceName]: deviceTag};
 
@@ -363,11 +363,6 @@ export class User extends PublicPrivate {
     this.groups = this.groups.filter(tag => tag !== groupTag);
     this.constructor.privateDirectory.delete(groupTag);  // Does not remove data from directory.
     return await this.persist(this);
-  }
-  // Internal
-  static async getMemberTags(tag) { // List the member tags of this user: devices, recovery, and co-signers.
-    const team = await Credentials.collections.Team.retrieve({tag, member: null});
-    return team.json.recipients.map(m => m.header.kid); // IWBNI flexstore provides this.
   }
 }
 
