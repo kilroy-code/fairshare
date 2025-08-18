@@ -1,6 +1,6 @@
 {
   "name": "fairshare",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "description": "Cooperative currency and safe messaging.",
   "main": "app.html",
   "scripts": {

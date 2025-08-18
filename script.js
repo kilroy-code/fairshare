@@ -1171,6 +1171,7 @@ class FairshareSync extends MDElement {
     if (isLanLead) {
       if (checkbox.checked) { // Kick off negotiation for sender's users.
 	synchronizeCollections(url, true);
+	await new Promise(resolve => setTimeout(resolve, 100)); // Wait a tick.
 	const sender = leadConnection.synchronizers.get(url); // Again, after previous line, as first get already came up empty.
 
 	this.updateText(this.sendInstructions, 'Check "Private LAN - Follow" on the other device, and use it to read this qr code:');
