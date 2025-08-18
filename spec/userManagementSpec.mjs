@@ -127,58 +127,7 @@ describe("Model management", function () {
     Group.communityTag = originalCommunityGroup; // Restore in case anything shared with live data.
   }, timeLimit(1));
 
-  // TODO: try these with bad credentials. Make sure it doesn't leave stuff in a weird stae.
-
-  describe("groups", function () {
-    it("can be created and destroyed", async function () {
-      // Have authorizedMember create a Group.
-      const group = await authorizedMember.createGroup({title: 'group B'});
-      await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group B'});
-
-      // Destroy removes the member.
-      await authorizedMember.destroyGroup(group);
-      await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
-    }, timeLimit(1));
-
-    it("has title defaulting to 'Yourself' if one member.", async function () {
-      const group = await authorizedMember.createGroup();
-      expect(group.title).toBe("Yourself");
-      await authorizedMember.destroyGroup(group);
-    }, timeLimit(1));
-
-    it("has title defaulting to list of multiple short member names.", async function () {
-      const group = await authorizedMember.createGroup();
-      const prompt = 'q1', answer = 'a2', deviceName = 'x';
-      const u1 = await User.create({title: "Yours truly", secrets:[[prompt, answer]], deviceName});
-      const u2 = await User.create({title: "milton bradley", secrets:[[prompt, answer]], deviceName});
-
-      // Authorize by current group member (the creator).
-      await User.collection.withRestrictedTags(await Credentials.teamMembers(authorizedMember.tag, true),
-					       () => Promise.all([group.authorizeUser(u1), group.authorizeUser(u2)]));
-
-      // Each use then adopts.
-      await User.collection.withRestrictedTags(await Credentials.teamMembers(u1.tag, true),
-					       () => u1.adoptGroup(group));
-      await User.collection.withRestrictedTags(await Credentials.teamMembers(u2.tag, true),
-					       () => u2.adoptGroup(group));
-
-      expect(group.title).toBe("U.A., Y.T., M.B.");
-
-      await u1.destroy({prompt, answer});
-      await u2.destroy({prompt, answer});
-      await authorizedMember.destroyGroup(group);
-    }, timeLimit(3));
-
-    it("will fetch and cache a private non-existent group.", async function () {
-      const dummy = await Group.fetch('non-existent'); // You may learn of it later as a private group, and we want it functional.
-      expect(dummy.users.length).toBe(0);
-      expect(await dummy.title).toBe(''); // await is not needed within another rule, but out here it matters that title returns a promise.
-      const dummy2 = await Group.fetch('non-existent'); // Got cached on creation.
-      expect(dummy2).toBe(dummy);
-    });
-  });
-
-  describe("created user", function () {
+  describe("user", function () {
     let user;
     beforeAll(async function () {
       user = await User.create({title: 'user B', secrets:[['q1', "42"]], deviceName});
@@ -187,38 +136,30 @@ describe("Model management", function () {
     it("has community group.", async function () {
       await expectMember(user.tag, Group.communityTag, {userTitle: 'user B', groupTitle: 'group A', groupActor: null});
     });
-    it("has personal group.", async function () {
-      await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: null});
 
-      expect(await Group.collection.list()).not.toContain(user.tag); // Not listed in persistent data.
-      expect(Group.directory.has(user.tag)).toBeTruthy(); // In session where instance was made or fetched.
+    it("authorizes/deauthorizes existing user on device.", async function () {
+      const prompt = 'q1', answer = "17", deviceName = "E's device";
+      const user = await User.create({title: 'user E', secrets:[[prompt, answer]], deviceName});
 
-      const group = await Group.fetch(user.tag); // Works because of previous line.
-      expect(group.title).toBe("Yourself");      // From rule, not from persisted data.
-      expect(group.users).toEqual([user.tag]);
-      expect(user.groups).toContain(group.tag);
+      expect(await user.preConfirmOwnership({prompt, answer})).toBeTruthy();
+      expect(await user.preConfirmOwnership({prompt, answer: answer+'x'})).toBeFalsy();
 
-      // Simulate a new session.
-      Group.directory.delete(user.tag);
-      Group.privateDirectory.delete(user.tag);
-      let fetched = await Group.fetch(user.tag);
-      expect(fetched).not.toBe(group);   // A new (empty) Group instance.
-      expect(fetched.users).toEqual([]); // Because it has not fetched private data.
+      const removed = await user.deauthorize({prompt, answer, deviceName});
+      expectGone(Credentials.collections.EncryptionKey, removed); // Device gone, too, but we don't get to see those.
+      // Tests behavior with access to user.tag allowed and even the device tag allowed in principle, but they have to be be re-fetched
+      // which will fail without access to the recovery tag (which is not enumerated here).
+      // (Console will log an attempt to access the recovery tag.)
+      const attempt = await User.collection.withRestrictedTags([user.tag, removed], () =>
+	user.edit({picture: 'wrong'}).catch(() =>'rejected'));
+      expect(attempt).toBe('rejected');
 
-      let personal = await Group.fetchPrivate(user.tag); // The normal, later-session-compatible way to get private Groups.
-      expect(personal.users).toEqual([user.tag]);
-      expect(user.groups).toContain(personal.tag);
-      expect(personal).toBe(fetched); // The privateFetch updated the previous fetch result!
+      await user.authorize({prompt, answer, deviceName});
+      await user.edit({picture: 'after re-authorization'}); // Now editable.
+      expect(user.picture).toBe('after re-authorization');
 
-      // Now repeat in the other order.
-      Group.directory.delete(user.tag);
-      Group.privateDirectory.delete(user.tag);
-      personal = await Group.fetchPrivate(user.tag);
-      fetched = await Group.fetch(user.tag);
-      expect(personal).toBe(fetched);
-      expect(personal.users).toEqual([user.tag]);
-      expect(user.groups).toContain(personal.tag);
-    });
+      await user.destroy({prompt, answer});                 // And destroyable.
+      await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
+    }, timeLimit(1));
 
     it("can edit public and private data.", async function () {
       const {tag, picture, groups, devices} = user;        // Private data before editing.
@@ -273,102 +214,163 @@ describe("Model management", function () {
       expect(user.devices['something else']).toBeFalsy();
     }, timeLimit(1));
 
+    it("has personal group.", async function () {
+      await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: null});
+
+      expect(await Group.collection.list()).not.toContain(user.tag); // Not listed in persistent data.
+      expect(Group.directory.has(user.tag)).toBeTruthy(); // In session where instance was made or fetched.
+
+      const group = await Group.fetch(user.tag); // Works because of previous line.
+      expect(group.title).toBe("Yourself");      // From rule, not from persisted data.
+      expect(group.users).toEqual([user.tag]);
+      expect(user.groups).toContain(group.tag);
+
+      // Simulate a new session.
+      Group.directory.delete(user.tag);
+      Group.privateDirectory.delete(user.tag);
+      let fetched = await Group.fetch(user.tag);
+      expect(fetched).not.toBe(group);   // A new (empty) Group instance.
+      expect(fetched.users).toEqual([]); // Because it has not fetched private data.
+
+      let personal = await Group.fetchPrivate(user.tag); // The normal, later-session-compatible way to get private Groups.
+      expect(personal.users).toEqual([user.tag]);
+      expect(user.groups).toContain(personal.tag);
+      expect(personal).toBe(fetched); // The privateFetch updated the previous fetch result!
+
+      // Now repeat in the other order.
+      Group.directory.delete(user.tag);
+      Group.privateDirectory.delete(user.tag);
+      personal = await Group.fetchPrivate(user.tag);
+      fetched = await Group.fetch(user.tag);
+      expect(personal).toBe(fetched);
+      expect(personal.users).toEqual([user.tag]);
+      expect(user.groups).toContain(personal.tag);
+    });
+
     afterAll(async function () {
+      // Removes user from personal group.
       await user.destroy({prompt: 'q1', answer: "42"});
-      // Removes user from personal and community groups.
       await expectMember(user.tag, user.tag,           {isMember: false, expectUserData: false, expectGroupData: false});
       await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
       await expectNoKey(user.tag);
     });    
   });
 
-  it("authorizes/deauthorizes existing user.", async function () {
-    const prompt = 'q1', answer = "17", deviceName = "E's device";
-    const user = await User.create({title: 'user E', secrets:[[prompt, answer]], deviceName});
+  describe("groups", function () {
+    it("can be created and destroyed", async function () {
+      // Have authorizedMember create a Group.
+      const group = await authorizedMember.createGroup({title: 'group B'});
+      await expectMember(authorizedMember.tag, group.tag, {userTitle: 'user A', groupTitle: 'group B'});
 
-    expect(await user.preConfirmOwnership({prompt, answer})).toBeTruthy();
-    expect(await user.preConfirmOwnership({prompt, answer: answer+'x'})).toBeFalsy();
+      // Destroy removes the member.
+      await authorizedMember.destroyGroup(group);
+      await expectMember(authorizedMember.tag, group.tag, {isMember: false, expectGroupData: false, userTitle: 'user A'});
+    }, timeLimit(1));
 
-    const removed = await user.deauthorize({prompt, answer, deviceName});
-    expectGone(Credentials.collections.EncryptionKey, removed); // Device gone, too, but we don't get to see those.
-    // Tests behavior with access to user.tag allowed and even the device tag allowed in principle, but they have to be be re-fetched
-    // which will fail without access to the recovery tag (which is not enumerated here).
-    // (Console will log an attempt to access the recovery tag.)
-    const attempt = await User.collection.withRestrictedTags([user.tag, removed], () =>
-      user.edit({picture: 'wrong'}).catch(() =>'rejected'));
-    expect(attempt).toBe('rejected');
+    it("has title defaulting to 'Yourself' if one member.", async function () {
+      const group = await authorizedMember.createGroup();
+      expect(group.title).toBe("Yourself");
+      await authorizedMember.destroyGroup(group);
+    }, timeLimit(1));
 
-    await user.authorize({prompt, answer, deviceName});
-    await user.edit({picture: 'after re-authorization'}); // Now editable.
-    expect(user.picture).toBe('after re-authorization');
+    it("has title defaulting to list of multiple short member names.", async function () {
+      const group = await authorizedMember.createGroup();
+      const prompt = 'q1', answer = 'a2', deviceName = 'x';
+      const u1 = await User.create({title: "Yours truly", secrets:[[prompt, answer]], deviceName});
+      const u2 = await User.create({title: "milton bradley", secrets:[[prompt, answer]], deviceName});
 
-    await user.destroy({prompt, answer});                 // And destroyable.
-    await expectMember(user.tag, Group.communityTag, {isMember: false, expectUserData: false});
-  }, timeLimit(1));
+      // Authorize by current group member (the creator).
+      await User.collection.withRestrictedTags(await Credentials.teamMembers(authorizedMember.tag, true),
+					       () => Promise.all([group.authorizeUser(u1), group.authorizeUser(u2)]));
 
-  it("adds/removes user from group.", async function () {
-    // Setup: create group and candidate user.
-    const group = await authorizedMember.createGroup({title: 'group C'});
-    await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', groupTitle: 'group C'});
-    const candidate = await User.create({title: 'user C', secrets:[['q2', "y"]], deviceName});
-    await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
-    await expectMember(candidate.tag, group.tag,          {isMember: false, groupActor: authorizedMember.tag});
+      // Each use then adopts.
+      await User.collection.withRestrictedTags(await Credentials.teamMembers(u1.tag, true),
+					       () => u1.adoptGroup(group));
+      await User.collection.withRestrictedTags(await Credentials.teamMembers(u2.tag, true),
+					       () => u2.adoptGroup(group));
 
-    // Add
-    await group.authorizeUser(candidate);
-    await candidate.adoptGroup(group);
-    await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', groupTitle: 'group C', keyActor: authorizedMember.tag});
-    await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
+      expect(group.title).toBe("U.A., Y.T., M.B.");
 
-    // Remove
-    await group.deauthorizeUser(candidate);
-    await candidate.abandonGroup(group);
-    await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', isMember: false, groupActor: candidate.tag});
+      await u1.destroy({prompt, answer});
+      await u2.destroy({prompt, answer});
+      await authorizedMember.destroyGroup(group);
+    }, timeLimit(3));
 
-    // Cleanup. Destroy candidate. (Removes from community group.)
-    await candidate.destroy({prompt: 'q2', answer: "y"});
-    await expectMember(candidate.tag, Group.communityTag, {expectUserData: false, isMember: false, groupActor: candidate.tag});
-    await expectNoKey(candidate.tag);
-    // Cleanup. Destroy group. (Removes destroying user.)
-    await authorizedMember.destroyGroup(group);
-    await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', isMember: false, expectGroupData: false});
-  }, timeLimit(2));
+    it("will fetch and cache a private non-existent group.", async function () {
+      const dummy = await Group.fetch('non-existent'); // You may learn of it later as a private group, and we want it functional.
+      expect(dummy.users.length).toBe(0);
+      expect(await dummy.title).toBe(''); // await is not needed within another rule, but out here it matters that title returns a promise.
+      const dummy2 = await Group.fetch('non-existent'); // Got cached on creation.
+      expect(dummy2).toBe(dummy);
+    });
 
-  it("handles messages.", async function () {
-    const group = await authorizedMember.createGroup({title: 'chat'});
-    const prompt = 'p1', answer = "a1";
-    const stranger = await User.create({title: 'user D', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
-    await group.send({title: "Hello, world!"}, authorizedMember);
-    await group.send({title: "Goodbye!", type: 'goodbye'}, stranger); // Can inject a message.
-    let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
-    expect(messages).toEqual([
-      {title: "Hello, world!", from: authorizedMember.title, in: group.title, type: 'text'},
-      {title: "Goodbye!", from: stranger.title, in: group.title, type: 'goodbye'}
-    ]);
-    const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
-    expect(fetched.protectedHeader.cty).toContain('encrypted');
-    await stranger.destroy({prompt, answer});
-    await authorizedMember.destroyGroup(group);
-    expectGone(Message.collection, group.tag);
-  }, timeLimit(2));
+    it("adds/removes user from group.", async function () {
+      // Setup: create group and candidate user.
+      const group = await authorizedMember.createGroup({title: 'group C'});
+      await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', groupTitle: 'group C'});
+      const candidate = await User.create({title: 'user C', secrets:[['q2', "y"]], deviceName});
+      await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
+      await expectMember(candidate.tag, group.tag,          {isMember: false, groupActor: authorizedMember.tag});
+
+      // Add
+      await Group.collection.withRestrictedTags([authorizedMember.tag], () => group.authorizeUser(candidate)); // Not by candidate.
+      await Group.collection.withRestrictedTags(await Credentials.teamMembers(candidate.tag), () => candidate.adoptGroup(group));
+      await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', groupTitle: 'group C', keyActor: authorizedMember.tag});
+      await expectMember(candidate.tag, Group.communityTag, {userTitle: 'user C', groupTitle: 'group A'});
+
+      // Remove
+      await group.deauthorizeUser(candidate); // By any current member.
+      // Abandoning can only be the user who is abandoning.
+      await Group.collection.withRestrictedTags(await Credentials.teamMembers(candidate.tag), () => candidate.abandonGroup(group));
+      await expectMember(candidate.tag, group.tag,          {userTitle: 'user C', isMember: false, groupActor: candidate.tag});
+
+      // Cleanup. Destroy candidate.
+      await candidate.destroy({prompt: 'q2', answer: "y"});
+      await expectMember(candidate.tag, Group.communityTag, {expectUserData: false, isMember: false, groupActor: candidate.tag});
+      await expectNoKey(candidate.tag);
+      // Cleanup. Destroy group. (Removes destroying user.)
+      await authorizedMember.destroyGroup(group);
+      await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', isMember: false, expectGroupData: false});
+    }, timeLimit(2));
+
+
+    it("handles messages.", async function () {
+      const group = await authorizedMember.createGroup({title: 'chat'});
+      const prompt = 'p1', answer = "a1";
+      const stranger = await User.create({title: 'user D', secrets:[[prompt, answer]], deviceName}); // Not a member of group.
+      await group.send({title: "Hello, world!"}, authorizedMember);
+      await group.send({title: "Goodbye!", type: 'goodbye'}, stranger); // Can inject a message.
+      let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
+      expect(messages).toEqual([
+	{title: "Hello, world!", from: authorizedMember.title, in: group.title, type: 'text'},
+	{title: "Goodbye!", from: stranger.title, in: group.title, type: 'goodbye'}
+      ]);
+      const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
+      expect(fetched.protectedHeader.cty).toContain('encrypted');
+      await stranger.destroy({prompt, answer});
+      await authorizedMember.destroyGroup(group);
+      expectGone(Message.collection, group.tag);
+    }, timeLimit(2));
+  });
+
 
   describe('dependency tracking', function () {
     let reference;
     class ReferencingObject {
-      get communityGroup() { return Group.fetch(Group.communityTag); } // No need to await - it is automatic!
-      get communityTitle() { return this.communityGroup.title; }
+      get personalGroup() { return Group.fetch(authorizedMember.tag); } // No need to await - it is automatic!
+      get personalTitle() { return this.personalGroup.title; }
       get userTitles() { return User.directory.map(user => user.title); }
     }
     Rule.rulify(ReferencingObject.prototype);
     beforeAll(function () { reference = new ReferencingObject(); });
     it("tracks changes to simple property.", async function () {
       // We're outside of a rule here, so we must await the reference to allow it to commpute through propogated promises.
-      let initialTitle = await reference.communityTitle;
-      expect(initialTitle).toBe('group A');
-      reference.communityGroup.title = 'FairShare'; // But now communityGroup has cached the non-promise value.
-      expect(reference.communityTitle).toBe('FairShare');
-      reference.communityGroup.title = initialTitle;
-      expect(reference.communityTitle).toBe('group A');
+      let initialTitle = await reference.personalTitle;
+      expect(initialTitle).toBe("Yourself");
+      reference.personalGroup.title = "testing"; // But now personalGroup has cached the non-promise value.
+      expect(reference.personalTitle).toBe('testing');
+      reference.personalGroup.title = initialTitle;
+      expect(reference.personalTitle).toBe("Yourself");
     });
     it("tracks the live list.", async function () {
       expect(reference.userTitles).toEqual(['user A']);
