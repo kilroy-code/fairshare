@@ -1214,6 +1214,7 @@ class FairshareSync extends MDElement {
 					   LOCAL_TEST && this.sendCode);
 	if (!checkbox.checked) return null; // Because the user gave up on scanning and unchecked us.
 	synchronizeCollections(url, true);
+	await new Promise(resolve => setTimeout(resolve, 100)); // Wait a tick.
 	const receiver = leadConnection.synchronizers.get(url);
 	this.updateText(this.receiveInstructions, `Press "scan other device's code" button on the other device, and use it to read this qr code:`);
 	this.showCode(this.receiveCode, await receiver.connection.signals);
