@@ -237,64 +237,110 @@ export class PublicPrivate extends Enumerated {
 export class User extends PublicPrivate {
   // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
   static persistedProperties = ['picture', 'secrets', 'title'];
-  static privateProperties = ['devices', 'groups'];
+  static privateProperties = ['devices', 'groups', 'bankTag'];
   get picture() { return ''; } // A media tag, or empty to use identicon.
   get devices() { return {}; } // Map of deviceName => userDeviceTag so that user can remotely deauthorize.
   get groups() { return []; }  // Tags of the groups this user has joined.
+  get bankTag() { return ''; } // Tag of the group that is used to access the reserve currency. (An element of groups.)
   get secrets() { return {}; }  // So that we know what to prompt when authorizing, and can preConfirmOwnership.
   get shortName() { return this.title.split(/\s/).map(word => word[0].toUpperCase()).join('.') + '.'; }
 
-  static async create({secrets, deviceName, ...properties}) { // Promise a provisioned instance, as a member of the community group.
+  static async create({secrets, deviceName, bankTag, ...properties}) { // Promise a provisioned instance.
     // PERSISTS Credentials, then Groups, then User
 
     // Create credential.
+    const hashes = await this.setUpSecretsForClaiming(secrets);
+    const userTag = await Credentials.createAuthor(secrets[0][0]); // TODO: make createAuthor create multiple KeyRecovery members.
+    const deviceTag = await this.clearSecretsAndGetDevice(userTag, secrets);
+    const devices = {[deviceName]: deviceTag};
+
+    const user = new this({tag: userTag, devices, secrets:hashes, ...properties}); // will be persisted by adoptGroup, below.
+    await user.initialize(bankTag);
+    return user;
+  }
+  static async claim({secrets, deviceName, invitation, ...properties}) {
+    const hashes = await this.setUpSecretsForClaiming(secrets);
+    const userTag = await Credentials.claimInvitation(invitation, secrets[0][0]);
+    const deviceTag = await this.clearSecretsAndGetDevice(userTag, secrets);
+    const devices = {[deviceName]: deviceTag};
+
+    const user = await User.fetch(userTag);
+    await user.edit({devices: {[deviceName]: deviceTag}, secrets: hashes, ...properties, verified: null});
+    return user;
+  }
+  static async setUpSecretsForClaiming(secrets) { // Given [...[prompt, answer]], setAnswer for all, and promise a dictionary of prompt=>hash suitable for user.secrets
     const hashes = {};
     await Promise.all(secrets.map(async ([prompt, answer]) => {
       Credentials.setAnswer(prompt, answer);
       hashes[prompt] = Credentials.encodeBase64url(await Credentials.hashText(answer));
     }));
-    const userTag = await Credentials.createAuthor(secrets[0][0]); // TODO: make createAuthor create multiple KeyRecovery members.
+    return hashes;
+  }
+  static async clearSecretsAndGetDevice(userTag, secrets) {
+    // For use immediately after createAuthor or claimInvitation with userTag. Clears answers set tby setUpSecretsForClaiming, and promises the deviceTag
     secrets.forEach(([prompt]) => Credentials.setAnswer(prompt, null));
-
     // Since we just created it ourselves, we know that userTag has only one Device tag member, and the rest are KeyRecovery tags.
     // But there's no DIRECT way to tell if a tag is a device tag.
     const members = await Credentials.teamMembers(userTag);
-    const deviceTag = await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
-    const devices = {[deviceName]: deviceTag};
-
-    const user = new this({tag: userTag, devices, secrets:hashes, ...properties}); // adoptGroup will persist it.
-
+    return await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
+  }
+  async initialize(bankTag) {
     // Add personal group-of-one (for notes, and for receiving /welcome messages.
-    await user.createGroup({tag: userTag, verified: ''});
-
-    // Now add the community group.
-    const groupTag = Group.communityTag;
-    const communityGroup = await Group.fetch(groupTag); // Could have last been written by someone no longer in the group.
-    await communityGroup.authorizeUser(user); // Requires that this be executed by someone already in that group!
-    await user.adoptGroup(communityGroup);
-    return user;
+    await this.createGroup({tag: this.tag, verified: ''}); // Empty verified keeps us from publishing the group to public directory.
+    // Now add the specified bank.
+    Object.assign(this, {bankTag});
+    const bank = await FairShareGroup.fetch(bankTag);
+    await bank.authorizeUser(this); // Requires that this be executed by someone already in that group!
+    await this.adoptGroup(bank);
+  }
+  async createInvitation({bankTag = this.bankTag} = {}) { // As a user, create an invitation tag for another human to use to create an account.
+    const chat = await this.createGroup({verified: ''}); // Private group of this sponsoring user, and the new invitee.
+    // The (private) user will exist and already be a member of its personal group, the specified bank, and a new pairwise chat group with the inviting user.
+    // When the invitation is claimed, the claiming human will fill in the device/secrets and title.
+    const userTag = await Credentials.createAuthor('-');
+    const user = new this.constructor({tag: userTag, verified: ''});
+    await user.initialize(bankTag);
+    chat.authorizeUser(user);
+    user.adoptGroup(chat);
+    return userTag;
   }
   async destroy({prompt, answer}) { // Permanently removes this user from persistence.
     // PERSISTS Personal Group, then User and Credentials interleaved.
     // Requires prompt/answer because this is such a permanent user action.
-    await this.preConfirmOwnership({prompt, answer});
     const {tag} = this;
+    console.log('destroy user', {prompt, answer, tag});
+    await this.preConfirmOwnership({prompt, answer});
+    console.log('confirmed');
 
-    await this.destroyGroup(await Group.fetchPrivate(tag)); // Destroy personal group while we're still a member.
+    await this.destroyGroup(await FairShareGroup.fetchPrivate(tag)); // Destroy personal group while we're still a member.
+    console.log('destroyed personal group');
     
-    // Leave every group that are a member of.
-    await Promise.all(this.groups.map(async groupTag => {
-      const group = await Group.fetch(groupTag);
-      await this.abandonGroup(group);
-      await group.deauthorizeUser(this);
-    }));
+    // Leave every group that we are a member of.
+    // fixme do this in parallel after debugging: await Promise.all(this.groups.map(async groupTag => {
+    for (let groupTag of this.groups) {
+      console.log('destroying group', groupTag);
+      const group = await FairShareGroup.fetch(groupTag);
+      console.log('group:', group, group.users);
+      if ((group.users.length === 1) && (group.users[0] === this.tag)) { // last memember of group
+	await this.destroyGroup(group);
+	console.log('destroyed');
+      } else {
+	await this.abandonGroup(group);
+	console.log('abandoned');
+	await group.deauthorizeUser(this);
+	console.log('deauthorized');
+      }
+    }// fixme ));
+    console.log('abandoned and deauthorized', this.groups);
 
     // Get rid of User data from collections and LiveSets.
     await super.destroy({});
+    console.log('super destroyed');
 
     // Get rid of credential.
     Credentials.setAnswer(prompt, answer); // Allow recovery key to be destroyed, too.
     await Credentials.destroy({tag, recursiveMembers: true});
+    console.log('key destroyed');
     Credentials.setAnswer(prompt, null);
   }
   async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.
@@ -339,7 +385,7 @@ export class User extends PublicPrivate {
     return deviceTag; // Facilitates testing.
   }
   createGroup(properties) { // Promise a new group with this user as member
-    return Group.create({author: this, ...properties});
+    return FairShareGroup.create({author: this, ...properties});
   }
   destroyGroup(group) { // Promise to destroy group that we are the last member of
     return group.destroy(this);
@@ -442,8 +488,6 @@ export class Member {
 }
 
 export class Group extends PublicPrivate {
-  static communityTag = null; // The tag of the Group of which everyone is a member. Must be set by application.
-
   // Persistables, either public or private:
   static privateCollectionType = VersionedCollection;
   static persistedProperties = ['picture', 'title'];
@@ -455,20 +499,6 @@ export class Group extends PublicPrivate {
   }
   get users() { // A list of tags.
     return [];
-  }
-
-  // Messages are persisted through a VersionedCollection with the same tag as us.
-  // As they become known (sent by our user or from a connection), the are added here.
-  messages = new LiveSet();
-  async send(properties, author) { // Sends Messages as author.
-    // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
-    const message = new Message({...properties, author, owner: this});
-    const tag = await message.persist();
-    this.assert(tag === this.tag, "Mismatched message collection tag", tag, this.tag);
-    const collection = message.constructor.collection;
-    const hash = message.tag = await collection.getRoot(this.tag);
-    this.messages.set(hash, message);
-    return message;
   }
 
   static async create({author:user, tag = Credentials.create(user.tag), ...properties}) { // Promise a new Group with user as member
@@ -505,6 +535,32 @@ export class Group extends PublicPrivate {
     await this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
+}
+
+// We don't actually instantiate different subclasses of Group. This break out is just for maintenance.
+class MessageGroup extends Group { // Supports a history of messages.
+  // Messages are persisted through a VersionedCollection with the same tag as us.
+  // As they become known (sent by our user or from a connection), the are added here.
+  messages = new LiveSet();
+  async send(properties, author) { // Sends Messages as author.
+    // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
+    const message = new Message({...properties, author, owner: this});
+    const tag = await message.persist();
+    this.assert(tag === this.tag, "Mismatched message collection tag", tag, this.tag);
+    const collection = message.constructor.collection;
+    const hash = message.tag = await collection.getRoot(this.tag);
+    this.messages.set(hash, message);
+    return message;
+  }
+}
+
+class TokenGroup extends MessageGroup { // Supports a balance for each member.
+}
+
+class VotingGroup extends TokenGroup { // Supports voting for members and monetary policy.
+}
+
+export class FairShareGroup extends VotingGroup {
 }
 
 // The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".
