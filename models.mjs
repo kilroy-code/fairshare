@@ -308,39 +308,27 @@ export class User extends PublicPrivate {
     // PERSISTS Personal Group, then User and Credentials interleaved.
     // Requires prompt/answer because this is such a permanent user action.
     const {tag} = this;
-    console.log('destroy user', {prompt, answer, tag});
     await this.preConfirmOwnership({prompt, answer});
-    console.log('confirmed');
 
     await this.destroyGroup(await FairShareGroup.fetchPrivate(tag)); // Destroy personal group while we're still a member.
-    console.log('destroyed personal group');
     
     // Leave every group that we are a member of.
-    // fixme do this in parallel after debugging: await Promise.all(this.groups.map(async groupTag => {
-    for (let groupTag of this.groups) {
-      console.log('destroying group', groupTag);
+    await Promise.all(this.groups.map(async groupTag => {
       const group = await FairShareGroup.fetch(groupTag);
-      console.log('group:', group, group.users);
       if ((group.users.length === 1) && (group.users[0] === this.tag)) { // last memember of group
 	await this.destroyGroup(group);
-	console.log('destroyed');
       } else {
 	await this.abandonGroup(group);
-	console.log('abandoned');
 	await group.deauthorizeUser(this);
-	console.log('deauthorized');
       }
-    }// fixme ));
-    console.log('abandoned and deauthorized', this.groups);
+    }));
 
     // Get rid of User data from collections and LiveSets.
     await super.destroy({});
-    console.log('super destroyed');
 
     // Get rid of credential.
     Credentials.setAnswer(prompt, answer); // Allow recovery key to be destroyed, too.
     await Credentials.destroy({tag, recursiveMembers: true});
-    console.log('key destroyed');
     Credentials.setAnswer(prompt, null);
   }
   async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.

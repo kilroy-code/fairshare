@@ -5,6 +5,22 @@ const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 Object.assign(globalThis, {User, FairShareGroup, Message, Credentials}); // for debugging in browser
 
+// TODO:
+// transfer: member 2 member
+// transfer: member burn
+// transfer: group to bank
+// transfer: bank to group
+// transfer: to member of another group using bank and reserve
+// voting: admit
+// voting: expell
+// voting: tax
+// voting: stipend
+// voting: rollback
+// voting: mint
+// merging: with rollback
+// merging: with tax/stipend votes by a user expelled in another branch
+// merging: with admit votes by a user expelled in another branch
+
 function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite a bit (deliberately).
   return (nKeysCreated * 6e3) + 6e3;
 }
@@ -347,39 +363,57 @@ describe("Model management", function () {
   });
 
   describe("combined", function () {
-    it('can invite a non-member, who can then claim.', async function () {
-      let invitation = await authorizedMember.createInvitation();
+    describe("non-member invitation", function () {
+      let invitation, user, pairwiseChatTag, pairwiseChat;
       const prompt = 'q2', answer = "foo", deviceName = "something";
       const title = "I Am I";
-      const user = await User.claim({invitation, title, secrets: [[prompt, answer]], deviceName});
-      const pairwiseChatTag = user.groups.find(tag => ![user.tag, bankTag].includes(tag));
-      const pairwiseChat = await FairShareGroup.fetch(pairwiseChatTag);
-
-      expect(invitation).toBe(user.tag);
-      // Cannot claim a second time.
-      expect(await User.claim({invitation, title, secrets: [[prompt, answer]], deviceName}).catch((fixme) => {console.log('fail', fixme); return 'failed';})).toBe('failed');
-
-      expect(user.secrets[prompt]).toBe(await Credentials.encodeBase64url(await Credentials.hashText(answer)));
-      expect(await Credentials.teamMembers(user.tag)).toContain(user.devices[deviceName]);
-      await expectMember(user.tag, bankTag, {userTitle: title, groupTitle: "First YZ Bank"});
-      await expectMember(user.tag, user.tag, {userTitle: title, groupTitle: null}); // Group does have a computed title ("Yourself"), but not in persisted public data.
-      // Invitee and sponsor are members of a pairwiseChat, which was written by new user.
-      await expectMember(user.tag, pairwiseChatTag, {userTitle: title, groupTitle: null});
-      await expectMember(authorizedMember.tag, pairwiseChatTag, {userTitle: authorizedMember.title, groupTitle: null, groupActor: user.tag});
-
-      await pairwiseChat.send({title: 'welcome!'}, authorizedMember);
-      await pairwiseChat.send({title: 'thanks for inviting me'}, user);
-      expectMessages(pairwiseChat, [
-	{title: "welcome!", from: authorizedMember.title, in: pairwiseChat.title, type: 'text'},
-	{title: "thanks for inviting me", from: user.title, in: pairwiseChat.title, type: 'text'}
-      ]);
-      
-      // Cleanup
-      await user.destroy({prompt, answer});
-      await expectMember(user.tag, bankTag, {isMember: false, expectUserData: false});
-      await expectMember(user.tag, pairwiseChatTag, {isMember: false, expectUserData: false, groupTitle: null});
-      await expectMember(authorizedMember.tag, pairwiseChatTag, {userTitle: authorizedMember.title, groupTitle: null, groupActor: user.tag}); // still
+      beforeAll(async function () {
+	invitation = await authorizedMember.createInvitation();
+	user = await User.claim({invitation, title, secrets: [[prompt, answer]], deviceName});
+	pairwiseChatTag = user.groups.find(tag => ![user.tag, bankTag].includes(tag));
+	pairwiseChat = await FairShareGroup.fetch(pairwiseChatTag);
       });
+      it("matches user tag.", function () {
+	expect(invitation).toBe(user.tag);
+      });
+      it("cannot be claimed a second time.", async function () {
+	expect(await User.claim({invitation, title, secrets: [[prompt, answer]], deviceName})
+	       .catch(() => 'failed'))
+	  .toBe('failed');
+      });
+      it("includes claimed secrets.", async function () {
+	expect(user.secrets[prompt]).toBe(await Credentials.encodeBase64url(await Credentials.hashText(answer)));
+      });
+      it("includes claimed device.", async function () {
+	expect(await Credentials.teamMembers(user.tag)).toContain(user.devices[deviceName]);
+      });
+      it("is member of sponsor's bank.", async function () {
+	await expectMember(user.tag, bankTag, {userTitle: title, groupTitle: "First YZ Bank"});
+      });
+      it("has personal group.", async function () {
+	await expectMember(user.tag, user.tag, {userTitle: title, groupTitle: null}); // Group does have a computed title ("Yourself"), but not in persisted public data.
+      });
+      it("has a pairwise chat with invitee and sponsor as members.", async function () {
+	// Invitee and sponsor are members of a pairwiseChat, which was written by new user.
+	await expectMember(user.tag, pairwiseChatTag, {userTitle: title, groupTitle: null});
+	await expectMember(authorizedMember.tag, pairwiseChatTag, {userTitle: authorizedMember.title, groupTitle: null, groupActor: user.tag});
+      });
+      it("accepts messages from invitee and sponsor.", async function () {
+	await pairwiseChat.send({title: 'welcome!'}, authorizedMember);
+	await pairwiseChat.send({title: 'thanks for inviting me'}, user);
+	expectMessages(pairwiseChat, [
+	  {title: "welcome!", from: authorizedMember.title, in: pairwiseChat.title, type: 'text'},
+	  {title: "thanks for inviting me", from: user.title, in: pairwiseChat.title, type: 'text'}
+	]);
+      });
+
+      afterAll(async function () {
+	await user.destroy({prompt, answer});
+	await expectMember(user.tag, bankTag, {isMember: false, expectUserData: false});
+	await expectMember(user.tag, pairwiseChatTag, {isMember: false, expectUserData: false, groupTitle: null});
+	await expectMember(authorizedMember.tag, pairwiseChatTag, {userTitle: authorizedMember.title, groupTitle: null, groupActor: user.tag}); // still
+      });
+    });
 
     describe('dependency tracking', function () {
       let reference;
