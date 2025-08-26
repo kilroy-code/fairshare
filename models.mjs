@@ -214,6 +214,9 @@ export class PublicPrivate extends Enumerated {
     return this._privateCollection ??= new this.privateCollectionType({name: this.prefix + this.name + 'Private'});
   }
   static privateCollectionType = MutableCollection;
+  // Those know to any of this device's authorized user:
+  // - When a messages come in to a group that an autorized user is in but the current user is not, we still want the notificaiton.
+  // - We want to be able to transfer to our alts.
   static get privateDirectory() {
     return this._privateDirectory ?? new LiveSet();
   }
@@ -250,6 +253,19 @@ export class PublicPrivate extends Enumerated {
     // But if it is one of ours, then surely we can decrypt it, which we need to do so that the properties can be updated.
     const decrypted = await MutableCollection.ensureDecrypted(verifiedPrivate);
     Object.assign(await this.fetchPrivate(tag), {verifiedPrivate, ...decrypted.json});
+  }
+}
+
+export class History extends Persistable {
+  // Persists as a history (often under the same tag as a related application object such as a Group).
+  static collectionType = VersionedCollection;
+  async persistToSet(liveSet, host) {
+    const tag = await this.persist();
+    this.assert(tag === host.tag, "Mismatched message collection tag", tag, host.tag);
+    const collection = this.constructor.collection;
+    const hash = this.tag = await collection.getRoot(host.tag);
+    liveSet.set(hash, this);
+    return this;
   }
 }
 
@@ -426,19 +442,6 @@ export class User extends PublicPrivate {
   }
 }
 
-export class History extends Persistable {
-  // Persists as a history (often under the same tag as a related application object such as a Group).
-  static collectionType = VersionedCollection;
-  async persistToSet(liveSet, host) {
-    const tag = await this.persist();
-    this.assert(tag === host.tag, "Mismatched message collection tag", tag, host.tag);
-    const collection = this.constructor.collection;
-    const hash = this.tag = await collection.getRoot(host.tag);
-    liveSet.set(hash, this);
-    return this;
-  }
-}
-
 export class Message extends History {
   // Has additional properties author, timestamp, and type, which are currently unencrypted in the header. (We may encrypt author tag.)
   // A lightweight immutable object, belonging to a group.
@@ -472,36 +475,6 @@ export class Message extends History {
       mt: this.type === 'text' ? undefined : this.type
     };
     return signing;
-  }
-}
-
-const DIVISIONS = 100; // for now
-const MILLISECONDS_PER_DAY = 1e3 * 60 * 60 * 24;
-export class Member {
-  get balance() { return 0; }
-  get lastUpdate() { return Date.now(); }
-  toPOJO() {
-    const {balance, lastUpdates, votes} = this;
-    return {balance, lastUpdates, votes};
-  }
-  constructor({votes, ...properties}) {
-    Object.assign(this, properties);
-    for (let [key, value] of Object.entries(votes)) {
-      votes.set(key, value);
-    }
-  }
-  updateBalance(stipend, increment = 0) {
-    const now = Date.now();
-    let {balance, lastStipend = now} = this;
-    const daysSince = Math.floor((now - lastStipend) / MILLISECONDS_PER_DAY);
-    lastStipend = now;
-    return this.balance = this.roundDownToNearest(balance + (stipend * daysSince) + increment);
-  }
-  roundUpToNearest(number, unit = DIVISIONS) { // Rounds up to nearest whole value of unit.
-    return Math.ceil(number * unit) / unit;
-  }
-  roundDownToNearest(number, unit = DIVISIONS) { // Rounds up to nearest whole value of unit.
-    return Math.floor(number * unit) / unit;
   }
 }
 
@@ -568,6 +541,26 @@ class MessageGroup extends Group { // Supports a history of messages.
   // todo: update messages with new entries. test.
 }
 
+export class Member extends History {
+  static DIVISIONS = 100; // for now
+  static MILLISECONDS_PER_DAY = 1e3 * 60 * 60 * 24;
+  get balance() { return 0; }
+  get lastUpdate() { return Date.now(); }
+  updateBalance(stipend, increment = 0) {
+    const now = Date.now();
+    let {balance, lastStipend = now} = this;
+    const daysSince = Math.floor((now - lastStipend) / this.constructor.MILLISECONDS_PER_DAY);
+    lastStipend = now;
+    return this.balance = this.roundDownToNearest(balance + (stipend * daysSince) + increment);
+  }
+  roundUpToNearest(number, unit = this.constructor.DIVISIONS) { // Rounds up to nearest whole value of unit.
+    return Math.ceil(number * unit) / unit;
+  }
+  roundDownToNearest(number, unit = this.constructor.DIVISIONS) { // Rounds up to nearest whole value of unit.
+    return Math.floor(number * unit) / unit;
+  }
+}
+
 class TokenGroup extends MessageGroup { // Supports a balance for each member.
   static persistedProperties = ['rate', 'stipend'].concat(MessageGroup.persistedProperties);
   get rate() {
@@ -575,6 +568,32 @@ class TokenGroup extends MessageGroup { // Supports a balance for each member.
   }
   get stipend() {
     return 0;
+  }
+  get tagBytes() {
+    const size = 32;
+    let uint8 = Credentials.decodeBase64url(this.tag);
+    if (uint8.length === size)  return uint8;
+    const larger = new Uint8Array(size);
+    larger.set(uint8);
+    return larger;
+  }
+  getMemberTag(userTag) { // Return the persistence tag for user within this group.
+    // user.tag XOR group.tag
+    const nBytes = 32;
+    const userBytes = Credentials.decodeBase64url(userTag);
+    const groupBytes = this.tagBytes;
+    const result = new Uint8Array(nBytes);
+    for (let i = 0; i < nBytes; i++) {
+      result[i] = (userBytes.length <= i ? 0 : userBytes[i]) ^ groupBytes[i];
+    }
+    return Credentials.encodeBase64url(result);
+  }
+  members = new LiveSet();
+  // We update members on adopt/abandonGroup, and fetch/update of known privateGroup.
+  ensureMember(userTag) {
+    const member = Member.fetch(this.getmemberTag(userTag));
+    this.members.set(userTag, member);
+    return member;
   }
 }
 

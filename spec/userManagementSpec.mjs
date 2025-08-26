@@ -115,7 +115,7 @@ describe("Model management", function () {
     const group = new FairShareGroup({title: "First YZ Bank", tag: bankTag});
     await group.persist({tag:bootstrapUserTag}); // Pun: {tag} looks like a store option, but it's actually a fake User with a tag property.
     // Using the bootstrap users, construct a real authorized member of the bank.
-    authorizedMember = await User.create({title: 'user A', secrets:[['q0', "17"]], deviceName, bankTag});
+    globalThis.authorizedMember = authorizedMember = await User.create({title: 'user A', secrets:[['q0', "17"]], deviceName, bankTag});
     await Credentials.changeMembership({tag: bankTag, remove: [bootstrapUserTag]});
     await Credentials.destroy(bootstrapUserTag);
 
