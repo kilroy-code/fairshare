@@ -1,9 +1,9 @@
-import { Credentials, MutableCollection } from '@kilroy-code/flexstore';
+import { Credentials, MutableCollection, VersionedCollection } from '@kilroy-code/flexstore';
 import { Rule } from '@kilroy-code/rules';
 import { User, FairShareGroup, Message } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
-Object.assign(globalThis, {User, FairShareGroup, Message, Credentials}); // for debugging in browser
+Object.assign(globalThis, {User, FairShareGroup, Message, Credentials, MutableCollection, VersionedCollection}); // for debugging in browser
 
 // TODO:
 // transfer: member 2 member
@@ -139,7 +139,9 @@ describe("Model management", function () {
   describe("user", function () {
     let user;
     beforeAll(async function () {
+      Credentials.debug = true;
       user = await User.create({title: 'user B', secrets:[['q1', "42"]], deviceName, bankTag});
+      Credentials.debug = false;
     }, timeLimit(1));
 
     it("has a bank.", async function () {
@@ -313,7 +315,6 @@ describe("Model management", function () {
       const dummy2 = await FairShareGroup.fetch('non-existent'); // Got cached on creation.
       expect(dummy2).toBe(dummy);
     });
-
     it("adds/removes user from group.", async function () {
       // Setup: create group and candidate user.
       const group = await authorizedMember.createGroup({title: 'group C'});
@@ -343,6 +344,32 @@ describe("Model management", function () {
       await expectMember(authorizedMember.tag, group.tag,   {userTitle: 'user A', isMember: false, expectGroupData: false});
     }, timeLimit(2));
 
+    it("has rate.", async function () {
+      const defaultGroup = await authorizedMember.createGroup();
+      let specifiedGroup = await authorizedMember.createGroup({rate: 0.01});
+      let tag = specifiedGroup.tag;
+      expect(defaultGroup.rate).toBe(0);
+      expect(specifiedGroup.rate).toBe(0.01);
+      FairShareGroup.directory.delete(tag);
+      FairShareGroup.privateDirectory.delete(tag);
+      specifiedGroup = await FairShareGroup.fetch(tag);
+      expect(specifiedGroup.rate).toBe(0.01);
+      await authorizedMember.destroyGroup(defaultGroup);
+      await authorizedMember.destroyGroup(specifiedGroup);
+    }, timeLimit(2));
+    it("has stipend.", async function () {
+      const defaultGroup = await authorizedMember.createGroup();
+      let specifiedGroup = await authorizedMember.createGroup({stipend: 2});
+      let tag = specifiedGroup.tag;
+      expect(defaultGroup.stipend).toBe(0);
+      expect(specifiedGroup.stipend).toBe(2);
+      FairShareGroup.directory.delete(tag);
+      FairShareGroup.privateDirectory.delete(tag);
+      specifiedGroup = await FairShareGroup.fetch(tag);
+      expect(specifiedGroup.stipend).toBe(2);
+      await authorizedMember.destroyGroup(defaultGroup);
+      await authorizedMember.destroyGroup(specifiedGroup);
+    }, timeLimit(2));
 
     it("handles messages.", async function () {
       const group = await authorizedMember.createGroup({title: 'chat'});
@@ -372,7 +399,7 @@ describe("Model management", function () {
 	user = await User.claim({invitation, title, secrets: [[prompt, answer]], deviceName});
 	pairwiseChatTag = user.groups.find(tag => ![user.tag, bankTag].includes(tag));
 	pairwiseChat = await FairShareGroup.fetch(pairwiseChatTag);
-      });
+      }, timeLimit(3));
       it("matches user tag.", function () {
 	expect(invitation).toBe(user.tag);
       });

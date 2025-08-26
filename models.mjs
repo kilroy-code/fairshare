@@ -81,6 +81,24 @@ Rule.rulify(LiveSet.prototype, {ruleNames: ['examined']});
 /// Base persistence classes
 ////////////////////////////////
 
+
+// In general:
+// - fetch(tag) promises the object denoted by tag, idempotently, using various LiveSets that are kept in different places depending on the object.
+// - update(tag, verifiedData) from update events causes the in-memory object to be updated and any dependent rules to be recursively reset.
+// - Reaching in to to assign new property values will recursively reset dependent rules, but not persist the object.
+// - edit(changedProperties) promises to update and persist.
+//
+// - fetch and update will Object.assign the stored json to this, assigning each explicitly appearing property.
+// - persist and its helpers will produce a POJO (or two, for private properties) with the property name/values that need to be saved per persistedProperties/privateProperties list.
+//
+// - Do not mix public and private data. Use two collections if needed, with the private collection members encrypted.
+// - VersionedCollections are the only ones that can be written by other than the owner. (Because their merging can reconstruct through bogus writes.)
+// - Data that corresponds 1:1 with an owner but with different privacy, versioning, etc. - e.g., Group and it's Messages - can be put it in another collection with the same tag.
+// - Data that needs to be 2-keyed - e.g., user balances in a group - the consituent keys can be concatenated, xor-ed, or mapped to a GUID.
+// - Some data can be reproduced and should probably not be stored unless needed for, e.g, exposure. E.g., Group member id can be produced from the keyset recipients,
+//   and current tax/stipend can be reproduced from voting. However, the historic values of the latter are (currently) available as a public history (for investors).
+
+
 // Defines persist/edit/destroy instance methods that manage the object's persistence, which retain the tag through which it is persisted.
 // Defines fetch/update class methods that operate on tags, creating the instance.
 // Data is persisted as a canonicalized JSON, including title, which is a reference-tracking (Rule) property.
@@ -94,7 +112,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     return this._collection ??= new this.collectionType({name: this.prefix + this.name});
   }
   static prefix = 'social.fairshare.';
-  static collectionType = MutableCollection
+  static collectionType = MutableCollection;
 
   constructor({verified = null, ...properties}) { // Works for accessors, rules, or unspecified property names.
     // Verified is null for constructed stuff, and non-null if successfully fetched.
@@ -103,7 +121,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   }
   static async fetch(tag) { // Promise the specified object from the collection.
     // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
-    if (!tag) throw new Error("A tag is required.");
+    if (!tag) throw new Error("No tag was specified for fetch.");
     // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
     const verified = await this.collection.retrieve({tag, member: null});
     // Tag isn't directly persisted, but we have it to store in the instance.
@@ -112,6 +130,14 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
   }
   persistOptions({author = this.author, owner = this, tag = this.tag, ...rest}) {
     return {tag, ...rest, owner: owner?.tag || tag, author: author?.tag || tag};
+  }
+  persistProperty(data, name, value) { // Adds value to data POJO IFF it should be stored.
+    // We generally don't want to explicitly store things that can be computed by rules, for canonicalization purposes (and size).
+    // Lots of ways this could be done. This simple version just omits falsy and empty array.
+    if (Array.isArray(value) && !value.length) return;
+    // Note that if a value was meaningfully different as 0, '', false, [], this would fail to preserve that.
+    if (!value) return;
+    data[name] = value;
   }
   async persistProperties(propertyNames, collection, options)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
@@ -122,7 +148,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     const persistOptions = this.persistOptions(options);
     for (const name of propertyNames) {
       const value = await this[name]; // May be a rule that has not yet be resolved.
-      if (value) data[name] = value;
+      this.persistProperty(data, name, value);
     }
     return await collection.store(data, persistOptions);
   }
@@ -145,6 +171,7 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     if (!boolean) throw new Error(label, ...labelArgs);
   }
 
+  static persistedProperties = ['title'];
   // Ruled properties.
   get tag() { return ''; }   // A string that identifies the item, as used by fetch, e.g. Typically base64url.
   get title() { return ''; } // A string that is enough for a human to say, roughly, "that one".
@@ -236,7 +263,7 @@ export class PublicPrivate extends Enumerated {
 // and create/destroyGroup and adopt/abandonGroup.
 export class User extends PublicPrivate {
   // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
-  static persistedProperties = ['picture', 'secrets', 'title'];
+  static persistedProperties = ['picture', 'secrets'].concat(PublicPrivate.persistedProperties);
   static privateProperties = ['devices', 'groups', 'bankTag'];
   get picture() { return ''; } // A media tag, or empty to use identicon.
   get devices() { return {}; } // Map of deviceName => userDeviceTag so that user can remotely deauthorize.
@@ -310,8 +337,6 @@ export class User extends PublicPrivate {
     const {tag} = this;
     await this.preConfirmOwnership({prompt, answer});
 
-    await this.destroyGroup(await FairShareGroup.fetchPrivate(tag)); // Destroy personal group while we're still a member.
-    
     // Leave every group that we are a member of.
     await Promise.all(this.groups.map(async groupTag => {
       const group = await FairShareGroup.fetch(groupTag);
@@ -385,6 +410,7 @@ export class User extends PublicPrivate {
     const {tag:userTag} = this,
 	  {tag:groupTag} = group;
     this.groups = [...this.groups, groupTag];
+    // TODO: users should come from teamMembers. No reason for additional property. That MIGHT result in no privatGroup data at all.
     group.users = [...group.users , userTag];
     // Not parallel: Do not store user data unless group storage succeeds.
     await group.persist(this);
@@ -400,12 +426,23 @@ export class User extends PublicPrivate {
   }
 }
 
-// Persists as a history, under the same tag as the (User or Group) owner (for which it is always encrypted).
-// Has additional properties author, timestamp, and type, which are currently unencrypted in the header. (We may encrypt author tag.)
-export class Message extends Persistable {
-  // A lightweight immutable object, belonging to a group.
+export class History extends Persistable {
+  // Persists as a history (often under the same tag as a related application object such as a Group).
   static collectionType = VersionedCollection;
-  static persistedProperties = ['title']; // Type, timestamp, and author are in the protectedHeader via persistOptions.
+  async persistToSet(liveSet, host) {
+    const tag = await this.persist();
+    this.assert(tag === host.tag, "Mismatched message collection tag", tag, host.tag);
+    const collection = this.constructor.collection;
+    const hash = this.tag = await collection.getRoot(host.tag);
+    liveSet.set(hash, this);
+    return this;
+  }
+}
+
+export class Message extends History {
+  // Has additional properties author, timestamp, and type, which are currently unencrypted in the header. (We may encrypt author tag.)
+  // A lightweight immutable object, belonging to a group.
+  // Type, timestamp, and author are in the protectedHeader via persistOptions.
   get author() { return null; }
   get owner() { return this.author; }
   get timestamp() { return new Date(); }
@@ -453,13 +490,6 @@ export class Member {
       votes.set(key, value);
     }
   }
-  votes = new LiveSet();
-  getVote(proposition) {
-    return this.votes.get(proposition);
-  }
-  setVote(proposition, value) {
-    this.votes.set(proposition, value);
-  }
   updateBalance(stipend, increment = 0) {
     const now = Date.now();
     let {balance, lastStipend = now} = this;
@@ -477,8 +507,9 @@ export class Member {
 
 export class Group extends PublicPrivate {
   // Persistables, either public or private:
+  static collectionType = VersionedCollection;
   static privateCollectionType = VersionedCollection;
-  static persistedProperties = ['picture', 'title'];
+  static persistedProperties = ['picture'].concat(PublicPrivate.persistedProperties);
   static privateProperties = ['users'];
   get title() { // A string by which the group is known.
     if (this.users.length === 1) return "Yourself";
@@ -532,25 +563,27 @@ class MessageGroup extends Group { // Supports a history of messages.
   messages = new LiveSet();
   async send(properties, author) { // Sends Messages as author.
     // PERSISTS Message, and sets its tag to the StatCollection hash/tag.
-    const message = new Message({...properties, author, owner: this});
-    const tag = await message.persist();
-    this.assert(tag === this.tag, "Mismatched message collection tag", tag, this.tag);
-    const collection = message.constructor.collection;
-    const hash = message.tag = await collection.getRoot(this.tag);
-    this.messages.set(hash, message);
-    return message;
+    return await new Message({...properties, author, owner: this}).persistToSet(this.messages, this);
   }
+  // todo: update messages with new entries. test.
 }
 
 class TokenGroup extends MessageGroup { // Supports a balance for each member.
+  static persistedProperties = ['rate', 'stipend'].concat(MessageGroup.persistedProperties);
+  get rate() {
+    return 0;
+  }
+  get stipend() {
+    return 0;
+  }
 }
 
 class VotingGroup extends TokenGroup { // Supports voting for members and monetary policy.
 }
 
-export class FairShareGroup extends VotingGroup {
+export class FairShareGroup extends VotingGroup { // Application-level group with combined behavior.
 }
 
 // The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".
 // As it happens, each of these three defines at least one getter.
-[Persistable, User, Message, Group].forEach(kind => Rule.rulify(kind.prototype));
+[Persistable, User, Message, Group, TokenGroup].forEach(kind => Rule.rulify(kind.prototype));
