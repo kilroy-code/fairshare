@@ -268,7 +268,7 @@ Rule.rulify(Group.prototype);
     
 const usersPublic   = new MutableCollection(  {name: 'social.fairshare.users.public'});
 const usersPrivate  = new MutableCollection(  {name: 'social.fairshare.users.private'});
-const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.group.public'});
+const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.groups.public'});
 const groupsPrivate = new VersionedCollection({name: 'social.fairshare.groups.private'});
 const messages = new VersionedCollection({name: 'social.fairshare.messages'});
 const media         = new ImmutableCollection({name: 'social.fairshare.media'});
