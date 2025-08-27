@@ -7,7 +7,7 @@
 The bottom of "About", and the top of "tests", should say:
 ```
 @ki1r0y/distributed-security 1.2.4
-@kilroy-code/flexstore 0.0.72
+@kilroy-code/flexstore 0.0.73
 @kilroy-code/ui-components 0.0.41
 ```
 
@@ -15,8 +15,9 @@ and the "About" page additionally gives the current FairShare version. (See next
 
 If it doesn't, then please reload twice. Why twice? The app is designed to start up quickly from cached files -- even if the page server goes away or you do not have Internet connectivity. But reload also checks for new versions to put in the cache. You won't see those new versions until the _next_ reload.
 
-### 0.10.8
-- 
+### 0.10.9
+- New data version.
+- Flexstore: Do not accept versions from unknown keys; handle unverifiable state in merge; fix comments.
 
 ### 0.10.7
 - Internal credentials-management tooling.
