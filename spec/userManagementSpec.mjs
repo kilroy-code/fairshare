@@ -131,7 +131,7 @@ describe("Model management", function () {
     await expectGone(User.privateCollection, authorizedMember.tag);
     await expectNoKey(authorizedMember.tag);
     // authorizedMember was the last member of the bank, so destroying the user destroyed the bank.
-    await expectGone(FairShareGroup.collection, bankTag); 
+    await expectGone(FairShareGroup.collection, bankTag);
     await expectGone(FairShareGroup.privateCollection, bankTag);
     await expectNoKey(bankTag);
   }, timeLimit(1));
@@ -139,9 +139,7 @@ describe("Model management", function () {
   describe("user", function () {
     let user;
     beforeAll(async function () {
-      Credentials.debug = true;
       user = await User.create({title: 'user B', secrets:[['q1', "42"]], deviceName, bankTag});
-      Credentials.debug = false;
     }, timeLimit(1));
 
     it("has a bank.", async function () {
@@ -229,7 +227,7 @@ describe("Model management", function () {
     it("has personal group.", async function () {
       await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: null});
 
-      expect(await FairShareGroup.collection.list()).not.toContain(user.tag); // Not listed in persistent data.
+      expect(await FairShareGroup.collection.list()).not.toContain(user.tag); // Not listed in public persistent data.
       expect(FairShareGroup.directory.has(user.tag)).toBeTruthy(); // In session where instance was made or fetched.
 
       const group = await FairShareGroup.fetch(user.tag); // Works because of previous line.
@@ -237,26 +235,13 @@ describe("Model management", function () {
       expect(group.users).toEqual([user.tag]);
       expect(user.groups).toContain(group.tag);
 
-      // Simulate a new session.
-      FairShareGroup.directory.delete(user.tag);
-      FairShareGroup.privateDirectory.delete(user.tag);
-      let fetched = await FairShareGroup.fetch(user.tag);
+      // // Simulate a new session without adoption.
+      let fetched = await group.refetch(false);
       expect(fetched).not.toBe(group);   // A new (empty) Group instance.
       expect(fetched.users).toEqual([]); // Because it has not fetched private data.
-
-      let personal = await FairShareGroup.fetchPrivate(user.tag); // The normal, later-session-compatible way to get private Groups.
-      expect(personal.users).toEqual([user.tag]);
-      expect(user.groups).toContain(personal.tag);
-      expect(personal).toBe(fetched); // The privateFetch updated the previous fetch result!
-
-      // Now repeat in the other order.
-      FairShareGroup.directory.delete(user.tag);
-      FairShareGroup.privateDirectory.delete(user.tag);
-      personal = await FairShareGroup.fetchPrivate(user.tag);
-      fetched = await FairShareGroup.fetch(user.tag);
-      expect(personal).toBe(fetched);
-      expect(personal.users).toEqual([user.tag]);
-      expect(user.groups).toContain(personal.tag);
+      // Now adopt
+      await fetched.adoptByTag(user.tag);
+      expect(fetched.users).toEqual([user.tag]);
     });
 
     afterAll(async function () {
@@ -350,10 +335,10 @@ describe("Model management", function () {
       let tag = specifiedGroup.tag;
       expect(defaultGroup.rate).toBe(0);
       expect(specifiedGroup.rate).toBe(0.01);
-      FairShareGroup.directory.delete(tag);
-      FairShareGroup.privateDirectory.delete(tag);
-      specifiedGroup = await FairShareGroup.fetch(tag);
+
+      specifiedGroup = await specifiedGroup.refetch();
       expect(specifiedGroup.rate).toBe(0.01);
+
       await authorizedMember.destroyGroup(defaultGroup);
       await authorizedMember.destroyGroup(specifiedGroup);
     }, timeLimit(2));
@@ -363,10 +348,10 @@ describe("Model management", function () {
       let tag = specifiedGroup.tag;
       expect(defaultGroup.stipend).toBe(0);
       expect(specifiedGroup.stipend).toBe(2);
-      FairShareGroup.directory.delete(tag);
-      FairShareGroup.privateDirectory.delete(tag);
-      specifiedGroup = await FairShareGroup.fetch(tag);
+
+      specifiedGroup = await specifiedGroup.refetch();
       expect(specifiedGroup.stipend).toBe(2);
+
       await authorizedMember.destroyGroup(defaultGroup);
       await authorizedMember.destroyGroup(specifiedGroup);
     }, timeLimit(2));

@@ -18,13 +18,14 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
   //
   // This could be implemented differently, e.g., as a Proxy. But we don't need to, yet.
   items = {};
-  // Becomes are computed rule when explicitly specifying ruleNames, below.
-  examined() { return true; } // Purpose is to be a tracked reference that is reset by set/delete.
+  get size() { // Tracked rule that lazilly caches on demand after one or more set/delete.
+    return Object.keys(this.items).length;
+  }
   // We do not currently support length/at(), as these would need to managed deleted items.
   forEach(iterator) {
-    const {items, examined} = this;
+    const {items, size} = this;
+    const length = size;
     const keys = Object.keys(items);
-    const length = examined && keys.length;
     for (let index = 0; index < length; index++) {
       const value = items[keys[index]];
       if (value === null) continue;
@@ -32,9 +33,9 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
     }
   }
   map(iterator) {
-    const {items, examined} = this;
+    const {items, size} = this;
+    const length = size;
     const keys = Object.keys(items);
-    const length = examined && keys.length;    
     const result = Array(length);
     let skipped = 0;
     for (let index = 0; index < length; index++) {
@@ -46,16 +47,16 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
     return result;
   }
   has(key) {
-    const {items, examined} = this;
-    return examined && (key in items) && items[key] !== null;
+    const {items, size} = this;
+    return size && (key in items) && items[key] !== null;
   }
   get(key) {
-    const {items, examined} = this;
-    return examined && items[key];
+    const {items, size} = this;
+    return size && items[key];
   }
   set(key, item) {
     let {items} = this;
-    this.examined = undefined;
+    this.size = undefined;
     if (key in items) {
       items[key] = item;
     } else {
@@ -65,7 +66,7 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
   delete(key) { // has/get/at will answer as falsy, and existing references will be reset.
     // Note however, that it does not actually remove key, but sets its value to null. (See next comment.)
     let {items} = this;
-    this.examined = undefined;
+    this.size = undefined;
     if (!(key in items)) return;
     items[key] = null; // Any references to items[key] will see that this was reset.
     // We COULD do the following, and remove the key until such time that something later sets it.
@@ -75,21 +76,19 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
     //delete items[key];
   }
 }
-Rule.rulify(LiveSet.prototype, {ruleNames: ['examined']});
+Rule.rulify(LiveSet.prototype);
 
 ////////////////////////////////
 /// Base persistence classes
 ////////////////////////////////
 
-
 // In general:
-// - fetch(tag) promises the object denoted by tag, idempotently, using various LiveSets that are kept in different places depending on the object.
+//
+// - fetch(tag) promises the object denoted by tag, idempotently using the directory LiveSet.
 // - update(tag, verifiedData) from update events causes the in-memory object to be updated and any dependent rules to be recursively reset.
+// - adoptByTag/abandonByTag keeps track of whether this device has owner key access to which PublicPrivate instances, adding or clearing any private data.
 // - Reaching in to to assign new property values will recursively reset dependent rules, but not persist the object.
 // - edit(changedProperties) promises to update and persist.
-//
-// - fetch and update will Object.assign the stored json to this, assigning each explicitly appearing property.
-// - persist and its helpers will produce a POJO (or two, for private properties) with the property name/values that need to be saved per persistedProperties/privateProperties list.
 //
 // - Do not mix public and private data. Use two collections if needed, with the private collection members encrypted.
 // - VersionedCollections are the only ones that can be written by other than the owner. (Because their merging can reconstruct through bogus writes.)
@@ -139,17 +138,22 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     if (!value) return;
     data[name] = value;
   }
-  async persistProperties(propertyNames, collection, options)  {
+  async captureProperties(propertyNames)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
     // 1. Subclasses can define any enumerable and non-enumerable properties, but all-and-only the specificly listed ones are saved.
     // 2. The payload is always in a canonical order (as specified by persistedProperties), so that a hash difference is meaningful.
     if (!propertyNames.length) return null; // Useful in debugging, but otherwise can be removed.
     const data = {};
-    const persistOptions = this.persistOptions(options);
     for (const name of propertyNames) {
       const value = await this[name]; // May be a rule that has not yet be resolved.
       this.persistProperty(data, name, value);
     }
+    return data;
+  }
+  async persistProperties(propertyNames, collection, options)  {
+    const data = await this.captureProperties(propertyNames);
+    if (!data) return data;
+    const persistOptions = this.persistOptions(options);
     return await collection.store(data, persistOptions);
   }
   persist(author) { // Promise to save this instance.
@@ -160,11 +164,12 @@ class Persistable { // Can be stored in Flexstore Collection, as a signed JSON b
     // FIXME: shouldn't this be leaving a tombstone??
     return this.constructor.collection.remove(this.persistOptions(options));
   }
-  edit(changedProperties, asUser = this) {
+  edit(changedProperties, asUser = this) { // Asign the data and persist for everyone.
     Object.assign(this, changedProperties);
     return this.persist(asUser);
   }
   static async update(tag, verified) { // Suitable for use in a Collection update event handler.
+    // No need to edit(), as by definition the new data has already been persisted.
     Object.assign(await this.fetch(tag), {verified, ...verified.json});
   }
   assert(boolean, label, ...labelArgs) {
@@ -186,9 +191,11 @@ export class Enumerated extends Persistable {
   // 2. Changes to their membership cause references to the enumeration to update.
   // One such enumeration, common to both User and Group, is directory.
   // Other examples are in the respective subclasses.
-  static get directory() {
-    return this._directory ??= new LiveSet();
-  }
+  
+  // This is lazy getter rather than a simple static property so that subclasses have their own LiveSet.
+  // E.g., User and Group can each use the same same tags to denote different objects.
+  static get directory() { return this._directory ??= new LiveSet(); }
+
   constructor(properties) { // Save it in the directory for use by fetch.
     super(properties);
     this.constructor.directory.set(properties.tag, this); // Here rather than fetch, so as to include newly created stuff.
@@ -205,36 +212,60 @@ export class Enumerated extends Persistable {
 }
 
 // Splits the persisted data into public/unencrypted and private/encrypted parts, persisted in separate collections with the same tag.
-// If the static directory propery includes all known-to-you objects, the static privateDirectory includes only the ones you have access to.
-// (Where the tag belongs in both, the instance in each LiveSet is the same.)
 export class PublicPrivate extends Enumerated {
-  // In addition to the directory, provides a second LiveSet that are the SUBSET that are mine.
-  // Automatically splits and combines from a second privateCollection that are encrypted.
+  // Automatically splits and combines from a second collection that is encrypted.
   static get privateCollection() {
     return this._privateCollection ??= new this.privateCollectionType({name: this.prefix + this.name + 'Private'});
   }
   static privateCollectionType = MutableCollection;
-  // Those know to any of this device's authorized user:
-  // - When a messages come in to a group that an autorized user is in but the current user is not, we still want the notificaiton.
-  // - We want to be able to transfer to our alts.
-  static get privateDirectory() {
-    return this._privateDirectory ?? new LiveSet();
+
+  // Keep track of which objects are "ours", so that:
+  // 1. They can be displayed differently.
+  // 2. When we get updates, we know whether to attept to decrypt and update private data, and to act on it (e.g. notifications).
+  // In both cases the app may need to distinguish between whether they are accessible to the current (app-specific) user,
+  // or to any of the device's authorized users. this.myOwners.has(key) and !this.myOwners.size are both reset on adoptByTag/abandonByTag.
+  myOwners = new LiveSet();
+  async adoptByTag(tag) { // The instance is one that we own. Add private data. (Security is enforced by cryptography, not by this.)
+    const {myOwners} = this;
+    if (myOwners.has(tag)) return this;
+    const populated = myOwners.size;
+    myOwners.set(tag, tag); // Pun: value is also tag, so that myOwners.forEach/.map provides a way to iterate over owners.
+    if (populated) return this;
+    const verifiedPrivate = await this.constructor.privateCollection.retrieve(this.tag); // Might be '' right now.
+    const assignment = {verifiedPrivate, ...(verifiedPrivate?.json || {})};
+    Object.assign(this, assignment);
+    return this;
   }
-  // fetchPrivate() will only work if you have access (e.g., the private data exists and you can decrypt it),
-  //   and will always produce the same instance. PublicPrivate.privateDirectory lists the one's you've seen.
-  // fetch() will work for anyone, using a tag that appears on a public collection (e.g., tags returned by Collection.list
-  //   or otherwise known), and will always produce the same instance. Enumerated.directory lists the one's you've seen.
-  static async fetchPrivate(tag) { // Fetch public and additional private data, merging the decrypted private data into the object.
-    const {privateDirectory} = this;
-    if (privateDirectory.has(tag)) return privateDirectory.get(tag);
-    const [instance, verifiedPrivate] = await Promise.all([this.fetch(tag), this.privateCollection.retrieve(tag)]);
-    Object.assign(instance, {verifiedPrivate, ...verifiedPrivate.json}); // Merge the private data.
-    privateDirectory.set(tag, instance);
-    return instance;
+  abandonByTag(tag) { // This is no longer one that we own. Clear private data.
+    const {myOwners} = this;
+    if (!myOwners.has(tag)) return this;
+    myOwners.delete(tag);
+    if (myOwners.size) return this;
+    this.constructor.privateProperties.forEach(property => { // We were the last: reset private properties.
+      this[property] = undefined;
+    });
+    return this;
+  }
+  async refetch(re_adopt = true) { // Rebuild from persistence, adopting again if it was and is requested now.
+    // Used for testing.
+    const {myOwners} = this;
+    const isMine = myOwners.size;
+    const pastOwners = [];
+    await Promise.all(myOwners.map(tag => {
+      pastOwners.push(tag);
+      return this.abandonByTag(tag);
+    }));
+    this.constructor.directory.delete(this.tag);
+    const item = await this.constructor.fetch(this.tag);
+    if (isMine && re_adopt) {
+      await Promise.all(pastOwners.map(tag => item.adoptByTag(tag)));
+    }
+    return item;
   }
   async persist(author) { // Promise to save this instance.
     const {privateProperties, privateCollection} = this.constructor;
-    const pprivate = await this.persistProperties(privateProperties, privateCollection, {author, encryption: this.tag});
+    const data = await this.captureProperties(privateProperties);
+    const pprivate = await this.persistProperties(privateProperties, privateCollection, {author, encryption: this.tag}, data);
     // A private object has no public data. A fetch will produce empty string in the 'verified' property.
     // We explicitly set that on creation, too.
     // Either way, we don't persist an empty string in the public colleciton.
@@ -245,18 +276,20 @@ export class PublicPrivate extends Enumerated {
   async destroy(options) { // Remove from private, too.
     const {tag} = this;
     await super.destroy(options);
-    await this.constructor.privateDirectory.delete(this.tag);
     await this.constructor.privateCollection.remove(this.persistOptions(options));
   }
-  static async updatePrivate(tag, verifiedPrivate) {
+  static async updatePrivate(tag, verifiedPrivate) { // Used for update event on this.privateCollection.
+    // There is an update handler on this.collection (using this.update), and one this.privateCollection using this method here.
     // The 'update' event machinery cannot decrypt payloads for us, because the data might not be ours.
     // But if it is one of ours, then surely we can decrypt it, which we need to do so that the properties can be updated.
-    const decrypted = await MutableCollection.ensureDecrypted(verifiedPrivate);
-    Object.assign(await this.fetchPrivate(tag), {verifiedPrivate, ...decrypted.json});
+    const fetched = await this.fetch(tag);
+    if (!fetched.myOwners.size) return;
+    verifiedPrivate = await MutableCollection.ensureDecrypted(verifiedPrivate);
+    Object.assign(fetched, {verifiedPrivate, ...(verifiedPrivate?.json || {})});
   }
 }
 
-export class History extends Persistable {
+export class History extends Enumerated {
   // Persists as a history (often under the same tag as a related application object such as a Group).
   static collectionType = VersionedCollection;
   async persistToSet(liveSet, host) {
@@ -327,7 +360,8 @@ export class User extends PublicPrivate {
     const members = await Credentials.teamMembers(userTag);
     return await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
   }
-  async initialize(bankTag) {
+  async initialize(bankTag) { // Set up initial private data for this user. Execution requires the bank members key set.
+    await this.adoptByTag(this.tag); // Personal group and bank are private User data.
     // Add personal group-of-one (for notes, and for receiving /welcome messages.
     await this.createGroup({tag: this.tag, verified: ''}); // Empty verified keeps us from publishing the group to public directory.
     // Now add the specified bank.
@@ -337,7 +371,7 @@ export class User extends PublicPrivate {
     await this.adoptGroup(bank);
   }
   async createInvitation({bankTag = this.bankTag} = {}) { // As a user, create an invitation tag for another human to use to create an account.
-    const chat = await this.createGroup({verified: ''}); // Private group of this sponsoring user, and the new invitee.
+    const chat = await this.createGroup({verified: ''}); // Private group-of-2 for this sponsoring user and the new invitee.
     // The (private) user will exist and already be a member of its personal group, the specified bank, and a new pairwise chat group with the inviting user.
     // When the invitation is claimed, the claiming human will fill in the device/secrets and title.
     const userTag = await Credentials.createAuthor('-');
@@ -345,6 +379,7 @@ export class User extends PublicPrivate {
     await user.initialize(bankTag);
     chat.authorizeUser(user);
     user.adoptGroup(chat);
+    user.abandonByTag(user.tag); // To be adopted by the claimant.
     return userTag;
   }
   async destroy({prompt, answer}) { // Permanently removes this user from persistence.
@@ -372,6 +407,12 @@ export class User extends PublicPrivate {
     await Credentials.destroy({tag, recursiveMembers: true});
     Credentials.setAnswer(prompt, null);
   }
+  async adoptByTag(tag) {
+    await super.adoptByTag(tag);
+    // Now that we have user's groups...
+    await Promise.all(this.groups.map(groupTag => FairShareGroup.fetch(groupTag).then(group => group.adoptByTag(tag))));
+    return this;
+  }
   async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.
     // Can be used up front, rather than waiting and getting errors.
     // Note that one could get a false positive by trying to, e.g., sign something, because the device might be present.
@@ -393,7 +434,7 @@ export class User extends PublicPrivate {
     Credentials.setAnswer(prompt, answer);
     await Credentials.changeMembership({tag, add: [deviceTag]});  // Must be before fetch.
     Credentials.setAnswer(prompt, null);
-    await User.fetchPrivate(tag); // Updates this with private data, adding devices entry.
+    await this.adoptByTag(tag); // Updates this with private data, adding devices entry.
     const {devices} = this;
     devices[deviceName] = deviceTag; // TODO?: Do we want to canonicalize deviceName order?
     await this.edit({devices});
@@ -410,7 +451,7 @@ export class User extends PublicPrivate {
     await Credentials.changeMembership({tag, remove: [deviceTag]}); // Remove device key tag from user team.
     await Credentials.destroy(deviceTag)  // Might be remote: try to destroy device key, and swallow error.
       .catch(() => console.warn(`${this.title} device key set ${deviceTag} on ${deviceName} is not available from here.`));
-
+    await this.abandonByTag(tag);
     return deviceTag; // Facilitates testing.
   }
   createGroup(properties) { // Promise a new group with this user as member
@@ -423,11 +464,13 @@ export class User extends PublicPrivate {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
     // PERSISTS Group, then User
-    const {tag:userTag} = this,
-	  {tag:groupTag} = group;
+    const {tag:userTag} = this;
+    const {tag:groupTag} = group;
+    await group.adoptByTag(userTag);
+    const users = group.users;
     this.groups = [...this.groups, groupTag];
     // TODO: users should come from teamMembers. No reason for additional property. That MIGHT result in no privatGroup data at all.
-    group.users = [...group.users , userTag];
+    group.users = [...users , userTag];
     // Not parallel: Do not store user data unless group storage succeeds.
     await group.persist(this);
     await this.persist(this);
@@ -435,9 +478,9 @@ export class User extends PublicPrivate {
   async abandonGroup(group) {
     // Used by user to remove a group from their own user data.
     // PERSISTS User
+    await group.abandonByTag(this.tag);
     const groupTag = group.tag;
     this.groups = this.groups.filter(tag => tag !== groupTag);
-    this.constructor.privateDirectory.delete(groupTag);  // Does not remove data from directory.
     return await this.persist(this);
   }
 }
