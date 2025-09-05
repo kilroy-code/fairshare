@@ -9,9 +9,6 @@ describe("LiveSet", function () {
     get titleA() {
       return this.live.get('a')?.title || null;
     }
-    // get title0() {
-    //   return this.live.at(0)?.title || null;
-    // }
     get hasA() {
       return this.live.has('a');
     }

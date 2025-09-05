@@ -26,8 +26,8 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
   // We do not currently support length/at(), as these would need to managed deleted items.
   forEach(iterator) {
     const {items, size} = this;
-    const length = size;
     const keys = Object.keys(items);
+    const length = size && keys.length; // depends on size for reset
     for (let index = 0; index < length; index++) {
       const value = items[keys[index]];
       if (value === null) continue;
@@ -36,8 +36,8 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
   }
   map(iterator) {
     const {items, size} = this;
-    const length = size;
     const keys = Object.keys(items);
+    const length = size && keys.length; // depends on size for reset
     const result = Array(length);
     let skipped = 0;
     for (let index = 0; index < length; index++) {
