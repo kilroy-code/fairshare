@@ -88,68 +88,188 @@ Rule.rulify(LiveSet.prototype);
 //
 // - fetch(tag) promises the object denoted by tag, idempotently using the directory LiveSet.
 // - update(tag, verifiedData) from update events causes the in-memory object to be updated and any dependent rules to be recursively reset.
-// - adoptByTag/abandonByTag keeps track of whether this device has owner key access to which PublicPrivate instances, adding or clearing any private data.
 // - Reaching in to to assign new property values will recursively reset dependent rules, but not persist the object.
 // - edit(changedProperties) promises to update and persist.
 //
-// Speculative: not implemented or tested yet.
-// When data has been persisted, verified (and/or verifiedProtected) will be a string. The empty string indicates that the persisted data is not verifiable.
-// A value of null indicates that the public or private data (respectively) is not to be persisted.
-//
-// - Do not mix public and private data. Use two collections if needed, with the private collection members encrypted.
 // - VersionedCollections are the only ones that can be written by other than the owner. (Because their merging can reconstruct through bogus writes.)
-// - Data that corresponds 1:1 with an owner but with different privacy, versioning, etc. - e.g., Group and it's Messages - can be put it in another collection with the same tag.
+// - Data that corresponds 1:1 with an owner but with different privacy, versioning, etc. - e.g., Group and it's Messages - can be put in another collection with the same tag.
 // - Data that needs to be 2-keyed - e.g., user balances in a group - the consituent keys can be concatenated, xor-ed, or mapped to a GUID.
-// - Some data can be reproduced and should probably not be stored unless needed for, e.g, exposure. E.g., Group member id can be produced from the keyset recipients,
+// - Some data can be reproduced and should probably not be stored unless needed for, e.g, exposure. E.g., Group member ids can be produced from the keyset recipients,
 //   and current tax/stipend can be reproduced from voting. However, the historic values of the latter are (currently) available as a public history (for investors).
 
 
-// Defines persist/edit/destroy instance methods that manage the object's persistence, which retain the tag through which it is persisted.
+// Defines persist/edit/destroy instance methods that manage the object's persistence.
 // Defines fetch/update class methods that operate on tags, creating the instance.
 // Data is persisted as a canonicalized JSON, including title, which is a reference-tracking (Rule) property.
-export class Persistable { // Can be stored in Flexstore Collection, as a signed JSON bag of enumerated properties.
-
-  static get collection() { // The Flexstore Collection that defines the persistance behavior:
-    // sign/verify, encrypt/decrypt, local-first distribution and synchronization, merge semantics, etc.
-    //
-    // A Collection instance (such as for User or Group) does not contain instance/elements - it just manages
-    // their persisted synchronziation through tags. Compare uses of LiveSet, below.
-    return this._collection ??= new this.collectionType({name: this.prefix + this.name});
+// author/owner appear in the signature of the persisted data, not the JSON itself.
+export class Persistable {
+  constructor({verified, ...properties} = {}) { // Clients should generally use ensure() instead.
+    this.constructor.assign(this, {...(verified?.json || {}), verified, ...properties});
   }
-  static prefix = 'social.fairshare.';
-  static collectionType = MutableCollection;
-  static persistedProperties = ['title'];
-  get tag() { return this._tag; } // A string that identifies the item, as used by fetch. Not a tracked rule, so verified and other dependencies will NOT recompute when assigned.
-  set tag(string) {
+  static ensure(properties) { // Make sure there is an instance with the specified properties. Subclasses extend.
+    // Not named create() as that is usually app-specific.
+    return new this(properties);
+  }
+  static async fetch(tag, asUser = null) { // Promise the specified object from the collection.
+    // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
+    // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
+    const verified = await this.fetchData(tag, asUser);
+    // Tag isn't directly persisted, but we have it to store in the instance.
+    // Note that if verified comes back with an empty string, this produces an empty object with tag and verified.
+    const instance = await this.ensure({tag, verified});
+    return instance.maybeUpdateAuthor(asUser);
+  }
+  static async update(tag, verified) { // Suitable for use in a Collection update event handler.
+    // Admittedly, this doesn't have a lot of use in this class, except as the super for subclasses.
+    //
+    // No need to persist as by definition the new data has already been persisted.
+    // And indeed we couldn't persist anyway because we don't know what user and owner to do so as, and might not have that user's key set.
+    // - verified.json might still be encrypted.
+    // - The directory property is synchronously assigned if necessary.
+
+    // If a local author (e.g., someone on this device has adopted for writing), then decrypt.
+    if (this.directory.get(tag)?.author) verified = await this.collection.ensureDecrypted(verified);
+    
+    return await this.ensure({tag, verified}); // Returned value isn't often used, but it makes testing more convenient.
+  }
+  async edit(changedProperties, asUser = null) { // Asign the data and persist for everyone.
+    // Always returns a promise (even if everything can be done synchronously) so that callers may rely on it being thenable.
+    this.constructor.assign(this, changedProperties);
+    return await this.persist(asUser);
+  }
+  async destroy({author, owner} = {}) { // Remove item from collection, with the specified credentials if specified (else from properties).
+    // TODO?: shouldn't this be leaving a tombstone??
+    const options = {...await this.persistOptions, tag: this.tag};
+    if (author) options.author = author.tag;
+    if (owner) options.owner = owner.tag;
+    const {collection, listingCollection} = this.constructor;
+    await collection.remove(options);
+    await listingCollection.remove?.(options);
+    return options;
+  }
+
+  // Conveniences
+  async persist(author = null, owner = null) { // Use specified author/owner to produce verified persistence.
+    // FIXME? Make these named arguments to match destroy()?
+    this.maybeUpdateAuthor(author, owner);
+    // If we were fetched or updated, these were assigned, and will not recompute, so reset them.
+    // But: preserve any explicit no-op setting.
+    this.verifiedMain = this.verified = undefined;
+    if (this._verifiedListing?.cached !== '') this.verifiedListing = undefined; // UGH!!!
+    await this.verifiedMain;
+    await this.verifiedListing;
+    return this.verified;
+  }
+  maybeUpdateAuthor(asUser = null, asOwner = null) { // Update author if specified, and answer this.
+    if (asUser?.tag) this.author = asUser;   // asUser might be specified in callers as 'true', e.g., to indicate that fetched data should be decoded.
+    if (asOwner?.tag) this.owner = asOwner;
+    return this;
+  }
+  assert(boolean, label, ...labelArgs) {
+    if (!boolean) throw new Error(label, ...labelArgs);
+  }
+
+  // Properties and rules.
+  get tag() { // A string that identifies the item, as used by fetch.
+    return this._tag;   // Not a tracked rule, so verified and other dependencies will NOT recompute when assigned.
+  } 
+  set tag(string) { // Can only be assigned once, at construction or automatically by persistence.
     if (!string) return;
     if (this._tag) throw new Error(`Cannot re-assign tag (from ${this._tag} to ${string}).`);
     this._tag = string;
   }
+
   // Ruled properties.
-  get author() { return this; } // Should be assigned to whichever user should be recorded as author when persisted. Value must have a tag property.
-  get owner() { return this.author; } // Should be assigned to whichever user should be recorded as owner when persisted. Value must have a tag property.
-  get title() { return ''; } // A string that is enough for a human to say, roughly, "that one".
-  get persistOptions() {
-    return {author: this.author?.tag, owner: this.owner?.tag};
+  get author() { // Assign with user that should be recorded as author when persisted. Value must have a tag property.
+    return ''; // A truthy value indicates that this instance has been owned by a current user.
+  } 
+  get owner() {  // Assign with user that should be recorded as owner when persisted. Value must have a tag property.
+    return this.author;
   }
-  get verified() {
-    return this.verifiedPublic;
+  get title() { // A string that is enough for a human to say, roughly, "that one".
+    return '';
   }
-  get verifiedPublic() { // Persists on demand, and resets if the public data changes.  Can be assigned null to keep the public data from being persisted.
+  get persistOptions() { // Answers the Flexstore store() options.
+    const options = {author: this.author?.tag, owner: this.owner?.tag};
+    const encryption = this.constructor.encrypt && this.owner?.tag;
+    return encryption ? {encryption, ...options} : options;
+  }
+  get verifiedMain() { // Persists on demand, and resets if the public data changes.  Can be assigned null to keep the public data from being persisted.
     return this.getVerifiedPersistence();
   }
-  
-  constructor(properties = {}) { // Works for accessors, rules, or unspecified property names.
-    Object.assign(this, properties);
+  // This is somewhat specific to FairShare. Should probably pull this out into a mixin.
+  get verifiedListing() {
+    const {listingProperties, listingCollection} = this.constructor;
+    if (!listingProperties.length) return '';
+    const options = {...this.persistOptions};
+    delete options.encryption;
+    return this.getVerifiedPersistence(listingProperties, listingCollection, options);
   }
-  async captureProperty(data, name) { // Adds value to data POJO IFF it should be stored.
-    const value = await this[name]; // May be a rule that has not yet be resolved.
-    // We generally don't want to explicitly store things that can be computed by rules, for canonicalization purposes (and size).
-    // Lots of ways this could be done. This simple version just omits falsy and empty array.
-    if (Array.isArray(value) && !value.length) return;
-    // Note that if a value was meaningfully different as 0, '', false, [], this would fail to preserve that.
-    if (!value) return;
-    data[name] = value;
+  get verified() { // Both verifiedMain and verifiedListing.
+    return this.constructor.combinePublicPrivateData(this.verifiedMain, this.verifiedListing);
+  }
+
+  // Implementation
+
+  // The Flexstore Collection that defines the persistance behavior:
+  // sign/verify, encrypt/decrypt, local-first distribution and synchronization, merge semantics, etc.
+  //
+  // A Collection instance (such as for User or Group) does not contain instance/elements - it just manages
+  // their persisted synchronziation through tags. Compare uses of LiveSet, below.
+  static makeCollection(kind = this.collectionType, suffix = '') {
+    return new kind({name: this.prefix + this.name + suffix});
+  }
+  static prefix = '';
+  static collectionType = MutableCollection;
+  static listingCollectionType = MutableCollection;
+  // Each subclass gets their own collection instance. Note: a Flexstore Collection instance represents the interface
+  // through which the application instances are stored. It does not maintain a set of collection elements in memory.
+  static get collection() { // main collection
+    // Written this way (as a getter with hasOwn) so that each subclass of Persistable maintains its own named Collection.
+    if (Object.hasOwn(this, '_collection')) return this._collection;
+    return this._collection = this.makeCollection();
+  }
+  static get listingCollection() { // Optional separate collection for public listing of some instances, with
+    // unencrypted data (e.g., title). Only truthy if this.listingProperties is not empty.
+    if (Object.hasOwn(this, '_listingCollection')) return this._listingCollection;
+    return this._listingCollection = this.listingProperties.length && this.makeCollection(this.listingCollectionType, 'Listing');
+  }
+  static persistedProperties = ['title'];
+  static listingProperties = [];
+  static encrypt = false; // Whether the main persistedProperties should be encrypted.
+  static combinePublicPrivateData(verified, verifiedListing) { // Adds the verifiedListing properties to a copy of verified.
+    if (!verified && !verifiedListing) return verified;
+    return {...verified || {}, verifiedListing, json: {...(verified?.json || {}), ...(verifiedListing?.json || {})}};
+  }
+  static assign(target, {verified, ...properties}) {
+    Object.assign(target, {verified, ...(verified?.json || {}), ...properties});
+  }
+  
+  static async fetchData(tag, asUser) { // Get all the necessary peristed data, in verified format.
+    const {collection, listingCollection} = this;
+    const data = asUser ? await collection.retrieve({tag, member: null}) : ''; // Does not attempt to fetch/decode main/private data unless user is supplied
+    const listingData = await listingCollection.retrieve?.({tag, member: null}) || '';
+    const combined = await this.combinePublicPrivateData(data, listingData);
+    return combined;
+  }
+
+  async getVerifiedPersistence(propertyNames, collection = this.constructor.collection, persistOptions) {
+    // Persist as specified, promising the verified data.
+    const tag = await this.persistProperties(propertyNames, collection, persistOptions);
+    // TODO: Modify Flexstore to allow the client to capture this, rather than having to regenerate it.
+    return await collection.retrieve(tag);
+  }
+  async persistProperties(propertyNames = this.constructor.persistedProperties, collection = this.constructor.collection, persistOptions = this.persistOptions)  {
+    // Saves the specified data, and side-effects tag IFF it wasn't already known.
+    if (!propertyNames.length) return null;
+    const data = await this.captureProperties(propertyNames); // Might be empty if all are default, in which case go ahead and store empty.
+    let options = await persistOptions;
+    let tag = this.tag;
+    if (tag) options = {tag, ...options};
+    if (options.tag?.startsWith('AAA')) console.log('persistProperties', {propertyNames, collection, persistOptions, data, options, tag, options});
+    const persisted = await collection.store(data, options);
+    if (!tag) tag = this.tag = persisted;
+    return tag;
   }
   async captureProperties(propertyNames)  {
     // The list of persistedProperties is defined by subclasses and serves two purposes:
@@ -161,79 +281,53 @@ export class Persistable { // Can be stored in Flexstore Collection, as a signed
     }
     return data;
   }
-  async persistProperties(propertyNames = this.constructor.persistedProperties, collection = this.constructor.collection, persistOptions = this.persistOptions)  {
-    // Saves the specified data, and side-effects tag IFF it wasn't already known.
-    if (!propertyNames.length) return null;
-    const data = await this.captureProperties(propertyNames); // Might be empty if all are default, in which case go ahead and store empty.
-    let options = await persistOptions;
-    let tag = this.tag;
-    if (tag) options = {tag, ...options};
-    const persisted = await collection.store(data, options);
-    if (!tag) tag = this.tag = persisted;
-    return tag;
-  }
-  async getVerifiedPersistence(propertyNames, collection = this.constructor.collection, persistOptions) {
-    const tag = await this.persistProperties(propertyNames, collection, persistOptions);
-    // TODO: Modify Flexstore to allow the client to capture this, rather than having to regenerate it.
-    return await collection.retrieve(tag);
-  }
-  maybeUpdateAuthor(asUser = null) { // Update author if specified, and answer this.
-    if (asUser) this.author = asUser;
-    return this;
-  }
-  static create(properties) { // Create an instance with the specified properties.
-    return new this(properties);
-  }
-  static fetchData(tag) { // Get all the necessary peristed data, in verified format.
-    return this.collection.retrieve({tag, member: null});
-  }
-  static async fetch(tag, asUser = null) { // Promise the specified object from the collection.
-    // E.g., in a less fancy implementation, this could be fetching the data from a database/server.
-    // member:null indicates that we do not verify that the signing author is STILL a member of the owning team at the time of retrieval.
-    const verified = await this.fetchData(tag);
-    // Tag isn't directly persisted, but we have it to store in the instance.
-    // Note that if verified comes back with an empty string, this produces an empty object with tag and verified.
-    return this.create({tag, verified, ...verified.json}).maybeUpdateAuthor(asUser);
-  }
-  static update(tag, verified) { // Suitable for use in a Collection update event handler.
-    // Admittedly, this doesn't have a lot of use in this class, except as the super for subclasses.
-    //
-    // It seems weird to create() for an update, but if a subclass like Enumerated is going to be caching,
-    // it will do so in create().
-
-    // No need to persist as by definition the new data has already been persisted.
-    // And indeed we couldn't persist anyway because we don't know what user and owner to do so as, and might not have that user's key set.
-    // - verified.json might still be encrypted.
-    // - The directory property is synchronously assigned if necessary.
-    return this.create({tag, verified, ...verified.json}); // Returned value isn't often used, but it makes testing more convenient.
-  }
-  edit(changedProperties, asUser = null) { // Asign the data and persist for everyone.
-    Object.assign(this, changedProperties);
-    return this.maybeUpdateAuthor(asUser).verified;
-  }
-  async destroy({author, owner} = {}) { // Remove item from collection, with the specified credentials if specified (else from properties).
-    // TODO?: shouldn't this be leaving a tombstone??
-    const options = {...await this.persistOptions, tag: this.tag};
-    if (author) options.author = author.tag;
-    if (owner) options.owner = owner.tag;
-    await this.constructor.collection.remove(options);
-    return options;
-  }
-  assert(boolean, label, ...labelArgs) {
-    if (!boolean) throw new Error(label, ...labelArgs);
+  async captureProperty(data, name) { // Adds value to data POJO IFF it should be stored.
+    const value = await this[name]; // May be a rule that has not yet be resolved.
+    // We generally don't want to explicitly store things that can be computed by rules, for canonicalization purposes (and size).
+    // Lots of ways this could be done. This simple version just omits falsy and empty array.
+    if (Array.isArray(value) && !value.length) return;
+    // Note that if a value was meaningfully different as 0, '', false, [], this would fail to preserve that.
+    if (!value) return;
+    data[name] = value;
   }
 }
 
-// Additionally keeps track of the instances that have been created, fetched, or updated, so that fetch can return previously generated instances.
+// Additionally keeps track of the instances that have been ensured, fetched, or updated, so that fetch can return previously generated instances.
 // The directory is a LiveSet that tracks (by tag) all the instances that have are known so far.
 // (Compare with Flexstore Collections, which persists data but does not hold any instances.)
 export class Enumerated extends Persistable {
-  static directory = new LiveSet(); // Subclasses should redefine, so that multiple subclasses can use the same keys for different instances.
-  initializationPromise = null; // Can be set by constructor to a promise that resolves when all initialized.
+  static async ensure({tag, ...properties} = {}) { // Cache instance and reuse.
+    // N.B.: if tag is falsy, updateDirectory (and ensure) will return a promise that generates the tag by persisting the data.
+    const cached = tag && this.directory.get(tag);
+    if (cached) {
+      // Constructing something twice with the same tag may be of questionable value.
+      // However, we have to updateDirectory for new instances so that updates that come in from others will work, even if we do not fetch.
+      // Given that, we might as well check here that there is an existing instance.
+      this.assign(cached, properties); // without re-assigning tag
+      return cached;
+    }
+    const instance = await super.ensure({tag, ...properties});
+    return await instance.updateDirectory(tag);
+  }
+  async destroy(options) { // Remove from directory.
+    options = await super.destroy(options);
+    this.constructor.directory.delete(this.tag);
+    return options;
+  }
+  // We do not redefine fetch here, e.g., to avoid retrieving the persisted data if the instance is cached.
+  // An app would normally know whether a local, live, un-saved instance is newer than what is saved, and not fetch again.
+  // However, if an app has an un-owned PublicPrivate instance (such that it only has public properties filled in), and then
+  // takes ownership of the instance and fetches again, we DO want refetched data (particularly the private data) to be assigned.
+  // That's what super.fetch() does, so no need to change anything.
+
+  static get directory() {
+    if (Object.hasOwn(this, '_directory')) return this._directory;
+    return this._directory = new LiveSet();
+  }
   updateDirectory(tag = this.tag) { // Cache this through tag.
     if (!tag) {
-      const verified = this.verifiedPublic || this.verifiedPrivate; // If verfiedPublic has been assigned '' to have no public presence, use private.
-      if (verified.then) return this.initializingPromise = verified.then(verified => this.maybeSetCachedInstance(verified.tag));
+      const verified = this.verified;
+      if (verified.then) return verified.then(verified => this.maybeSetCachedInstance(verified.tag));
       tag = verified.tag;
     }
     return this.maybeSetCachedInstance(tag);
@@ -250,76 +344,10 @@ export class Enumerated extends Persistable {
     if (!directory.has(tag)) directory.set(tag, this);
     return this;
   }
-  static create({tag, ...properties} = {}) { // Create an instance with the specified properties.
-    const cached = tag && this.directory.get(tag);
-    if (cached) {
-      // Constructing something twice with the same tag may be of questionable value.
-      // However, we have to updateDirectory for new instances so that updates that come in from others will work, even if we do not fetch.
-      // Given that, we might as well check here that there is an existing instance.
-      Object.assign(cached, properties); // without re-assigning tag
-      return cached;
-    }
-    const instance = super.create({tag, ...properties});
-    return instance.updateDirectory(tag);
-  }
-  async destroy(options) { // Remove from directory.
-    options = await super.destroy(options);
-    this.constructor.directory.delete(this.tag);
-    return options;
-  }
-  // We do not redefine fetch here, e.g., to avoid retrieving the persisted data if the instance is cached.
-  // An app would normally know whether a local, live, un-saved instance is newer than what is saved, and not fetch again.
-  // However, if an app has an un-owned PublicPrivate instance (such that it only has public properties filled in), and then
-  // takes ownership of the instance and fetches again, we DO want refetched data (particularly the private data) to be assigned.
-  // That's what super.fetch() does, so no need to change anything.
-}
-
-// Splits the persisted data into public/unencrypted and private/encrypted parts, persisted in separate collections with the same tag.
-export class PublicPrivate extends Enumerated {
-  // Automatically splits and combines from a second collection that is encrypted.
-  static directory = new LiveSet();
-  static get privateCollection() {
-    return this._privateCollection ??= new this.privateCollectionType({name: this.prefix + this.name + 'Private'});
-  }
-  static privateCollectionType = MutableCollection;
-  get verifiedPrivate() { // Same as verified, but for private data persistence, which is encrypted.
-    return this.getVerifiedPersistence(this.constructor.privateProperties,
-				       this.constructor.privateCollection,
-				       {...this.persistOptions, encryption: this.owner.tag});
-  }
-  get verified() { // Both sequentially, in we're computing tag for the first time.
-    return this.constructor.combinePublicPrivateData(this.verifiedPublic, this.verifiedPrivate);
-  }
-  static async update(tag, verified) {
-    const owned = this.directory.get(tag)?.owner?.tag === this.privateCollection.getOwner(verified.protectedHeader);
-    if (owned) verified = await this.privateCollection.ensureDecrypted(verified);
-    // SUBTLE: If not owned, there's no decryption, but:
-    // - verified PUBLIC data will still have a cleartext json to update with.
-    // - verified PRIVATE data will not have a json at all. An update will ensure a cached object, but will not initialize any private properties.
-    return await super.update(tag, verified);
-  }
-  async destroy(options) { // Additionally remove from privateCollection;
-    options = await super.destroy(options);
-    await this.constructor.privateCollection.remove(options);
-    return options;
-  }
-
-  static async fetchData(tag) {
-    const [verifiedPublic, verifiedPrivate] = await Promise.all([
-      this.collection.retrieve({tag, member: null}),
-      this.privateCollection.retrieve({tag, member: null})
-    ]);
-    return this.combinePublicPrivateData(verifiedPublic, verifiedPrivate);
-  }
-  static combinePublicPrivateData(verifiedPublic, verifiedPrivate) {
-    const vpublic = verifiedPublic || {};
-    const vprivate = verifiedPrivate || {};
-    return {...vpublic, vprivate, json: {...(vpublic.json || {}), ...(vprivate.json || {})}};
-  }
 }
 
 // For VersionedCollections: 
-// - create/fetch/update has the same semantics as for any Enumerated collection:
+// - ensure/fetch/update has the same semantics as for any Enumerated collection:
 //      They cache an instance that reflects the current data for tag, and the directory maps top-level tags to cached instances.
 //      This top-level instance and tag are sometimes called the subject instance or tag.
 //      This subject instance can be edited and persisted to generate newer versions.
@@ -330,47 +358,85 @@ export class PublicPrivate extends Enumerated {
 //    - The individual state instances, identified by hash, do not appear in the top level directory, but rather within the versions LiveSet
 //      of a dynamic toplevel tag instance.
 export class History extends Enumerated {
-  static directory = new LiveSet();
-  versions = new LiveSet();
   static async update(tag, verified) { // Suitable for update handler of History.collection.itemEmitter (for which 'tag' is a the version hash).
-    // Update the subject instance, which will reset any modified properties.
-    // Ensure the version instance exists.
-    return super.update(tag, verified);
+    let subject = this.getSubject(verified);
+    // Update the subject instance, which will reset any modified properties -- but only if this update is newer than what we have.
+    const existing = await subject?.verified;
+    const isLatest = !existing || this.collection.compareTimestamps(existing.protectedHeader, verified.protectedHeader) < 0;
+    if (isLatest) subject = await super.update(verified.protectedHeader.sub, verified);
+    // Ensure the version instance exists, so that rules watching the subject.versions will update.
+    const versions = subject.versions;
+    if (!versions.has(tag)) this.createCachedVersion(versions, tag, verified);
+    return subject;
   }
-  get antecedent() {
-    // Ensure that the version instance exists.
+
+  // All of the following three work regardless of whether 'this' is a subject or version.
+  get subject() { // Answer the unique, dynamic cached subject instance representing the latest version of the top level tag.
+    // The top level tag of a VersionedCollection is found in the verified.protectedHeader.sub (not the verified.tag). See version, below.
+    return this.constructor.getSubject(this.verified);
+  }
+  get version() { // 
+    const verified = this.verified;
+    // The verified data is actually the the verified data of the version, such that the version.tag
+    // is the hash by which the this particular version is stored in the StateCollection. The top level
+    // tag of all version is found in the verified.protectedHeader.sub.
+    const hash = verified.tag;
+    const versions = this.subject.versions;
+    let instance = versions.get(hash);
+    if (instance) return instance;
+    return this.constructor.createCachedVersion(versions, hash, verified);
+  }
+  get antecedent() { // Answer the previous version, ensuring that it is cached (or null if nothing before).
     const verified = this.verified;
     const {ant} = verified.protectedHeader;
-    const instance = this.versions.get(ant);
+    const collection = this.constructor.collection;
+    if (!ant) return null;
+    const versions = this.subject.versions;
+    let instance = versions.get(ant);
     if (instance) return instance;
-    instance = new this.constructor({verified, ...verified.json});
-    this.versions.set(ant, instance);
-    return instance;
+    const constructor = this.constructor;
+    return constructor.collection.versions.retrieve(ant)
+      .then(version => constructor.createCachedVersion(versions, ant, version));
   }
-  get verified() {
-    // IF this is a subject instance, ensure that the version instance exists.
-    return super.__verified();
+
+  // Implementation.
+  static collectionType = VersionedCollection;
+  versions = new LiveSet();
+  static getSubject(verified) { // Return the top-level instance for the sub specified by the verified data.
+    return this.directory.get(verified.protectedHeader.sub);
+  }
+  static createCachedVersion(versions, hash, verified) { // Construct a version and cache it in the specified LiveSet of versions (not in directory).
+    const instance = new this({tag: hash, verified});
+    versions.set(hash, instance);
+    return instance;
   }
 }
 
-[Persistable, PublicPrivate, History].forEach(kind => Rule.rulify(kind.prototype));
+[Persistable, History].forEach(kind => Rule.rulify(kind.prototype));
 
 
 ////////////////////////////////
 /// Application Classes
 ////////////////////////////////
 
-export class Entity extends PublicPrivate { // A top level User or Group in FairShare
-  static persistedProperties = ['picture'].concat(PublicPrivate.persistedProperties);
+export class Entity extends Enumerated { // A top level User or Group in FairShare
   get picture() { return ''; } // A media tag, or empty to use identicon.
-  get tagBytes() { // The group tag as Uint8Array(32). Used with xor to compute memberTag.
+  get tagBytes() { // The tag as Uint8Array(32). Used with xor to compute memberTag.
+    return this.constructor.computeTagBytes(this.tag);
+  }
+
+  static computeTagBytes(tagString) { // tagString as Uint8Array(32).
     const size = 32;
-    let uint8 = Credentials.decodeBase64url(this.tag);
+    let uint8 = Credentials.decodeBase64url(tagString);
     if (uint8.length === size)  return uint8;
     const larger = new Uint8Array(size);
     larger.set(uint8);
     return larger;
   }
+  static prefix = 'social.fairshare.';
+  // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
+  static listingProperties = ['picture', 'title'];
+  static encrypt = true;
 }
 
 // Your own personas have non-empty devices on which it is authorized and groups to which it belongs.
@@ -378,84 +444,34 @@ export class Entity extends PublicPrivate { // A top level User or Group in Fair
 // There are instance methods to create/destroy and authorize/deauthorize,
 // and create/destroyGroup and adopt/abandonGroup.
 export class User extends Entity {
-  // properties are listed alphabetically, in case we ever allow properties to be automatically determined while retaining a canonical order.
-  static persistedProperties = ['secrets'].concat(Entity.persistedProperties);
-  static privateProperties = ['devices', 'groups', 'bankTag'];
-  get devices() { return {}; } // Map of deviceName => userDeviceTag so that user can remotely deauthorize.
-  get groups() { return []; }  // Tags of the groups this user has joined.
-  get bankTag() { return ''; } // Tag of the group that is used to access the reserve currency. (An element of groups.)
-  get secrets() { return {}; }  // So that we know what to prompt when authorizing, and can preConfirmOwnership.
-  get shortName() { return this.title.split(/\s/).map(word => word[0].toUpperCase()).join('.') + '.'; }
-
-  static async create({secrets, deviceName, bankTag, ...properties}) { // Promise a provisioned instance.
+  static async create({tag, secrets, deviceName, bankTag, ...properties}) { // Promise a provisioned instance.
     // PERSISTS Credentials, then Groups, then User
 
-    // Create credential.
-    const hashes = await this.setUpSecretsForClaiming(secrets);
-    const userTag = await Credentials.createAuthor(secrets[0][0]); // TODO: make createAuthor create multiple KeyRecovery members.
-    const deviceTag = await this.clearSecretsAndGetDevice(userTag, secrets);
-    const devices = {[deviceName]: deviceTag};
+    if (!tag) { // Make one
+      properties.secrets = await this.setUpSecretsForClaiming(secrets);
+      tag = await Credentials.createAuthor(secrets[0][0]); // TODO: make createAuthor create multiple KeyRecovery members.
+      const deviceTag = await this.clearSecretsAndGetDevice(tag, secrets);
+      properties.devices = {[deviceName]: deviceTag};
+    }
 
-    const user = new this({tag: userTag, devices, secrets:hashes, ...properties}); // will be persisted by adoptGroup, below.
-    await user.initialize(bankTag);
-    return user;
-  }
-  static async claim({secrets, deviceName, invitation, ...properties}) {
-    const hashes = await this.setUpSecretsForClaiming(secrets);
-    const userTag = await Credentials.claimInvitation(invitation, secrets[0][0]);
-    const deviceTag = await this.clearSecretsAndGetDevice(userTag, secrets);
-    const devices = {[deviceName]: deviceTag};
-
-    const user = await User.fetch(userTag);
-    await user.edit({devices: {[deviceName]: deviceTag}, secrets: hashes, ...properties, verified: null});
-    return user;
-  }
-  static async setUpSecretsForClaiming(secrets) { // Given [...[prompt, answer]], setAnswer for all, and promise a dictionary of prompt=>hash suitable for user.secrets
-    const hashes = {};
-    await Promise.all(secrets.map(async ([prompt, answer]) => {
-      Credentials.setAnswer(prompt, answer);
-      hashes[prompt] = Credentials.encodeBase64url(await Credentials.hashText(answer));
-    }));
-    return hashes;
-  }
-  static async clearSecretsAndGetDevice(userTag, secrets) {
-    // For use immediately after createAuthor or claimInvitation with userTag. Clears answers set tby setUpSecretsForClaiming, and promises the deviceTag
-    secrets.forEach(([prompt]) => Credentials.setAnswer(prompt, null));
-    // Since we just created it ourselves, we know that userTag has only one Device tag member, and the rest are KeyRecovery tags.
-    // But there's no DIRECT way to tell if a tag is a device tag.
-    const members = await Credentials.teamMembers(userTag);
-    return await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
-  }
-  async initialize(bankTag) { // Set up initial private data for this user. Execution requires the bank members key set.
-    await this.adoptByTag(this.tag); // Personal group and bank are private User data.
+    const user = await this.ensure({tag, bankTag, ...properties}); // will be persisted by adoptGroup, below.
     // Add personal group-of-one (for notes, and for receiving /welcome messages.
-    await this.createGroup({tag: this.tag, verified: ''}); // Empty verified keeps us from publishing the group to public directory.
+    await user.createGroup({tag, verifiedListing: ''}); // Empty verified keeps us from publishing the group to public directory.
     // Now add the specified bank.
-    Object.assign(this, {bankTag});
-    const bank = await FairShareGroup.fetch(bankTag);
-    await bank.authorizeUser(this); // Requires that this be executed by someone already in that group!
-    await this.adoptGroup(bank);
+    const bank = await FairShareGroup.fetch(bankTag, user);
+    await bank.authorizeUser(user); // Requires that this be executed by someone already in that group!
+    await user.adoptGroup(bank);
+    return user;
   }
-  async createInvitation({bankTag = this.bankTag} = {}) { // As a user, create an invitation tag for another human to use to create an account.
-    const chat = await this.createGroup({verified: ''}); // Private group-of-2 for this sponsoring user and the new invitee.
-    // The (private) user will exist and already be a member of its personal group, the specified bank, and a new pairwise chat group with the inviting user.
-    // When the invitation is claimed, the claiming human will fill in the device/secrets and title.
-    const userTag = await Credentials.createAuthor('-');
-    const user = new this.constructor({tag: userTag, verified: ''});
-    await user.initialize(bankTag);
-    chat.authorizeUser(user);
-    user.adoptGroup(chat);
-    user.abandonByTag(user.tag); // To be adopted by the claimant.
-    return userTag;
-  }
-  async destroy({prompt, answer}) { // Permanently removes this user from persistence.
+  async destroy({prompt, answer, author, owner}) { // Permanently removes this user from persistence.
     // PERSISTS Personal Group, then User and Credentials interleaved.
     // Requires prompt/answer because this is such a permanent user action.
     const {tag} = this;
     await this.preConfirmOwnership({prompt, answer});
 
     // Leave every group that we are a member of.
-    await Promise.all(this.groups.map(async groupTag => {
+    for (let groupTag of this.groups) {
+      // TODO: why does this have to be done in order (for-of, rather than parallel Promise.all/map)?
       const group = await FairShareGroup.fetch(groupTag);
       if ((group.users.length === 1) && (group.users[0] === this.tag)) { // last memember of group
 	await this.destroyGroup(group);
@@ -463,31 +479,43 @@ export class User extends Entity {
 	await this.abandonGroup(group);
 	await group.deauthorizeUser(this);
       }
-    }));
+    }
 
     // Get rid of User data from collections and LiveSets.
-    await super.destroy({});
+    await super.destroy({author, owner});
 
     // Get rid of credential.
     Credentials.setAnswer(prompt, answer); // Allow recovery key to be destroyed, too.
     await Credentials.destroy({tag, recursiveMembers: true});
     Credentials.setAnswer(prompt, null);
   }
-  async adoptByTag(tag) {
-    await super.adoptByTag(tag);
-    // Now that we have user's groups...
-    await Promise.all(this.groups.map(groupTag => FairShareGroup.fetch(groupTag).then(group => group.adoptByTag(tag))));
-    return this;
+  async createInvitation({bankTag = this.bankTag} = {}) { // As a user, create an invitation tag for another human to use to create an account.
+    // The (private) user will exist and already be a member of its personal group, the specified bank, and a new pairwise chat group with the inviting user.
+    // When the invitation is claimed, the claiming human will fill in the device/secrets and title.
+    const userTag = await Credentials.createAuthor('-');
+    await Credentials.changeMembership({tag: userTag, add: [this.tag]}); // User "this" needs to be a member to set things up.
+
+    // Create user with personal group, and bank membership, but no listing.
+    const user = await this.constructor.create({tag: userTag, verifiedListing: '', bankTag});
+    
+    const chat = await this.createGroup({verifiedListing: ''}); // Private group-of-2 for this sponsoring user and the new invitee.
+    chat.authorizeUser(user);
+    user.adoptGroup(chat); // Persists user, including the bankTag that will be needed during claim.
+
+    await Credentials.changeMembership({tag: userTag, remove: [this.tag]}); // We will have no further need for access.
+    this.constructor.directory.delete(userTag); // We don't want to keep the data around. (Messes up testing, too.)
+    return userTag;
   }
-  async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.
-    // Can be used up front, rather than waiting and getting errors.
-    // Note that one could get a false positive by trying to, e.g., sign something, because the device might be present.
-    // (And creating the secret key from answer can be a bit slow.)
-    // Instead, we store the HASH of the answer in the user's public data, and compare.
-    // Note that prompt is actually a concatenation of multiple prompt tags,
-    // and answer is a canonicalized concatenation of the respective answers.
-    const hash = Credentials.encodeBase64url(await Credentials.hashText(answer));
-    return this.secrets[prompt] === hash;
+  static async claim({secrets, deviceName, invitation, ...properties}) {
+    const hashes = await this.setUpSecretsForClaiming(secrets);
+    const userTag = await Credentials.claimInvitation(invitation, secrets[0][0]);
+    const deviceTag = await this.clearSecretsAndGetDevice(userTag, secrets);
+    const devices = {[deviceName]: deviceTag};
+
+    const user = await User.fetch(userTag, {tag: userTag}); // Supply a dummy author so that we can decrypt the persisted bankTag.
+    user.author = user;
+    await user.edit({devices: {[deviceName]: deviceTag}, secrets: hashes, ...properties, verified: null});
+    return user;
   }
   async authorize({prompt, answer, deviceName}) { // Add this user to the set that I have private access to on this device (not remote).
     // PERSISTS Credential
@@ -500,7 +528,7 @@ export class User extends Entity {
     Credentials.setAnswer(prompt, answer);
     await Credentials.changeMembership({tag, add: [deviceTag]});  // Must be before fetch.
     Credentials.setAnswer(prompt, null);
-    await this.adoptByTag(tag); // Updates this with private data, adding devices entry.
+    // fixme await this.adoptByTag(tag); // Updates this with private data, adding devices entry.
     const {devices} = this;
     devices[deviceName] = deviceTag; // TODO?: Do we want to canonicalize deviceName order?
     await this.edit({devices});
@@ -517,7 +545,7 @@ export class User extends Entity {
     await Credentials.changeMembership({tag, remove: [deviceTag]}); // Remove device key tag from user team.
     await Credentials.destroy(deviceTag)  // Might be remote: try to destroy device key, and swallow error.
       .catch(() => console.warn(`${this.title} device key set ${deviceTag} on ${deviceName} is not available from here.`));
-    await this.abandonByTag(tag);
+    // fixme await this.abandonByTag(tag);
     return deviceTag; // Facilitates testing.
   }
   createGroup(properties) { // Promise a new group with this user as member
@@ -526,51 +554,79 @@ export class User extends Entity {
   destroyGroup(group) { // Promise to destroy group that we are the last member of
     return group.destroy(this);
   }
+  static latch = 0; // fixme
   async adoptGroup(group) {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
     // PERSISTS Group, then User
     const {tag:userTag} = this;
     const {tag:groupTag} = group;
-    await group.adoptByTag(userTag);
-    const users = group.users;
+    // fixme await group.adoptByTag(userTag);
     this.groups = [...this.groups, groupTag];
     // TODO: users should come from teamMembers. No reason for additional property. That MIGHT result in no privatGroup data at all.
-    group.users = [...users , userTag];
+    group.users = [...group.users , userTag];
+    const member = await group.ensureMember(this, this);
     // Not parallel: Do not store user data unless group storage succeeds.
     await group.persist(this);
     await this.persist(this);
+    await member.persist(this);    
+    // FIXME: destroy member when leaving?
+    // FIXME: check for member in tests
   }
   async abandonGroup(group) {
     // Used by user to remove a group from their own user data.
     // PERSISTS User
-    await group.abandonByTag(this.tag);
+    // fixme await group.abandonByTag(this.tag);
     const groupTag = group.tag;
     this.groups = this.groups.filter(tag => tag !== groupTag);
     return await this.persist(this);
   }
+  async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.
+    // Can be used up front, rather than waiting and getting errors.
+    // Note that one could get a false positive by trying to, e.g., sign something, because the device might be present.
+    // (And creating the secret key from answer can be a bit slow.)
+    // Instead, we store the HASH of the answer in the user's public data, and compare.
+    // Note that prompt is actually a concatenation of multiple prompt tags,
+    // and answer is a canonicalized concatenation of the respective answers.
+    const hash = Credentials.encodeBase64url(await Credentials.hashText(answer));
+    return this.secrets[prompt] === hash;
+  }
+
+  get devices() { return {}; } // Map of deviceName => userDeviceTag so that user can remotely deauthorize.
+  get groups() { return []; }  // Tags of the groups this user has joined.
+  get bankTag() { return ''; } // Tag of the group that is used to access the reserve currency. (An element of groups.)
+  get secrets() { return {}; } // So that we know what to prompt when authorizing, and can preConfirmOwnership.
+  get shortName() { return this.title.split(/\s/).map(word => word[0].toUpperCase()).join('.') + '.'; }
+  get owner() { return this; } // User is its own owner.
+  
+  
+  static listingProperties = ['picture', 'secrets', 'title'];
+  static persistedProperties = ['bankTag', 'devices', 'groups'];
+  static async setUpSecretsForClaiming(secrets) { // Given [...[prompt, answer]], setAnswer for all, and promise a dictionary of prompt=>hash suitable for user.secrets
+    const hashes = {};
+    await Promise.all(secrets.map(async ([prompt, answer]) => {
+      Credentials.setAnswer(prompt, answer);
+      hashes[prompt] = Credentials.encodeBase64url(await Credentials.hashText(answer));
+    }));
+    return hashes;
+  }
+  static async clearSecretsAndGetDevice(userTag, secrets) {
+    // For use immediately after createAuthor or claimInvitation with userTag. Clears answers set tby setUpSecretsForClaiming, and promises the deviceTag
+    secrets.forEach(([prompt]) => Credentials.setAnswer(prompt, null));
+    // Since we just created it ourselves, we know that userTag has only one Device tag member, and the rest are KeyRecovery tags.
+    // But there's no DIRECT way to tell if a tag is a device tag.
+    const members = await Credentials.teamMembers(userTag);
+    return await Promise.any(members.map(async tag => (!await Credentials.collections.KeyRecovery.get(tag)) && tag));
+  }
 }
 
 export class Group extends Entity {
-  // Persistables, either public or private:
-  static collectionType = VersionedCollection;
-  static privateCollectionType = VersionedCollection;
-  static privateProperties = ['users'];
-  get title() { // A string by which the group is known.
-    if (this.users.length === 1) return "Yourself";
-    return Promise.all(this.users.map(tag => User.fetch(tag).then(user => user.shortName)))
-      .then(shorts => shorts.join(', '));
-  }
-  get users() { // A list of tags. TODO: compute from keyset recipients and don't persist? 
-    return [];
-  }
-
-  static async create({author:user, tag = Credentials.create(user.tag), ...properties}) { // Promise a new Group with user as member
+  static async create({author, tag = Credentials.create(author.tag), ...properties}) { // Promise a new Group with user as member
     // PERSISTS Credential (unless provided), then Group, then User
     // userTag is authorized for newly create groupTag.
     tag = await tag;
-    const group = new this({tag, author:user, ...properties}); // adoptGroup will persist it.
-    await user.adoptGroup(group);
+    const group = await this.ensure({tag, author, ...properties}); // adoptGroup will persist it.
+    await author.adoptGroup(group);
     return group;
   }
   async destroy(author) {
@@ -583,67 +639,82 @@ export class Group extends Entity {
     if (tag === author.tag) return; // If a personal group that shares credentials with author, we're done.
     await Credentials.destroy(tag);
   }
-  authorizeUser(candidate) {
+  async authorizeUser(candidate) {
     // Used by any team member to add the user to the group's key set.
     // PERSISTS Credential
     // Note that it does not add the user to the Group data, as the user does that when they adoptGroup.
-    // This is different than deauthorizeUser.
-    return Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
+    // This aspect is different than deauthorizeUser.
+
+    // IWBNI changeMembership removed duplicates
+    const existing = await Credentials.teamMembers(this.tag);
+    if (existing.includes(candidate.tag)) return null;
+
+    return await Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
   }
   async deauthorizeUser(user, author = user) {
     // Used by any team member (including the user) to remove user from the key set AND the group.
     // PERSISTS Group then Credential
     // Does NOT change the user's data.
     this.users = this.users.filter(tag => tag !== user.tag);
+    this.maybeUpdateAuthor(author);
     await this.persist(author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
+
+  get title() { // A string by which the group is known.
+    if (this.users.length === 1) return "Yourself";
+    return Promise.all(this.users.map(tag => User.fetch(tag).then(user => user.shortName)))
+      .then(shorts => shorts.join(', '));
+  }
+  get users() { // A list of tags. TODO: compute from keyset recipients and don't persist? 
+    return [];
+  }
+  get owner() { // Group data is owned by the group.
+    return this;
+  }
+
+  static collectionType = VersionedCollection;
+  static persistedProperties = ['users'];
 }
 
 export class Message extends History {
   // Has additional properties author, timestamp, and type, which are currently unencrypted in the header. (We may encrypt author tag.)
   // A lightweight immutable object, belonging to a group.
-  // Type, timestamp, and author are in the protectedHeader via persistOptions.
-  //get author() { return null; }
-  get owner() { return this.author; }
-  get timestamp() { return new Date(); }
-  get type() { return 'text'; }
-  constructor(properties) {
-    super(properties);
-    if (this.verified) { // Fetched.
-      const {iat, act, iss, mt} = this.verified.protectedHeader;
-      this.timestamp = new Date(iat);
-      this.author = User.fetch(act);
-      this.owner = User.fetch(iss);
-      if (mt) this.type = mt;
-    } // Else properties should include author and owner objects.
+
+  // If not specified at construction, these are pulled from the verified persisted data - which better be assigned!
+  get type() { // If a special mt (Message Type) was specified to indicate an action, use it. Otherwse a text message.
+    return this.verified.protectedHeader.mt || 'text';
   }
-  xxpersistOptions({author = this.author, owner = this.owner, ...options}) {
-    const ownershipType = owner.users.includes(author.tag) ? 'owner' :
-	  ((owner instanceof User) ? 'individual' : 'group');
-    const authorTag = author.tag;
-    const ownerTag = owner.tag;
-    const signing = {
-      ...options, 
-      time: this.timestamp.getTime(),
-      tag: this.owner.tag, // Messages are accumulated in same id as owner
-      author: authorTag,
-      [ownershipType]: ownerTag,
-      encryption: ownerTag,
-      mt: this.type === 'text' ? undefined : this.type
-    };
-    console.log('persistOptions', {author, owner, options, ownershipType, authorTag, ownerTag, signing});
-    return signing;
+  get owner() { // If signed with an iss or group specified, it is a group. Else a user.
+    const {iss, group, act, individual, kid} = this.verified.protectedHeader;
+    const groupTag = iss || group;
+    if (groupTag) return FairShareGroup.fetch(groupTag);
+    return User.fetch(individual || act || kid);
   }
+  get author() { // Who send (signed) the message.
+    const {act, kid} = this.verified.protectedHeader;
+    return User.fetch(act || kid);
+  }
+  get timestamp() { // When was it signed, as a Date.
+    return new Date(this.verified.protectedHeader.iat);
+  }
+  get persistOptions() { // Suply mt (Message Type) if not text, and maybe express iss differently for outsiders.
+    const options = super.__persistOptions();
+    // TODO? if author not owner and owner.users do not include author, should we change 'owner' claim to 'group'?
+    if (this.type === 'text') return options;
+    return {mt: this.type, ...options};
+  }
+  static encrypt = true;
 }
 
 // We don't actually instantiate different subclasses of Group. This break out is just for maintenance.
 class MessageGroup extends Group { // Supports a history of messages.
-  async send(properties, author) { // Sends Messages as author.
+  async send({type = 'text', ...properties}, author) { // Sends Messages as author.
     // PERSISTS Message, and sets its tag to the StateCollection hash/tag.
     const {tag} = this;
-    console.log('send', {properties, tag, author, owner: this});
-    return await new Message({...properties, tag, author, owner: this}).persist(author); //fixme remove .persistToSet(this.messages, this);
+    const message = new Message({...properties, tag, type, author, owner: this});
+    const verified = await message.persist();
+    return verified;
   }
   // todo: update messages with new entries. test.
   async destroy(author) {
@@ -654,42 +725,74 @@ class MessageGroup extends Group { // Supports a history of messages.
   }
 }
 
-export class Member extends History {
+export class Member extends History { // Persists current/historical data for a user within a group.
   get balance() { return 0; }
-  get lastUpdate() { return Date.now(); }
+  get lastStipend() { return 0; } // Must be assigned on creatiopn.
+  get votes() { return {}; }  // Map of electionName => current vote by this user.
+  get user() { return null; } // Assigned, and used for debugging. (Note that author is for persisting a transaction.)
+
+  static persistedProperties = ['balance', 'lastStipend', 'votes'];
 }
 
-class TokenGroup extends MessageGroup { // Supports a balance for each member.
-  static persistedProperties = ['rate', 'stipend'].concat(MessageGroup.persistedProperties);
-  get rate() { // The tax rate charged by this Group. Tax is burned.
+// TODO:
+// - ensure each member for in-memory groups (e.g., only if one of our users is a member).
+//   Add / remove when membership changes.
+//   This is because...
+// - rate and stipend should be a live average of member votes (skipping undefined votes)
+// - Can we derive users from team now? (How does that work for personal group?)
+// - vote to admit/expell member
+// - connect messages with actions, bidirectionally, based on message type
+//   examples:
+//     /pay 10 @bob (by alice)
+//     /rate 0.1 (by bob) => New rate 0.13
+//     /admit @carol (by bob) => send /welcome Apples in carol's personal group
+//     /expel @bob  (by alice) => send /goodbye Apples in bob's personal group
+//   - A message localAction is method that assigns to rules within the group, and other rules update accordingly.
+//   - When a Message update is earlier than the local latest, we set the Group and Members to the timestamp of the antecedent of the new message.
+//     And then we act on all the later messages as if we were receiving them as updates.
+//   - Regardless of what came before acting on an update OR sending a message causes the message action to fire.
+//   - A message externalAction is a method that should only be fired once in a local send (after any localAction is fired), to execute any latched behavior.
+
+class TokenGroup extends MessageGroup { // Operates on Members
+  async destroy(author) {
+    const ourBytes = this.tagBytes;
+    for (const userTag of this.users) {
+      const memberTag = (userTag === this.tag) ? this.tag : this.constructor.xorTagBytesToString(Entity.computeTagBytes(userTag), ourBytes);
+      await this.removeMemberByTag(memberTag, author);
+    }
+    await super.destroy(author);
+  }
+  async deauthorizeUser(user, author = user) { // Remove the associated Member, too.
+    await this.removeMember(user, author); // TODO? Maybe don't do this?
+    await super.deauthorizeUser(user, author);
+  }
+  // To transfer, assign sender, receiver, tick, and amount -- fee, costs, senderBalance, receiverBalance will update automatically.
+  // Then commit with commitTransfer if desired.
+  async commitTransfer(author) { // Persist sender, receiver, for current values of amount, tick, etc.
+    // Note that tick is not updated, and so sender/receiver balances will be as displayed.
+    // If the UI wants to, it can reset tick before calling this.
+    const {tick, senderBalance, receiverBalance, sender, receiver} = this;
+    this.maybeUpdateAuthor(author);
+    const promises = [];
+    if (sender) {
+      sender.balance = senderBalance;
+      sender.lastStipend = tick;
+      promises.push(sender.persist(author));
+    }
+    if (receiver) {
+      receiver.balance = receiverBalance;
+      receiver.lastStipend = tick;
+      promises.push(receiver.persist(author));
+    }
+    await Promise.all(promises);
+  }
+
+  get rate() { // The tax rate charged by this Group, that goes to burned fee.
     return 0;
   }
   get stipend() { // The universal supplemental income minted each day for each member.
     return 0;
   }
-  getMemberTag(user) { // Return the persistence tag for user within this group.
-    // user.tag XOR group.tag
-    const nBytes = 32;
-    const userBytes = user.tagBytes;
-    const groupBytes = this.tagBytes;
-    const result = new Uint8Array(nBytes);
-    for (let i = 0; i < nBytes; i++) {
-      result[i] = userBytes[i] ^ groupBytes[i];
-    }
-    return Credentials.encodeBase64url(result);
-  }
-  members = new LiveSet();
-  // We update members on adopt/abandonGroup, and fetch/update of known privateGroup.
-  async ensureMember(user, asMember) {
-    const {members} = this;
-    const member = members.get(user.tag);
-    if (member) return member;
-    member = await Member.fetch(this.getmemberTag(user));
-    await member.adoptByTag(asMember.tag); // We don't have owner permission for the User, but we do for the Member.
-    members.set(user.tag, member);
-    return member;
-  }
-
   // These are tracked rules so that the results of a proposed transfer can be shown to user before committing.
   get sender() { // What Member is paying for the transaction. Assigned by UI
     return null;
@@ -720,36 +823,61 @@ class TokenGroup extends MessageGroup { // Supports a balance for each member.
   get divisions() { // How many divisions of a unit are to be preserved. I.e., how much is a "penny"?
     return 100;
   }
+
+  static persistedProperties = ['rate', 'stipend', 'users'];
+  static xorTagBytesToString(aBytes, bBytes) { // Return base64url of aBytes ^ bBytes
+    const nBytes = 32;
+    const result = new Uint8Array(nBytes);
+    for (let i = 0; i < nBytes; i++) {
+      result[i] = aBytes[i] ^ bBytes[i];
+    }
+    const tag = Credentials.encodeBase64url(result);
+    return tag;
+    
+  }
+    
+  getMemberTag(user) { // Return the persistence tag for user within this group.
+    // user.tag XOR group.tag
+    if (user.tag === this.tag) return this.tag; // Else it would be all zeros!
+    return this.constructor.xorTagBytesToString(user.tagBytes, this.tagBytes);
+  }
+  members = new LiveSet();
+  // We update members on adopt/abandonGroup, and fetch/update of known privateGroup.
+  async ensureMember(user, asMember) {
+    const {members} = this;
+    let member = members.get(user.tag);
+    if (member) return member;
+    member = await Member.fetch(this.getMemberTag(user), asMember);
+    member.owner = this;
+    if (!member.lastStipend) member.lastStipend = Date.now();
+    member.user = user;
+    members.set(user.tag, member);
+    return member;
+  }
+  async removeMember(user, asUser) {
+    const tag = this.getMemberTag(user);
+    await this.removeMemberByTag(tag, asUser);
+  }
+  removeMemberByTag(tag, asUser) {
+    return Member.collection.remove({tag, author: asUser.tag, owner: this.tag});
+  }
+
   static MILLISECONDS_PER_DAY = 1e3 * 60 * 60 * 24;
   computeUpdatedBalance(member, increment) { // Compute what the balance would be, updating from stipend at tick.
-    let now = this.tick;
-    let {balance = 0, lastStipend = now} = member;
-    const daysSince = Math.floor((now - lastStipend) / this.constructor.MILLISECONDS_PER_DAY);
-    return this.roundDownToNearest(balance + (this.stipend * daysSince) + increment);
+    let tick = this.tick;
+    let {balance = 0, lastStipend = tick} = member;
+    const daysSince = Math.floor((tick - lastStipend) / this.constructor.MILLISECONDS_PER_DAY);
+    const beforeRounding = balance + (this.stipend * daysSince) + increment;
+    const rounded = this.roundDownToNearest(beforeRounding);
+    return rounded;
   }
-  roundUpToNearest(number, unit = this.constructor.DIVISIONS) { // Rounds up to nearest whole value of unit.
+  roundUpToNearest(number, unit = this.divisions) { // Rounds up to nearest whole value of unit.
     return Math.ceil(number * unit) / unit;
   }
-  roundDownToNearest(number, unit = this.constructor.DIVISIONS) { // Rounds up to nearest whole value of unit.
+  roundDownToNearest(number, unit = this.divisions) { // Rounds up to nearest whole value of unit.
     return Math.floor(number * unit) / unit;
   }
-  async commitTransfer(author) { // Persist sender, receiver, for current values of amount, tick, etc.
-    // Note that tick is not updated, and so sender/receiver balances will be as displayed.
-    // If the UI wants to, it can reset tick before calling this.
-    const {tick, senderBalance, receiverBalance, sender, receiver} = this;
-    console.log({tick, senderBalance, receiverBalance, sender, receiver});
-    const promises = [];
-    if (sender) {
-      sender.balance = senderBalance;
-      sender.lastUpdate = tick;
-      promises.push(sender.persist(author));
-    }
-    if (receiver) {
-      receiver.balance = receiverBalance;
-      receiver.lastUpdate = tick;
-      promises.push(receiver.persist(author));
-    }
-    await Promise.all(promises);
+  voteRate(user, rate) { // FIXME
   }
 }
 

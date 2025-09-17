@@ -11,4 +11,4 @@ import "@kilroy-code/flexstore/spec/synchronizerSpec.mjs";
 
 import "./liveSpec.mjs";
 import "./genericModelSpec.mjs";
-//import "./userManagementSpec.mjs";
+import "./userManagementSpec.mjs";

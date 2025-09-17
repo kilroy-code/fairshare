@@ -6,11 +6,6 @@ const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 Object.assign(globalThis, {User, FairShareGroup, Message, Credentials, MutableCollection, VersionedCollection}); // for debugging in browser
 
 // TODO:
-// transfer: member 2 member
-// transfer: member burn
-// transfer: group to bank
-// transfer: bank to group
-// transfer: to member of another group using bank and reserve
 // voting: admit
 // voting: expell
 // voting: tax
@@ -25,7 +20,7 @@ function timeLimit(nKeysCreated = 1) { // Time to create a key set varies quite 
   return (nKeysCreated * 6e3) + 6e3;
 }
 
-xdescribe("Model management", function () {
+describe("Model management", function () {
   let authorizedMember,
       deviceName = 'test',
       bankTag;
@@ -44,31 +39,40 @@ xdescribe("Model management", function () {
   }
   async function expectMember(userTag, groupTag, {
     expectUserData = true, userTitle = '',
-    isMember = true, groupActor = userTag, expectGroupData = true, groupTitle = ''
+    isMember = true, groupActor = userTag, expectGroupData = true, groupTitle = '',
+    debug = false
   } = {}) {
     // Confirm properties for user being a member of group.
     // This is reaching under the hood to the level of persisted artifacts.
-    const userData = await User.collection.retrieve(userTag);               // User data.
-    const userPrivateData = await User.privateCollection.retrieve(userTag);
+    const userData = await User.listingCollection.retrieve(userTag);               // User data.
+    const userPrivateData = await User.collection.retrieve(userTag);
+    const user = expectUserData && await User.fetch(userTag, true);
     if (expectUserData) {
       if (userTitle === null) {
 	expect(userData).toBeFalsy();
+	expect(user.title).toBeFalsy();
       } else {
 	expect(userData.protectedHeader.kid).toBe(userTag);                    // Signed by one Key IDentifer.
-	if (userTitle) expect(userData.json.title).toBe(userTitle);
+	if (userTitle) {
+	  expect(userData.json.title).toBe(userTitle);
+	  expect(user.title).toBe(userTitle);
+	}
       }
       expect(userPrivateData.protectedHeader.kid).toBe(userTag);
       expect(userPrivateData.protectedHeader.cty).toContain('encrypted');
       expect(userPrivateData.decrypted.protectedHeader.kid).toBe(userTag);
-      if (isMember) expect(userPrivateData.json.groups).toContain(groupTag); // User's groups list includes the specified group.
-      else expect(userPrivateData.json.groups).not.toContain(groupTag);
+      if (isMember) {
+	expect(userPrivateData.json.groups).toContain(groupTag); // User's groups list includes the specified group.
+	expect(user.groups).toContain(groupTag);
+      } else expect(userPrivateData.json.groups).not.toContain(groupTag);
     } else {
       expect(userPrivateData).toBeFalsy();
     }
 
     // Get data regardless of whether user is a member of team, as that is checked below.
-    const groupData = await FairShareGroup.collection.retrieve({tag: groupTag, member: null});  // Group Data
-    const groupPrivateData = await FairShareGroup.privateCollection.retrieve({tag: groupTag, member: null});
+    const groupData = await FairShareGroup.listingCollection.retrieve({tag: groupTag, member: null});  // Group Data
+    const groupPrivateData = await FairShareGroup.collection.retrieve({tag: groupTag, member: null});
+    const group = expectGroupData && await FairShareGroup.fetch(groupTag, true);
     if (expectGroupData) {
       if (groupTitle === null) {
 	expect(groupData).toBeFalsy();
@@ -76,18 +80,23 @@ xdescribe("Model management", function () {
 	const {kid:ukid, iss:uowner = ukid, act:uauthor = ukid} = groupData.protectedHeader;
 	expect(uowner || ukid).toBe(groupTag);                   // Signed by the group itself (ISSuer).
 	if (groupActor) expect(uauthor).toBe(groupActor);                 // Signed by a then-current member (ACTor).
-	if (groupTitle) expect(groupData.json.title).toBe(groupTitle);
+	if (groupTitle) {
+	  expect(groupData.json.title).toBe(groupTitle);
+	  expect(group.title).toBe(groupTitle);
+	}
       }
       const {kid:vkid, iss:vowner = vkid, act:vauthor = vkid} = groupPrivateData.protectedHeader;
       expect(vowner || vkid).toBe(groupTag);
       if (groupActor) expect(vauthor).toBe(groupActor);
       expect(groupPrivateData.protectedHeader.cty).toContain('encrypted');
       expect(groupPrivateData.decrypted.protectedHeader.kid).toBe(groupTag);
-      if (isMember) expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
-      else expect(groupPrivateData.json.users).not.toContain(userTag);
+      if (isMember) {
+	expect(groupPrivateData.json.users).toContain(userTag);   // Group's user data list includes the specified user.
+	expect(group.users).toContain(userTag);
+      } else expect(groupPrivateData.json.users).not.toContain(userTag);
     } else {
       expect(groupData).toBeFalsy();
-      expect(await FairShareGroup.privateCollection.get(groupTag)).toBeFalsy();
+      expect(await FairShareGroup.collection.get(groupTag)).toBeFalsy();
     }
 
     const keyData = await Credentials.collections.Team.retrieve({tag: groupTag, member: null});         // Key data.
@@ -106,29 +115,37 @@ xdescribe("Model management", function () {
   async function expectMessages(group, expectedResults) {
     //let messages = group.messages.map(m => ({title:m.title, from:m.author.title, in:m.owner.title, type:m.type}));
     const messages = [];
-    console.log('expectMessages, group:', group, 'tag', group?.tag);
-    let message = await Message.fetch(group.tag); // latest
-    console.log('iterating messages');
+    let latest = await Message.fetch(group.tag, true);
+    let message = await latest.subject;
     while (message) {
-      const {title, author, owner, type} = message;
-      console.log({message, title, author, owner, type});
-      messages.push({title, from: author.title, in: (await owner).title, type: type});
-      message = await message.antecedent;
+      let {title, author, owner, type} = message;
+      author = await author;
+      owner = await owner;
+      const from = author.title;
+      const of = owner.title;
+      const antecedent = await message.antecedent;
+      messages.push({title, from, of, type});
+      message = antecedent;
     }
     messages.reverse();
-    console.log(messages);
     expect(messages).toEqual(expectedResults);
   }
 
   beforeAll(async function () {
     // Bootstrap bank group using temporary user credentials.
     const bootstrapUserTag = await Credentials.create(); // No user object.
+    const bootstrapUser = {tag:bootstrapUserTag}; // We don't need a full-blown User object here, but we do not an object with a tag property.
     bankTag = await Credentials.create(bootstrapUserTag);
-    const group = new FairShareGroup({title: "First YZ Bank", tag: bankTag});
-    await group.persist({tag:bootstrapUserTag}); // Pun: {tag} looks like a store option, but it's actually a fake User with a tag property.
+    const bank = new FairShareGroup({title: "First YZ Bank", tag: bankTag}); // Not create, as author isn't a full User.
+    // Arrange for it to be findable from tag by User.create():
+    FairShareGroup.directory.set(bankTag, bank);
+    await bank.persist(bootstrapUser);
+
     // Using the bootstrap users, construct a real authorized member of the bank.
     globalThis.authorizedMember = authorizedMember = await User.create({title: 'user A', secrets:[['q0', "17"]], deviceName, bankTag});
+    await bank.verified;
     await Credentials.changeMembership({tag: bankTag, remove: [bootstrapUserTag]});
+    bank.author = null;
     await Credentials.destroy(bootstrapUserTag);
 
     // Check our starting conditions.
@@ -138,20 +155,17 @@ xdescribe("Model management", function () {
   }, timeLimit(3)); // Key creation is deliberately slow.
 
   afterAll(async function () { // Remove everything we have created. (But not whole collections as this may be "live".)
-    console.log('cleanup user', authorizedMember);
     await authorizedMember.destroy({prompt: 'q0', answer: "17"});
     await expectGone(User.collection, authorizedMember.tag);
-    await expectGone(User.privateCollection, authorizedMember.tag);
+    await expectGone(User.listingCollection, authorizedMember.tag);
     await expectNoKey(authorizedMember.tag);
     // authorizedMember was the last member of the bank, so destroying the user destroyed the bank.
     await expectGone(FairShareGroup.collection, bankTag);
-    await expectGone(FairShareGroup.privateCollection, bankTag);
+    await expectGone(FairShareGroup.listingCollection, bankTag);
     await expectNoKey(bankTag);
   }, timeLimit(1));
 
-  it('sets up', function () { expect(1).toBe(1); });
-
-  xdescribe("user", function () {
+  describe("user", function () {
     let user;
     beforeAll(async function () {
       user = await User.create({title: 'user B', secrets:[['q1', "42"]], deviceName, bankTag});
@@ -159,6 +173,28 @@ xdescribe("Model management", function () {
 
     it("has a bank.", async function () {
       await expectMember(user.tag, bankTag, {userTitle: 'user B', groupTitle: "First YZ Bank", groupActor: null});
+    });
+
+    it("has personal group.", async function () {
+      await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: null});
+
+      expect(await FairShareGroup.listingCollection.list()).not.toContain(user.tag); // Not listed in public persistent data.
+      expect(FairShareGroup.directory.has(user.tag)).toBeTruthy(); // In session where instance was made or fetched.
+
+      const group = await FairShareGroup.fetch(user.tag); // Works because of previous line.
+      expect(group.title).toBe("Yourself");      // From rule, not from persisted data.
+      expect(group.users).toEqual([user.tag]);
+      expect(user.groups).toContain(group.tag);
+
+      // Simulate a new session without adoption.
+      FairShareGroup.directory.delete(user.tag);
+      let fetched = await FairShareGroup.fetch(user.tag);
+      expect(fetched).not.toBe(group);   // A new (empty) Group instance.
+      expect(fetched.users).toEqual([]); // Because it has not fetched private data.
+      // Now adopt
+      FairShareGroup.directory.delete(user.tag);
+      fetched = await FairShareGroup.fetch(user.tag, user);
+      expect(fetched.users).toEqual([user.tag]);
     });
 
     it("authorizes/deauthorizes existing user on device.", async function () {
@@ -185,79 +221,59 @@ xdescribe("Model management", function () {
       await expectMember(user.tag, bankTag, {isMember: false, expectUserData: false});
     }, timeLimit(1));
 
-
     it("can edit public and private data.", async function () {
-      const {tag, picture, groups, devices} = user;        // Private data before editing.
+      const {tag, picture, groups, devices} = user;      // Private data before editing.
 
-      await user.edit({picture: "foo bar"});           // Change public data.
-      expect(user.picture).toBe("foo bar");            // In object.
-      const verified1 = await User.collection.retrieve(tag);
-      const verified2 = await User.privateCollection.retrieve(tag);
-      expect(verified1.json.picture).toBe("foo bar"); // Persisted
-      expect(user.title).toBe('user B');               // Other public data unchanged.
+      await user.edit({picture: "foo bar"});             // Change public data.
+      expect(user.picture).toBe("foo bar");              // In object.
+      const verified1 = await User.listingCollection.retrieve(tag);
+      const verified2 = await User.collection.retrieve(tag);
+      expect(verified1.json.picture).toBe("foo bar");    // Persisted
+      expect(user.title).toBe('user B');                 // Other public data unchanged.
       expect(verified1.json.title).toBe('user B');
-      expect(user.groups).toBe(groups);                // Private data unchanged.
+      expect(user.groups).toBe(groups);                  // Private data unchanged.
       expect(verified2.json.groups).toEqual(groups);
 
-      devices['foo'] = 'bar';                            // Change private data.
-      await user.edit({devices});
-      expect(user.devices['foo']).toBe('bar');            // In object
-      const verified3 = await User.collection.retrieve(tag);
-      const verified4 = await User.privateCollection.retrieve(tag);
-      expect(verified4.json.devices['foo']).toBe('bar');  // Persisted
-      expect(user.groups).toBe(groups);                   // Other private data unchanged.
+      const devices2 = {...devices, foo: 'bar'};         // Change private data.
+      await user.edit({devices: devices2});
+      expect(devices).not.toBe(devices2);
+      expect(user.devices).toBe(devices2);      
+      expect(user.devices.foo).toBe('bar');              // In object
+      const verified3 = await User.listingCollection.retrieve(tag);
+      const verified4 = await User.collection.retrieve(tag);
+      expect(verified4.json.devices.foo).toBe('bar');    // Persisted
+      expect(user.groups).toBe(groups);                  // Other private data unchanged.
       expect(verified4.json.groups).toEqual(groups);     
-      expect(user.title).toBe('user B');                  // Public data unchanged.
+      expect(user.title).toBe('user B');                 // Public data unchanged.
       expect(verified3.json.title).toBe('user B');
       
-      delete devices['foo'];                              // Restore
-      await user.edit({devices, picture});
+      await user.edit({devices, picture});               // Restore
     });
 
     it("updates public and private data.", async function () {
       const tag = user.tag;
-      const verified1 = await User.collection.retrieve(tag);
-      const verified2 = await User.privateCollection.retrieve({tag, decrypt: false});
+      const userListing = await User.listingCollection.retrieve(tag);
+      const userPrivate = await User.collection.retrieve({tag, decrypt: false});
 
       // Make another user to model some different data from.
       const prompt = 'q1', answer = 'a1';
       const other = await User.create({title: 'fred', secrets:[[prompt, answer]], deviceName: 'something else', bankTag});
-      const verified3 = await User.collection.retrieve(other.tag);
-      const verified4 = await User.privateCollection.retrieve({tag: other.tag, decrypt: false});
+      const otherListing = await User.listingCollection.retrieve(other.tag);
+      const otherPrivate = await User.collection.retrieve({tag: other.tag, decrypt: false});
 
-      await User.update(tag, verified3);
-      await User.updatePrivate(tag, verified4);
-      await other.destroy({prompt, answer}); // verified4 was encrypted for other.tag, so we had to keep this around long enough to decrypt.
+      await User.update(tag, otherListing);
+      await User.update(tag, otherPrivate);
+      await other.destroy({prompt, answer}); // otherPrivate was encrypted for other.tag, so we had to keep this around long enough to decrypt.
       expect(user.title).toBe('fred');
       expect(user.devices['something else']).toBeTruthy();
 
       // Restore
-      await User.update(tag, verified1);
-      await User.updatePrivate(tag, verified2);
+      await User.update(tag, userListing);
+      await User.update(tag, userPrivate);
       expect(await User.fetch(tag)).toBe(user);
       expect(user.title).toBe('user B');
       expect(user.devices['something else']).toBeFalsy();
     }, timeLimit(1));
-
-    it("has personal group.", async function () {
-      await expectMember(user.tag, user.tag,           {userTitle: 'user B', groupTitle: null});
-
-      expect(await FairShareGroup.collection.list()).not.toContain(user.tag); // Not listed in public persistent data.
-      expect(FairShareGroup.directory.has(user.tag)).toBeTruthy(); // In session where instance was made or fetched.
-
-      const group = await FairShareGroup.fetch(user.tag); // Works because of previous line.
-      expect(group.title).toBe("Yourself");      // From rule, not from persisted data.
-      expect(group.users).toEqual([user.tag]);
-      expect(user.groups).toContain(group.tag);
-
-      // // Simulate a new session without adoption.
-      let fetched = await group.refetch(false);
-      expect(fetched).not.toBe(group);   // A new (empty) Group instance.
-      expect(fetched.users).toEqual([]); // Because it has not fetched private data.
-      // Now adopt
-      await fetched.adoptByTag(user.tag);
-      expect(fetched.users).toEqual([user.tag]);
-    });
 
     afterAll(async function () {
       // Removes user from personal group.
@@ -268,7 +284,7 @@ xdescribe("Model management", function () {
     });    
   });
 
-  xdescribe("groups", function () {
+  describe("groups", function () {
     it("can be created and destroyed", async function () {
       // Have authorizedMember create a Group.
       const group = await authorizedMember.createGroup({title: 'group B'});
@@ -292,13 +308,21 @@ xdescribe("Model management", function () {
       const u2 = await User.create({title: "megan thee stallion", secrets:[[prompt, answer]], deviceName, bankTag});
 
       // Authorize by current group member (the creator).
-      await User.collection.withRestrictedTags(await Credentials.teamMembers(authorizedMember.tag, true),
-					       () => Promise.all([group.authorizeUser(u1), group.authorizeUser(u2)]));
+      await User.collection.withRestrictedTags([group.tag, ...await Credentials.teamMembers(authorizedMember.tag, true)],
+					       async () => {
+						 await group.authorizeUser(u1);
+						 await group.authorizeUser(u2);
+					       });
 
+      const groupKeyMembers = await Credentials.teamMembers(group.tag);
+      expect(groupKeyMembers).toContain(authorizedMember.tag);
+      expect(groupKeyMembers).toContain(u1.tag);
+      expect(groupKeyMembers).toContain(u2.tag);      
+      
       // Each use then adopts.
-      await User.collection.withRestrictedTags(await Credentials.teamMembers(u1.tag, true),
+      await User.collection.withRestrictedTags([group.tag, ...await Credentials.teamMembers(u1.tag, true)],
 					       () => u1.adoptGroup(group));
-      await User.collection.withRestrictedTags(await Credentials.teamMembers(u2.tag, true),
+      await User.collection.withRestrictedTags([group.tag, ...await Credentials.teamMembers(u2.tag, true)],
 					       () => u2.adoptGroup(group));
 
       expect(group.title).toBe("U.A., C., M.T.S.");
@@ -351,7 +375,7 @@ xdescribe("Model management", function () {
       expect(defaultGroup.rate).toBe(0);
       expect(specifiedGroup.rate).toBe(0.01);
 
-      specifiedGroup = await specifiedGroup.refetch();
+      specifiedGroup = await FairShareGroup.fetch(tag);
       expect(specifiedGroup.rate).toBe(0.01);
 
       await authorizedMember.destroyGroup(defaultGroup);
@@ -364,32 +388,34 @@ xdescribe("Model management", function () {
       expect(defaultGroup.stipend).toBe(0);
       expect(specifiedGroup.stipend).toBe(2);
 
-      specifiedGroup = await specifiedGroup.refetch();
+      specifiedGroup = await FairShareGroup.fetch(tag);
       expect(specifiedGroup.stipend).toBe(2);
 
       await authorizedMember.destroyGroup(defaultGroup);
       await authorizedMember.destroyGroup(specifiedGroup);
     }, timeLimit(2));
 
-    xit("handles messages.", async function () {
+    it("handles messages.", async function () {
       const group = await authorizedMember.createGroup({title: 'chat'});
       const prompt = 'p1', answer = "a1";
       const stranger = await User.create({title: 'user D', secrets:[[prompt, answer]], deviceName, bankTag}); // Not a member of group.
+
       await group.send({title: "Hello, world!"}, authorizedMember);
       await group.send({title: "Goodbye!", type: 'goodbye'}, stranger); // Can inject a message.
       await expectMessages(group, [
-	{title: "Hello, world!", from: authorizedMember.title, in: group.title, type: 'text'},
-	{title: "Goodbye!", from: stranger.title, in: group.title, type: 'goodbye'}
+	{title: "Hello, world!", from: authorizedMember.title, of: group.title, type: 'text'},
+	{title: "Goodbye!", from: stranger.title, of: group.title, type: 'goodbye'}
       ]);
-      const fetched = await Message.collection.retrieve(group.tag); // Most recent message.
+      const fetched = await Message.collection.retrieve({tag: group.tag, member: null}); // Most recent message.
       expect(fetched.protectedHeader.cty).toContain('encrypted');
+
       await stranger.destroy({prompt, answer});
       await authorizedMember.destroyGroup(group);
       expectGone(Message.collection, group.tag);
     }, timeLimit(2));
   });
 
-  xdescribe("combined", function () {
+  describe("combined", function () {
     describe("non-member invitation", function () {
       let invitation, user, pairwiseChatTag, pairwiseChat;
       const prompt = 'q2', answer = "foo", deviceName = "something";
@@ -400,6 +426,7 @@ xdescribe("Model management", function () {
 	pairwiseChatTag = user.groups.find(tag => ![user.tag, bankTag].includes(tag));
 	pairwiseChat = await FairShareGroup.fetch(pairwiseChatTag);
       }, timeLimit(3));
+
       it("matches user tag.", function () {
 	expect(invitation).toBe(user.tag);
       });
@@ -428,14 +455,14 @@ xdescribe("Model management", function () {
       it("accepts messages from invitee and sponsor.", async function () {
 	await pairwiseChat.send({title: 'welcome!'}, authorizedMember);
 	await pairwiseChat.send({title: 'thanks for inviting me'}, user);
-	expectMessages(pairwiseChat, [
-	  {title: "welcome!", from: authorizedMember.title, in: pairwiseChat.title, type: 'text'},
-	  {title: "thanks for inviting me", from: user.title, in: pairwiseChat.title, type: 'text'}
+	await expectMessages(pairwiseChat, [
+	  {title: "welcome!", from: authorizedMember.title, of: await pairwiseChat.title, type: 'text'},
+	  {title: "thanks for inviting me", from: user.title, of: await pairwiseChat.title, type: 'text'}
 	]);
       });
 
       afterAll(async function () {
-	await user.destroy({prompt, answer});
+	await user.destroy({prompt, answer, author: user, owner: user});
 	await expectMember(user.tag, bankTag, {isMember: false, expectUserData: false});
 	await expectMember(user.tag, pairwiseChatTag, {isMember: false, expectUserData: false, groupTitle: null});
 	await expectMember(authorizedMember.tag, pairwiseChatTag, {userTitle: authorizedMember.title, groupTitle: null, groupActor: user.tag}); // still
@@ -450,7 +477,12 @@ xdescribe("Model management", function () {
 	get userTitles() { return User.directory.map(user => user.title); }
       }
       Rule.rulify(ReferencingObject.prototype);
-      beforeAll(function () { reference = new ReferencingObject(); });
+      beforeAll(async function () {
+	// Make certain the personal group title is not set by some other test.
+	const personalGroup = await FairShareGroup.fetch(authorizedMember.tag);
+	personalGroup.title = undefined;
+	reference = new ReferencingObject();
+      });
       it("tracks changes to simple property.", async function () {
 	// We're outside of a rule here, so we must await the reference to allow it to commpute through propogated promises.
 	let initialTitle = await reference.personalTitle;
@@ -469,32 +501,47 @@ xdescribe("Model management", function () {
       }, timeLimit(1));
     });
 
-    xdescribe('transfer', function () {
-      let group, alice, bob;
+    describe("transfer", function () {
+      let alice, bob, apples;
       const p = 'x', a = 'y';
       beforeAll(async function () {
-	alice = await User.create({title: 'Alice', secrets: [[p, a]], deviceName, bankTag});
-	bob = await User.create({title: 'Bob', secrets: [[p, a]], deviceName, bankTag});
-	group = await alice.createGroup({title: 'Apples', tax: 0.1, stipend: 10});
-	group.authorizeUser(bob);
-	bob.adoptGroup(group);
+	alice = await User.create({title: "Alice", secrets: [[p, a]], deviceName, bankTag});
+	bob = await User.create({title: "Bob", secrets: [[p, a]], deviceName, bankTag});
+	apples = await alice.createGroup({title: "Apples"});
+	await expectMember(alice.tag, apples.tag, {userTitle: "Alice", groupTitle: "Apples"});
+	await apples.authorizeUser(bob);
+	await bob.adoptGroup(apples);
+	await expectMember(bob.tag, apples.tag, {userTitle: "Bob", groupTitle: "Apples"});
       }, timeLimit(3));
       afterAll(async function () {
 	await alice.destroy({prompt: p, answer: a});
 	await bob.destroy({prompt: p, answer: a});
+	await expectNoKey(alice.tag);
+	await expectNoKey(bob.tag);
+	await expectNoKey(apples.tag);
       });
-      describe('between members', function () {
+      // TODO: burn to same group
+      // TODO: mint from same group
+      // TODO: to member of another group
+      describe("between members", function () {
 	beforeAll(async function () {
-	  group.sender = await group.ensureMember(alice, alice);
-	  group.receiver = await group.ensureMember(bob, alice);
-	  group.amount = 1;
-	  group.tick = Date.now + FairShareGroup.MILLISECONDS_PER_DAY;
-	  console.log('balances', group.senderBalance, group.receiverBalance);
+	  apples.sender = await apples.ensureMember(alice, alice);
+	  apples.receiver = await apples.ensureMember(bob, alice);
+	  apples.amount = 1;
+	  const now = Date.now();
+	  apples.tick = now + FairShareGroup.MILLISECONDS_PER_DAY;
 	});
-	it('smoke', function () {
-	  expect(group.senderBalance).toBe(10 - 1.2);
-	  expect(group.receiverBalance).toBe(10 + 1);
-	});
+	it("zero rate & stipend.", function () {
+	  apples.rate = apples.stipend = 0;
+	  expect(apples.senderBalance).toBe(-1);
+	  expect(apples.receiverBalance).toBe(1);
+	});	
+	it("non-zero rate & stipend.", function () {
+	  apples.rate = 0.01;
+	  apples.stipend = 10;
+	  expect(apples.senderBalance).toBe(10 - 1.01);
+	  expect(apples.receiverBalance).toBe(10 + 1);
+	});	
       });
     });
   });
