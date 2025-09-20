@@ -17,6 +17,11 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
   // and those rules will track the changes.
   //
   // This could be implemented differently, e.g., as a Proxy. But we don't need to, yet.
+
+  constructor(properties) {
+    const {items} = this;
+    for (const key in properties) items[key] = properties[key];
+  }
   items = {};
   get size() { // Tracked rule that lazilly caches on demand after one or more set/delete.
     let count = 0;
@@ -24,26 +29,28 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
     return count;
   }
   // We do not currently support length/at(), as these would need to managed deleted items.
-  forEach(iterator) {
+  forEach(iterator) { // Applies iterator(value, key, this) for each item that has been set but not deleted, and creates dependency on each item and set/delete.
     const {items, size} = this;
     const keys = Object.keys(items);
     const length = size && keys.length; // depends on size for reset
     for (let index = 0; index < length; index++) {
-      const value = items[keys[index]];
+      const key = keys[index];
+      const value = items[key];
       if (value === null) continue;
-      iterator(value, index, this);
+      iterator(value, key, this);
     }
   }
-  map(iterator) {
+  map(iterator) { // As for forEach, but collecting results returned by iterator.
     const {items, size} = this;
     const keys = Object.keys(items);
     const length = size && keys.length; // depends on size for reset
     const result = Array(length);
     let skipped = 0;
     for (let index = 0; index < length; index++) {
-      const value = items[keys[index]];
+      const key = keys[index];
+      const value = items[key];
       if (value === null) { skipped++; continue; }
-      result[index - skipped] = iterator(value, index, this);
+      result[index - skipped] = iterator(value, key, this);
     }
     result.length -= skipped;
     return result;
@@ -138,6 +145,7 @@ export class Persistable {
     return await this.persist(asUser);
   }
   async destroy({author, owner} = {}) { // Remove item from collection, with the specified credentials if specified (else from properties).
+    // TODO: use same positional arguments as maybeUpdateAuthor().
     // TODO?: shouldn't this be leaving a tombstone??
     const options = {...await this.persistOptions, tag: this.tag};
     if (author) options.author = author.tag;
@@ -266,7 +274,6 @@ export class Persistable {
     let options = await persistOptions;
     let tag = this.tag;
     if (tag) options = {tag, ...options};
-    if (options.tag?.startsWith('AAA')) console.log('persistProperties', {propertyNames, collection, persistOptions, data, options, tag, options});
     const persisted = await collection.store(data, options);
     if (!tag) tag = this.tag = persisted;
     return tag;
@@ -514,7 +521,7 @@ export class User extends Entity {
 
     const user = await User.fetch(userTag, {tag: userTag}); // Supply a dummy author so that we can decrypt the persisted bankTag.
     user.author = user;
-    await user.edit({devices: {[deviceName]: deviceTag}, secrets: hashes, ...properties, verified: null});
+    await user.edit({devices: {[deviceName]: deviceTag}, secrets: hashes, ...properties, verified: null}, user);
     return user;
   }
   async authorize({prompt, answer, deviceName}) { // Add this user to the set that I have private access to on this device (not remote).
@@ -528,10 +535,9 @@ export class User extends Entity {
     Credentials.setAnswer(prompt, answer);
     await Credentials.changeMembership({tag, add: [deviceTag]});  // Must be before fetch.
     Credentials.setAnswer(prompt, null);
-    // fixme await this.adoptByTag(tag); // Updates this with private data, adding devices entry.
     const {devices} = this;
     devices[deviceName] = deviceTag; // TODO?: Do we want to canonicalize deviceName order?
-    await this.edit({devices});
+    await this.edit({devices}, this);
   }
   async deauthorize({prompt, answer, deviceName}) { // Remove this user from the set that I have private access to on the specified device.
     // PERSISTS Credential.
@@ -540,7 +546,7 @@ export class User extends Entity {
     const {tag, devices} = this;
     const deviceTag = devices[deviceName];  // Remove device key tag from user private data.
     delete devices[deviceName];
-    await this.edit({devices});
+    await this.edit({devices}, this);
 
     await Credentials.changeMembership({tag, remove: [deviceTag]}); // Remove device key tag from user team.
     await Credentials.destroy(deviceTag)  // Might be remote: try to destroy device key, and swallow error.
@@ -559,27 +565,14 @@ export class User extends Entity {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
     // PERSISTS Group, then User
-    const {tag:userTag} = this;
-    const {tag:groupTag} = group;
-    // fixme await group.adoptByTag(userTag);
-    this.groups = [...this.groups, groupTag];
-    // TODO: users should come from teamMembers. No reason for additional property. That MIGHT result in no privatGroup data at all.
-    group.users = [...group.users , userTag];
-    const member = await group.ensureMember(this, this);
-    // Not parallel: Do not store user data unless group storage succeeds.
-    await group.persist(this);
-    await this.persist(this);
-    await member.persist(this);    
-    // FIXME: destroy member when leaving?
-    // FIXME: check for member in tests
+    await this.edit({groups: [...this.groups, group.tag]}, this);
+    await group.adoptBy(this); // TODO: why does this sometimes fail in the other order?
   }
   async abandonGroup(group) {
     // Used by user to remove a group from their own user data.
     // PERSISTS User
-    // fixme await group.abandonByTag(this.tag);
     const groupTag = group.tag;
-    this.groups = this.groups.filter(tag => tag !== groupTag);
-    return await this.persist(this);
+    return await this.edit({groups: this.groups.filter(tag => tag !== groupTag)}, this);
   }
   async preConfirmOwnership({prompt, answer}) { // Reject if prompt/answer are valid for this user.
     // Can be used up front, rather than waiting and getting errors.
@@ -596,7 +589,7 @@ export class User extends Entity {
   get groups() { return []; }  // Tags of the groups this user has joined.
   get bankTag() { return ''; } // Tag of the group that is used to access the reserve currency. (An element of groups.)
   get secrets() { return {}; } // So that we know what to prompt when authorizing, and can preConfirmOwnership.
-  get shortName() { return this.title.split(/\s/).map(word => word[0].toUpperCase()).join('.') + '.'; }
+  get shortName() { return this.title.split(/\s/).map(word => (word[0] || '-').toUpperCase()).join('.') + '.'; }
   get owner() { return this; } // User is its own owner.
   
   
@@ -639,6 +632,10 @@ export class Group extends Entity {
     if (tag === author.tag) return; // If a personal group that shares credentials with author, we're done.
     await Credentials.destroy(tag);
   }
+  async adoptBy(user) {
+    // TODO: users should come from teamMembers. No reason for additional property. That MIGHT result in no privatGroup data at all.
+    await this.edit({users: [...this.users , user.tag]}, user);
+  }
   async authorizeUser(candidate) {
     // Used by any team member to add the user to the group's key set.
     // PERSISTS Credential
@@ -655,9 +652,7 @@ export class Group extends Entity {
     // Used by any team member (including the user) to remove user from the key set AND the group.
     // PERSISTS Group then Credential
     // Does NOT change the user's data.
-    this.users = this.users.filter(tag => tag !== user.tag);
-    this.maybeUpdateAuthor(author);
-    await this.persist(author);
+    await this.edit({users: this.users.filter(tag => tag !== user.tag)}, author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
   }
 
@@ -712,7 +707,7 @@ class MessageGroup extends Group { // Supports a history of messages.
   async send({type = 'text', ...properties}, author) { // Sends Messages as author.
     // PERSISTS Message, and sets its tag to the StateCollection hash/tag.
     const {tag} = this;
-    const message = new Message({...properties, tag, type, author, owner: this});
+    const message = await Message.ensure({...properties, tag, type, author, owner: this});
     const verified = await message.persist();
     return verified;
   }
@@ -721,15 +716,30 @@ class MessageGroup extends Group { // Supports a history of messages.
     // PERSISTS Messages, then User, then Group, then Credential
     const {tag} = this;
     await Message.collection.remove({tag, owner: tag, author: author.tag});
+    Message.directory.delete(tag);
     await super.destroy(author);
   }
 }
 
 export class Member extends History { // Persists current/historical data for a user within a group.
+  constructor(properties) {
+    super(properties);
+    this.liveVotes = new LiveSet(this.votes);
+  }
   get balance() { return 0; }
   get lastStipend() { return 0; } // Must be assigned on creatiopn.
-  get votes() { return {}; }  // Map of electionName => current vote by this user.
+  get votes() { return {}; }  // A serialization of liveVotes. Just for persistence.
   get user() { return null; } // Assigned, and used for debugging. (Note that author is for persisting a transaction.)
+  get verifiedMain() { // Also copy liveVotes into votes dictionary for persistence.
+    const { votes } = this;
+    this.liveVotes.forEach((value, key) => votes[key] = value);
+    return super.__verifiedMain();
+  }
+  get title() { return this.user.title; } // TODO: remove. Makes for easier debugging, but wasteful of space.
+  async persist(author, owner) {
+    if (!owner?.tag && !this.owner?.tag) console.log(`persist with author ${author?.title}/${this.author?.title}, owner ${owner?.title}/${this.owner?.title}, user: ${this.user?.title}`);
+    return super.persist(author, owner);
+  }
 
   static persistedProperties = ['balance', 'lastStipend', 'votes'];
 }
@@ -754,18 +764,46 @@ export class Member extends History { // Persists current/historical data for a 
 //   - A message externalAction is a method that should only be fired once in a local send (after any localAction is fired), to execute any latched behavior.
 
 class TokenGroup extends MessageGroup { // Operates on Members
-  async destroy(author) {
-    const ourBytes = this.tagBytes;
-    for (const userTag of this.users) {
-      const memberTag = (userTag === this.tag) ? this.tag : this.constructor.xorTagBytesToString(Entity.computeTagBytes(userTag), ourBytes);
-      await this.removeMemberByTag(memberTag, author);
-    }
-    await super.destroy(author);
+  constructor(rest = {}) { // Add all Members. We can return a promise because every path to here runs through `await SomeClass.ensure(...)`.
+    super(rest);
+    return Promise.all(this.users.map(async userTag => {
+      const memberTag = this.getMemberTag(userTag);
+      const member = await Member.fetch(memberTag, true);
+      Member.assign(member, {user: await User.fetch(userTag), group: this});
+      this.members.set(userTag, member);
+    })).then(() => this);
   }
+  async adoptBy(user) { // Add a member for user, and persist it with the lastStipend.
+    await super.adoptBy(user);
+    const memberTag = this.getMemberTag(user.tag, user.tagBytes);
+    const member = await Member.ensure({tag: memberTag, user, owner: this, lastStipend: Date.now()});
+    this.members.set(user.tag, member);
+    await member.persist(user);
+  }
+  // TODO? In both the following we destroy() the member. Should we keep it for posterity?
   async deauthorizeUser(user, author = user) { // Remove the associated Member, too.
-    await this.removeMember(user, author); // TODO? Maybe don't do this?
+    const member = this.members.get(user.tag);
+    this.members.delete(user.tag);
+    await member.destroy({author, owner: this});
     await super.deauthorizeUser(user, author);
   }
+  async destroy(author) {
+    // No need to remove entry from this.members because we are destroying the whole Group.
+    await Promise.all(this.users.map(userTag => this.members.get(userTag).destroy({author, owner: this})));
+    await super.destroy(author);
+  }
+  setSender(user) { // Set transaction sender as specified, so that dependencies update.
+    this.sender = user ? this.members.get(user.tag) : null;
+  }
+  setReceiver(user) { // Set transaction receiver as specified, so that dependencies update.
+    this.receiver = user ? this.members.get(user.tag) : null;
+  }
+  setVote(user, election, vote) { // Set the given users vote as specified for the given election. A vote of undefined indicates abstention.
+    const live = this.members.get(user.tag).liveVotes;
+    if (vote === undefined) live.delete(election);
+    else live.set(election, vote);
+  }
+
   // To transfer, assign sender, receiver, tick, and amount -- fee, costs, senderBalance, receiverBalance will update automatically.
   // Then commit with commitTransfer if desired.
   async commitTransfer(author) { // Persist sender, receiver, for current values of amount, tick, etc.
@@ -787,11 +825,22 @@ class TokenGroup extends MessageGroup { // Operates on Members
     await Promise.all(promises);
   }
 
+  async persist(authorx, ownerx, fixme) { // Also persist members
+    const {author, owner, title} = this;
+    //console.log('persiting', {title: await title, author: author.title, owner: await owner.title, authorx: authorx?.title, ownerx: ownerx?.title});
+    //if (fixme)
+    await Promise.all(this.members.map(member => { console.log('persist member', member); return member.persist(authorx, ownerx); }));
+    //console.log('members persisted');
+    const xx = await super.persist(authorx, ownerx);
+    //if (fixme)
+    //console.log('persisted', {title, author: author.title, owner: owner.title, authorx: authorx?.title, ownerx: ownerx?.title});
+    return xx;
+  }
   get rate() { // The tax rate charged by this Group, that goes to burned fee.
-    return 0;
+    return this.averageVotes('rate');
   }
   get stipend() { // The universal supplemental income minted each day for each member.
-    return 0;
+    return this.averageVotes('stipend');
   }
   // These are tracked rules so that the results of a proposed transfer can be shown to user before committing.
   get sender() { // What Member is paying for the transaction. Assigned by UI
@@ -824,44 +873,8 @@ class TokenGroup extends MessageGroup { // Operates on Members
     return 100;
   }
 
-  static persistedProperties = ['rate', 'stipend', 'users'];
-  static xorTagBytesToString(aBytes, bBytes) { // Return base64url of aBytes ^ bBytes
-    const nBytes = 32;
-    const result = new Uint8Array(nBytes);
-    for (let i = 0; i < nBytes; i++) {
-      result[i] = aBytes[i] ^ bBytes[i];
-    }
-    const tag = Credentials.encodeBase64url(result);
-    return tag;
-    
-  }
-    
-  getMemberTag(user) { // Return the persistence tag for user within this group.
-    // user.tag XOR group.tag
-    if (user.tag === this.tag) return this.tag; // Else it would be all zeros!
-    return this.constructor.xorTagBytesToString(user.tagBytes, this.tagBytes);
-  }
+  static persistedProperties = ['users'];
   members = new LiveSet();
-  // We update members on adopt/abandonGroup, and fetch/update of known privateGroup.
-  async ensureMember(user, asMember) {
-    const {members} = this;
-    let member = members.get(user.tag);
-    if (member) return member;
-    member = await Member.fetch(this.getMemberTag(user), asMember);
-    member.owner = this;
-    if (!member.lastStipend) member.lastStipend = Date.now();
-    member.user = user;
-    members.set(user.tag, member);
-    return member;
-  }
-  async removeMember(user, asUser) {
-    const tag = this.getMemberTag(user);
-    await this.removeMemberByTag(tag, asUser);
-  }
-  removeMemberByTag(tag, asUser) {
-    return Member.collection.remove({tag, author: asUser.tag, owner: this.tag});
-  }
-
   static MILLISECONDS_PER_DAY = 1e3 * 60 * 60 * 24;
   computeUpdatedBalance(member, increment) { // Compute what the balance would be, updating from stipend at tick.
     let tick = this.tick;
@@ -877,14 +890,35 @@ class TokenGroup extends MessageGroup { // Operates on Members
   roundDownToNearest(number, unit = this.divisions) { // Rounds up to nearest whole value of unit.
     return Math.floor(number * unit) / unit;
   }
+  averageVotes(election) { // Return average of all the specified votes.
+    let sum = 0, nVotes = 0;
+    this.members.forEach(member => {
+      if (!member.liveVotes.has(election)) return;
+      nVotes++;
+      sum += member.liveVotes.get(election);
+    });
+    if (nVotes) return sum / nVotes;
+    return sum;
+  }
   voteRate(user, rate) { // FIXME
+  }
+  static xorTagBytesToString(aBytes, bBytes) { // Return base64url of aBytes ^ bBytes
+    const nBytes = 32;
+    const result = new Uint8Array(nBytes);
+    for (let i = 0; i < nBytes; i++) {
+      result[i] = aBytes[i] ^ bBytes[i];
+    }
+    const tag = Credentials.encodeBase64url(result);
+    return tag;
+  }
+  getMemberTag(userTag, userTagBytes = Entity.computeTagBytes(userTag)) { // Return the persistence tag for user within this group.
+    // user.tag XOR group.tag
+    if (userTag === this.tag) return this.tag; // Else it would be all zeros!
+    return this.constructor.xorTagBytesToString(userTagBytes, this.tagBytes);
   }
 }
 
-class VotingGroup extends TokenGroup { // Supports voting for members and monetary policy.
-}
-
-export class FairShareGroup extends VotingGroup { // Application-level group with combined behavior.
+export class FairShareGroup extends TokenGroup { // Application-level group with combined behavior.
 }
 
 // The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".

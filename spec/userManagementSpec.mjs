@@ -1,6 +1,6 @@
 import { Credentials, MutableCollection, VersionedCollection } from '@kilroy-code/flexstore';
 import { Rule } from '@kilroy-code/rules';
-import { User, FairShareGroup, Message } from '../models.mjs';
+import { User, FairShareGroup, Message, Member } from '../models.mjs';
 const { describe, beforeAll, afterAll, it, expect, expectAsync } = globalThis;
 
 Object.assign(globalThis, {User, FairShareGroup, Message, Credentials, MutableCollection, VersionedCollection}); // for debugging in browser
@@ -136,7 +136,7 @@ describe("Model management", function () {
     const bootstrapUserTag = await Credentials.create(); // No user object.
     const bootstrapUser = {tag:bootstrapUserTag}; // We don't need a full-blown User object here, but we do not an object with a tag property.
     bankTag = await Credentials.create(bootstrapUserTag);
-    const bank = new FairShareGroup({title: "First YZ Bank", tag: bankTag}); // Not create, as author isn't a full User.
+    const bank = await new FairShareGroup({title: "First YZ Bank", tag: bankTag}); // Not create, as author isn't a full User.
     // Arrange for it to be findable from tag by User.create():
     FairShareGroup.directory.set(bankTag, bank);
     await bank.persist(bootstrapUser);
@@ -501,14 +501,14 @@ describe("Model management", function () {
       }, timeLimit(1));
     });
 
-    describe("transfer", function () {
+    describe("group operations", function () {
       let alice, bob, apples;
       const p = 'x', a = 'y';
       beforeAll(async function () {
 	alice = await User.create({title: "Alice", secrets: [[p, a]], deviceName, bankTag});
-	bob = await User.create({title: "Bob", secrets: [[p, a]], deviceName, bankTag});
 	apples = await alice.createGroup({title: "Apples"});
 	await expectMember(alice.tag, apples.tag, {userTitle: "Alice", groupTitle: "Apples"});
+	bob = await User.create({title: "Bob", secrets: [[p, a]], deviceName, bankTag});
 	await apples.authorizeUser(bob);
 	await bob.adoptGroup(apples);
 	await expectMember(bob.tag, apples.tag, {userTitle: "Bob", groupTitle: "Apples"});
@@ -520,18 +520,96 @@ describe("Model management", function () {
 	await expectNoKey(bob.tag);
 	await expectNoKey(apples.tag);
       });
+      describe("rate", function () {
+	let initialRate;
+	beforeAll(function () {
+	  apples.rate = undefined; // reset from transfer tests.
+	  initialRate = apples.rate; // Before bob or alice have cast a vote
+	});
+	it("is zero with no votes.", function () {
+	  expect(initialRate).toBe(0);
+	});
+	it("reflects vote changes.", function () {
+	  apples.setVote(alice, 'rate', 0.01);
+	  expect(apples.rate).toBe(0.01);
+	  apples.setVote(bob, 'rate', 0.03);
+	  expect(apples.rate).toBe(0.02);
+	  apples.setVote(bob, 'rate', 0.07);
+	  expect(apples.rate).toBe(0.04);
+	});
+	it("reflect user changes.", async function () {
+	  apples.setVote(alice, 'rate', 0.01);
+	  apples.setVote(bob, 'rate', 0.03);	  
+
+	  const carol = await User.create({title: "Carol", secrets: [[p, a]], deviceName, bankTag});
+	  await apples.authorizeUser(carol);
+	  await carol.adoptGroup(apples);
+	  apples.setVote(carol, 'rate', 0.05);
+	  expect(apples.rate).toBe(0.03);
+
+	  // console.log('PERSIST APPLES');
+	  // await apples.persist(alice, apples, true);
+	  // console.log('PERSISTED APPLES');
+	  // apples.members.forEach(member => Member.directory.delete(member.tag));
+	  // FairShareGroup.directory.delete(apples.tag);
+	  // apples = await FairShareGroup.fetch(apples.tag, alice);
+	  // expect(apples.rate).toBe(0.03);	  
+
+	  await carol.abandonGroup(apples);
+	  await apples.deauthorizeUser(carol);
+	  expect(apples.rate).toBe(0.02);
+
+	  apples.setVote(bob, 'rate', undefined);
+	  await carol.destroy({prompt: p, answer: a});
+	});
+      });
+      describe("stipend", function () {
+	let initialStipend;
+	beforeAll(function () {
+	  apples.stipend = undefined; // reset from transfer tests.
+	  initialStipend = apples.stipend; // Before bob or alice have cast a vote
+	});
+	it("is zero with no votes.", function () {
+	  expect(initialStipend).toBe(0);
+	});
+	it("reflects vote changes.", function () {
+	  apples.setVote(alice, 'stipend', 0.01);
+	  expect(apples.stipend).toBe(0.01);
+	  apples.setVote(bob, 'stipend', 0.03);
+	  expect(apples.stipend).toBe(0.02);
+	  apples.setVote(bob, 'stipend', 0.07);
+	  expect(apples.stipend).toBe(0.04);
+	});
+	it("reflect user changes.", async function () {
+	  apples.setVote(alice, 'stipend', 0.01);
+	  apples.setVote(bob, 'stipend', 0.03);	  
+
+	  const carol = await User.create({title: "Carol", secrets: [[p, a]], deviceName, bankTag});
+	  await apples.authorizeUser(carol);
+	  await carol.adoptGroup(apples);
+	  apples.setVote(carol, 'stipend', 0.05);
+	  expect(apples.stipend).toBe(0.03);
+
+	  await carol.abandonGroup(apples);
+	  await apples.deauthorizeUser(carol);
+	  expect(apples.stipend).toBe(0.02);
+
+	  apples.setVote(bob, 'stipend', undefined);
+	  await carol.destroy({prompt: p, answer: a});
+	});
+      });      
       // TODO: burn to same group
       // TODO: mint from same group
       // TODO: to member of another group
-      describe("between members", function () {
+      describe("transfer between members", function () {
 	beforeAll(async function () {
-	  apples.sender = await apples.ensureMember(alice, alice);
-	  apples.receiver = await apples.ensureMember(bob, alice);
+	  apples.setSender(alice);
+	  apples.setReceiver(bob);
 	  apples.amount = 1;
 	  const now = Date.now();
 	  apples.tick = now + FairShareGroup.MILLISECONDS_PER_DAY;
 	});
-	it("zero rate & stipend.", function () {
+	it("zero stipend & stipend.", function () {
 	  apples.rate = apples.stipend = 0;
 	  expect(apples.senderBalance).toBe(-1);
 	  expect(apples.receiverBalance).toBe(1);
