@@ -77,7 +77,7 @@ describe("Model management", function () {
       if (groupTitle === null) {
 	expect(groupData).toBeFalsy();
       } else {
-	const {kid:ukid, iss:uowner = ukid, act:uauthor = ukid} = groupData.protectedHeader;
+	const {kid:ukid, iss:uowner = ukid, act:uauthor = ukid} = groupData.protectedHeader || {};
 	expect(uowner || ukid).toBe(groupTag);                   // Signed by the group itself (ISSuer).
 	if (groupActor) expect(uauthor).toBe(groupActor);                 // Signed by a then-current member (ACTor).
 	if (groupTitle) {
@@ -85,7 +85,7 @@ describe("Model management", function () {
 	  expect(group.title).toBe(groupTitle);
 	}
       }
-      const {kid:vkid, iss:vowner = vkid, act:vauthor = vkid} = groupPrivateData.protectedHeader;
+      const {kid:vkid, iss:vowner = vkid, act:vauthor = vkid} = groupPrivateData.protectedHeader || {};
       expect(vowner || vkid).toBe(groupTag);
       if (groupActor) expect(vauthor).toBe(groupActor);
       expect(groupPrivateData.protectedHeader.cty).toContain('encrypted');

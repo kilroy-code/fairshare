@@ -264,7 +264,7 @@ export class Persistable {
     // Persist as specified, promising the verified data.
     const tag = await this.persistProperties(propertyNames, collection, persistOptions);
     // TODO: Modify Flexstore to allow the client to capture this, rather than having to regenerate it.
-    return await collection.retrieve(tag);
+    return tag ? await collection.retrieve(tag) : '';
   }
   async persistProperties(propertyNames = this.constructor.persistedProperties, collection = this.constructor.collection, persistOptions = this.persistOptions)  {
     // Saves the specified data, and side-effects tag IFF it wasn't already known.
@@ -652,16 +652,16 @@ export class Group extends Entity {
 
     // IWBNI changeMembership removed duplicates
     const existing = await Credentials.teamMembers(this.tag);
-    if (existing.includes(candidate.tag)) return null;
+    if (existing.includes(candidate.tag)) return;
 
-    return await Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
+    await Credentials.changeMembership({tag: this.tag, add: [candidate.tag]});
   }
   async deauthorizeUser(user, author = user) {
     // Used by any team member (including the user) to remove user from the key set AND the group.
     // PERSISTS Group then Credential
     // Does NOT change the user's data.
-    await this.edit({users: this.users.filter(tag => tag !== user.tag)}, author);
     await Credentials.changeMembership({tag: this.tag, remove: [user.tag]});
+    await this.edit({users: this.users.filter(tag => tag !== user.tag)}, author);
   }
 
   get title() { // A string by which the group is known.
@@ -669,7 +669,9 @@ export class Group extends Entity {
     return Promise.all(this.users.map(tag => User.fetch(tag).then(user => user.shortName)))
       .then(shorts => shorts.join(', '));
   }
-  get users() { // A list of tags. TODO: compute from keyset recipients and don't persist? And thus no private data?
+  get users() { // A list of tags.
+    // The list could be computed as Credentials.teamMembers(this.tag), and then not persisted separately.
+    // However, credentials membership is not a tracked rule, and we wouldn't know if of change from adoptBy(user)/deauthorizedUser(user).
     return [];
   }
 
@@ -743,11 +745,6 @@ export class Member extends Record { // Persists current/historical data for a u
 }
 
 // TODO:
-// - ensure each member for in-memory groups (e.g., only if one of our users is a member).
-//   Add / remove when membership changes.
-//   This is because...
-// - rate and stipend should be a live average of member votes (skipping undefined votes)
-// - Can we derive users from team now? (How does that work for personal group?)
 // - vote to admit/expell member
 // - connect messages with actions, bidirectionally, based on message type
 //   examples:
@@ -764,7 +761,8 @@ export class Member extends Record { // Persists current/historical data for a u
 class TokenGroup extends MessageGroup { // Operates on Members
   constructor(rest = {}) { // Add all Members. We can return a promise because every path to here runs through `await SomeClass.ensure(...)`.
     super(rest);
-    return Promise.all(this.users.map(async userTag => {
+    let users = this.users;
+    return Promise.all(users.map(async userTag => {
       const memberTag = this.getMemberTag(userTag);
       const member = await Member.fetch(memberTag, true);
       Member.assign(member, {user: await User.fetch(userTag), group: this});
