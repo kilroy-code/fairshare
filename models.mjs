@@ -491,8 +491,7 @@ export class User extends Entity {
     await this.preConfirmOwnership({prompt, answer});
 
     // Leave every group that we are a member of.
-    for (let groupTag of this.groups) {
-      // TODO: why does this have to be done in order (for-of, rather than parallel Promise.all/map)?
+    await Promise.all(this.groups.map(async groupTag => {
       const group = await FairShareGroup.fetch(groupTag);
       if ((group.users.length === 1) && (group.users[0] === this.tag)) { // last memember of group
 	await this.destroyGroup(group);
@@ -500,7 +499,7 @@ export class User extends Entity {
 	await this.abandonGroup(group);
 	await group.deauthorizeUser(this);
       }
-    }
+    }));
 
     // Get rid of User data from collections and LiveSets.
     await super.destroy({author, owner});
@@ -643,7 +642,6 @@ export class Group extends Entity {
     await Credentials.destroy(tag);
   }
   async adoptBy(user) {
-    // TODO: users should come from teamMembers. No reason for additional property. That MIGHT result in no privatGroup data at all.
     await this.edit({users: [...this.users , user.tag]}, user);
   }
   async authorizeUser(candidate) {
@@ -671,7 +669,7 @@ export class Group extends Entity {
     return Promise.all(this.users.map(tag => User.fetch(tag).then(user => user.shortName)))
       .then(shorts => shorts.join(', '));
   }
-  get users() { // A list of tags. TODO: compute from keyset recipients and don't persist? 
+  get users() { // A list of tags. TODO: compute from keyset recipients and don't persist? And thus no private data?
     return [];
   }
 
@@ -868,7 +866,6 @@ class TokenGroup extends MessageGroup { // Operates on Members
     return 100;
   }
 
-  static persistedProperties = ['users'];
   members = new LiveSet();
   static MILLISECONDS_PER_DAY = 1e3 * 60 * 60 * 24;
   computeUpdatedBalance(member, increment) { // Compute what the balance would be, updating from stipend at tick.
