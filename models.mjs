@@ -147,9 +147,8 @@ export class Persistable {
   async destroy({author, owner} = {}) { // Remove item from collection, with the specified credentials if specified (else from properties).
     // TODO: use same positional arguments as maybeUpdateAuthor().
     // TODO?: shouldn't this be leaving a tombstone??
+    this.maybeUpdateAuthor(author, owner); // before demanding persistOptions.
     const options = {...await this.persistOptions, tag: this.tag};
-    if (author) options.author = author.tag;
-    if (owner) options.owner = owner.tag;
     const {collection, listingCollection} = this.constructor;
     await collection.remove(options);
     await listingCollection.remove?.(options);
@@ -427,7 +426,12 @@ export class History extends Enumerated {
 ////////////////////////////////
 
 export class Entity extends Enumerated { // A top level User or Group in FairShare
-  get picture() { return ''; } // A media tag, or empty to use identicon.
+  get picture() { // A media tag, or empty to use identicon.
+    return '';
+  }
+  get owner() { // Users and Groups are owned by themselves.
+    return this;
+  }
   get tagBytes() { // The tag as Uint8Array(32). Used with xor to compute memberTag.
     return this.constructor.computeTagBytes(this.tag);
   }
@@ -445,6 +449,16 @@ export class Entity extends Enumerated { // A top level User or Group in FairSha
   static listingProperties = ['picture', 'title'];
   static encrypt = true;
 }
+
+export class Record extends History { // A subsidiary historical record owned, e.g, by a Group (e.g., Message or Member)
+  get owner() { // If signed with an iss or group specified, it is a group. Else a user.
+    const {iss, group, act, individual, kid} = this.verified.protectedHeader;
+    const groupTag = iss || group;
+    if (groupTag) return FairShareGroup.fetch(groupTag);
+    return User.fetch(individual || act || kid);
+  }
+}
+
 
 // Your own personas have non-empty devices on which it is authorized and groups to which it belongs.
 // All users have title, picture, and interestingly, a map of secret prompt => hash of answer, so that you can authorize additional personas on the current device.
@@ -551,16 +565,14 @@ export class User extends Entity {
     await Credentials.changeMembership({tag, remove: [deviceTag]}); // Remove device key tag from user team.
     await Credentials.destroy(deviceTag)  // Might be remote: try to destroy device key, and swallow error.
       .catch(() => console.warn(`${this.title} device key set ${deviceTag} on ${deviceName} is not available from here.`));
-    // fixme await this.abandonByTag(tag);
     return deviceTag; // Facilitates testing.
   }
   createGroup(properties) { // Promise a new group with this user as member
     return FairShareGroup.create({author: this, ...properties});
   }
   destroyGroup(group) { // Promise to destroy group that we are the last member of
-    return group.destroy(this);
+    return group.destroy({author: this});
   }
-  static latch = 0; // fixme
   async adoptGroup(group) {
     // Used by a previously authorized user to add themselves to a group,
     // changing both the group data and the user's own list of groups.
@@ -589,9 +601,7 @@ export class User extends Entity {
   get groups() { return []; }  // Tags of the groups this user has joined.
   get bankTag() { return ''; } // Tag of the group that is used to access the reserve currency. (An element of groups.)
   get secrets() { return {}; } // So that we know what to prompt when authorizing, and can preConfirmOwnership.
-  get shortName() { return this.title.split(/\s/).map(word => (word[0] || '-').toUpperCase()).join('.') + '.'; }
-  get owner() { return this; } // User is its own owner.
-  
+  get shortName() { return this.title.split(/\s/).map(word => (word[0] || '-').toUpperCase()).join('.') + '.'; }  
   
   static listingProperties = ['picture', 'secrets', 'title'];
   static persistedProperties = ['bankTag', 'devices', 'groups'];
@@ -622,13 +632,13 @@ export class Group extends Entity {
     await author.adoptGroup(group);
     return group;
   }
-  async destroy(author) {
+  async destroy({author, owner}) {
     // Used by last group member to destroy a group.
     // PERSISTS User, then Group, then Credential
     // TODO? Check that we are last?
     const {tag} = this;
     await author.abandonGroup(this);
-    await super.destroy({author});
+    await super.destroy({author, owner});
     if (tag === author.tag) return; // If a personal group that shares credentials with author, we're done.
     await Credentials.destroy(tag);
   }
@@ -664,27 +674,18 @@ export class Group extends Entity {
   get users() { // A list of tags. TODO: compute from keyset recipients and don't persist? 
     return [];
   }
-  get owner() { // Group data is owned by the group.
-    return this;
-  }
 
   static collectionType = VersionedCollection;
   static persistedProperties = ['users'];
 }
 
-export class Message extends History {
+export class Message extends Record {
   // Has additional properties author, timestamp, and type, which are currently unencrypted in the header. (We may encrypt author tag.)
   // A lightweight immutable object, belonging to a group.
 
   // If not specified at construction, these are pulled from the verified persisted data - which better be assigned!
   get type() { // If a special mt (Message Type) was specified to indicate an action, use it. Otherwse a text message.
     return this.verified.protectedHeader.mt || 'text';
-  }
-  get owner() { // If signed with an iss or group specified, it is a group. Else a user.
-    const {iss, group, act, individual, kid} = this.verified.protectedHeader;
-    const groupTag = iss || group;
-    if (groupTag) return FairShareGroup.fetch(groupTag);
-    return User.fetch(individual || act || kid);
   }
   get author() { // Who send (signed) the message.
     const {act, kid} = this.verified.protectedHeader;
@@ -712,16 +713,16 @@ class MessageGroup extends Group { // Supports a history of messages.
     return verified;
   }
   // todo: update messages with new entries. test.
-  async destroy(author) {
+  async destroy({author, owner}) {
     // PERSISTS Messages, then User, then Group, then Credential
     const {tag} = this;
     await Message.collection.remove({tag, owner: tag, author: author.tag});
     Message.directory.delete(tag);
-    await super.destroy(author);
+    await super.destroy({author, owner});
   }
 }
 
-export class Member extends History { // Persists current/historical data for a user within a group.
+export class Member extends Record { // Persists current/historical data for a user within a group.
   constructor(properties) {
     super(properties);
     this.liveVotes = new LiveSet(this.votes);
@@ -737,7 +738,6 @@ export class Member extends History { // Persists current/historical data for a 
   }
   get title() { return this.user.title; } // TODO: remove. Makes for easier debugging, but wasteful of space.
   async persist(author, owner) {
-    if (!owner?.tag && !this.owner?.tag) console.log(`persist with author ${author?.title}/${this.author?.title}, owner ${owner?.title}/${this.owner?.title}, user: ${this.user?.title}`);
     return super.persist(author, owner);
   }
 
@@ -787,10 +787,10 @@ class TokenGroup extends MessageGroup { // Operates on Members
     await member.destroy({author, owner: this});
     await super.deauthorizeUser(user, author);
   }
-  async destroy(author) {
+  async destroy({author, owner}) {
     // No need to remove entry from this.members because we are destroying the whole Group.
     await Promise.all(this.users.map(userTag => this.members.get(userTag).destroy({author, owner: this})));
-    await super.destroy(author);
+    await super.destroy({author, owner});
   }
   setSender(user) { // Set transaction sender as specified, so that dependencies update.
     this.sender = user ? this.members.get(user.tag) : null;
@@ -825,16 +825,11 @@ class TokenGroup extends MessageGroup { // Operates on Members
     await Promise.all(promises);
   }
 
-  async persist(authorx, ownerx, fixme) { // Also persist members
-    const {author, owner, title} = this;
-    //console.log('persiting', {title: await title, author: author.title, owner: await owner.title, authorx: authorx?.title, ownerx: ownerx?.title});
-    //if (fixme)
-    await Promise.all(this.members.map(member => { console.log('persist member', member); return member.persist(authorx, ownerx); }));
-    //console.log('members persisted');
-    const xx = await super.persist(authorx, ownerx);
-    //if (fixme)
-    //console.log('persisted', {title, author: author.title, owner: owner.title, authorx: authorx?.title, ownerx: ownerx?.title});
-    return xx;
+  async persist(author, owner = this) { // Also persist members
+    await Promise.all(this.members.map(member => {
+      return member.persist(author, owner);
+    }));
+    return await super.persist(author, owner);
   }
   get rate() { // The tax rate charged by this Group, that goes to burned fee.
     return this.averageVotes('rate');
@@ -923,4 +918,4 @@ export class FairShareGroup extends TokenGroup { // Application-level group with
 
 // The default properties to be rullified are "any an all getters, if any, otherwise <something-ugly>".
 // As it happens, each of these three defines at least one getter.
-[Entity, User, Message, Group, Member, TokenGroup].forEach(kind => Rule.rulify(kind.prototype));
+[Entity, User, Group, TokenGroup, Record, Message, Member ].forEach(kind => Rule.rulify(kind.prototype));

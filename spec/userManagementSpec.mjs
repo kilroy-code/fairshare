@@ -539,26 +539,30 @@ describe("Model management", function () {
 	});
 	it("reflect user changes.", async function () {
 	  apples.setVote(alice, 'rate', 0.01);
-	  apples.setVote(bob, 'rate', 0.03);	  
+	  apples.setVote(bob, 'rate', 0.03);
+	  expect(apples.rate).toBe(0.02);
 
+	  // Adding another user who has a rate.
 	  const carol = await User.create({title: "Carol", secrets: [[p, a]], deviceName, bankTag});
 	  await apples.authorizeUser(carol);
 	  await carol.adoptGroup(apples);
+	  expect(apples.rate).toBe(0.02); // As before, because Carol hasn't voted yet.
 	  apples.setVote(carol, 'rate', 0.05);
-	  expect(apples.rate).toBe(0.03);
+	  expect(apples.rate).toBe(0.03); // Reflective of Carol's vote.
 
-	  // console.log('PERSIST APPLES');
-	  // await apples.persist(alice, apples, true);
-	  // console.log('PERSISTED APPLES');
-	  // apples.members.forEach(member => Member.directory.delete(member.tag));
-	  // FairShareGroup.directory.delete(apples.tag);
-	  // apples = await FairShareGroup.fetch(apples.tag, alice);
-	  // expect(apples.rate).toBe(0.03);	  
+	  // Set up as if we were fetching fresh.
+	  await apples.persist(alice, apples, true);
+	  apples.members.forEach(member => Member.directory.delete(member.tag));
+	  FairShareGroup.directory.delete(apples.tag);
+	  apples = await FairShareGroup.fetch(apples.tag, alice);
+	  expect(apples.rate).toBe(0.03); // All votes.
 
+	  // If Carol leaves group, rate recomputes.
 	  await carol.abandonGroup(apples);
 	  await apples.deauthorizeUser(carol);
-	  expect(apples.rate).toBe(0.02);
+	  expect(apples.rate).toBe(0.02); // Carols vote is not included.
 
+	  // Get back to common state from before this test.
 	  apples.setVote(bob, 'rate', undefined);
 	  await carol.destroy({prompt: p, answer: a});
 	});
@@ -582,18 +586,30 @@ describe("Model management", function () {
 	});
 	it("reflect user changes.", async function () {
 	  apples.setVote(alice, 'stipend', 0.01);
-	  apples.setVote(bob, 'stipend', 0.03);	  
+	  apples.setVote(bob, 'stipend', 0.03);
+	  expect(apples.stipend).toBe(0.02);
 
+	  // Adding another user who has a stipend.
 	  const carol = await User.create({title: "Carol", secrets: [[p, a]], deviceName, bankTag});
 	  await apples.authorizeUser(carol);
 	  await carol.adoptGroup(apples);
+	  expect(apples.stipend).toBe(0.02); // As before, because Carol hasn't voted yet.
 	  apples.setVote(carol, 'stipend', 0.05);
-	  expect(apples.stipend).toBe(0.03);
+	  expect(apples.stipend).toBe(0.03); // Reflective of Carol's vote.
 
+	  // Set up as if we were fetching fresh.
+	  await apples.persist(alice, apples, true);
+	  apples.members.forEach(member => Member.directory.delete(member.tag));
+	  FairShareGroup.directory.delete(apples.tag);
+	  apples = await FairShareGroup.fetch(apples.tag, alice);
+	  expect(apples.stipend).toBe(0.03); // All votes.
+
+	  // If Carol leaves group, stipend recomputes.
 	  await carol.abandonGroup(apples);
 	  await apples.deauthorizeUser(carol);
-	  expect(apples.stipend).toBe(0.02);
+	  expect(apples.stipend).toBe(0.02); // Carols vote is not included.
 
+	  // Get back to common state from before this test.
 	  apples.setVote(bob, 'stipend', undefined);
 	  await carol.destroy({prompt: p, answer: a});
 	});
