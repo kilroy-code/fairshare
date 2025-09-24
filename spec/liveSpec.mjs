@@ -35,14 +35,14 @@ describe("LiveSet", function () {
   });
   it('has tracks by set and delete.', function () {
     expect(initiallyHasA).toBeFalsy();
-    referencer.live.set('a', 42);
+    referencer.live.set('a', false);
     expect(referencer.hasA).toBeTruthy();
     referencer.live.delete('a');
     expect(referencer.hasA).toBeFalsy();
     referencer.live.set('a', new Titled());
     expect(referencer.hasA).toBeTruthy();    
   });
-  it("get/at tracks keys by set().", function () {
+  it("get tracks keys by set().", function () {
     referencer.live.set('a', new Titled());
     // expect(referencer.title0).toBe('x');
     expect(referencer.titleA).toBe('x');    
@@ -54,7 +54,7 @@ describe("LiveSet", function () {
     expect(referencer.titleA).toBe('x');
     // expect(referencer.title0).toBe('x');
   });
-  it("get/at tracks keys that are nulled.", function () {
+  it("get tracks keys that are nulled.", function () {
     referencer.live.set('a', new Titled());
     expect(referencer.titleA).toBe('x');
     // expect(referencer.title0).toBe('x');    

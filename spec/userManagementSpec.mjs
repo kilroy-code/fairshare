@@ -508,10 +508,13 @@ describe("Model management", function () {
 	alice = await User.create({title: "Alice", secrets: [[p, a]], deviceName, bankTag});
 	apples = await alice.createGroup({title: "Apples"});
 	await expectMember(alice.tag, apples.tag, {userTitle: "Alice", groupTitle: "Apples"});
+	expect(apples.members.size).toBe(1);
 	bob = await User.create({title: "Bob", secrets: [[p, a]], deviceName, bankTag});
+	expect(apples.members.size).toBe(1); // still	
 	await apples.authorizeUser(bob);
 	await bob.adoptGroup(apples);
 	await expectMember(bob.tag, apples.tag, {userTitle: "Bob", groupTitle: "Apples"});
+	expect(apples.members.size).toBe(2);
       }, timeLimit(3));
       afterAll(async function () {
 	await alice.destroy({prompt: p, answer: a});
@@ -561,6 +564,7 @@ describe("Model management", function () {
 	  await carol.abandonGroup(apples);
 	  await apples.deauthorizeUser(carol);
 	  expect(apples.rate).toBe(0.02); // Carols vote is not included.
+	  expect(apples.members.size).toBe(2); // No more Carol.
 
 	  // Get back to common state from before this test.
 	  apples.setVote(bob, 'rate', undefined);
@@ -613,7 +617,54 @@ describe("Model management", function () {
 	  apples.setVote(bob, 'stipend', undefined);
 	  await carol.destroy({prompt: p, answer: a});
 	});
-      });      
+      });
+      describe("membership voting", function () {
+	let candidate;
+	beforeAll(async function () {
+	  await expectMember(bob.tag, apples.tag, {userTitle: "Bob", groupTitle: "Apples", groupActor: null});
+	  expect(apples.members.size).toBe(2); // Alice and Bob
+	  candidate = await User.create({title: "Carol", secrets: [[p, a]], deviceName, bankTag});
+	  await expectMember(candidate.tag, apples.tag, {userTitle: "Carol", groupTitle: "Apples", isMember: false, groupActor: null});
+	});
+	afterAll(async function () {
+	  await candidate.destroy({prompt: p, answer: a});
+	  await expectMember(candidate.tag, apples.tag, {expectUserData: false, groupTitle: "Apples", isMember: false, groupActor: null});
+	});
+	it("admits when threshold is exceeded.", async function () {
+	  if (apples.users.includes(candidate.tag)) { // Depending on execution order of next test.
+	    await candidate.abandonGroup(apples);
+	    await apples.deauthorizeUser(candidate);
+	  }
+	  await expectMember(candidate.tag, apples.tag, {userTitle: 'Carol', groupTitle: "Apples", isMember: false, groupActor: null});	    
+	  
+	  expect(await apples.setVote(alice, candidate.tag, true)).toBe(null); // No quorum yet. (Exactly 50% of members voted.)
+	  expect(await apples.setVote(bob, candidate.tag, false)).toBe(false); // Quorum exceed, but election failed. (Exactly 50% of vote.)
+	  expect(await Credentials.teamMembers(apples.tag)).not.toContain(candidate.tag);
+
+	  expect(await apples.setVote(alice, candidate.tag, true)).toBe(null); // New vote. No quorum yet.
+	  expect(await apples.setVote(bob, candidate.tag, true)).toBe(true); // Quorum exceed, and election succeeded. (More than 50% of vote.)k
+	  expect(await Credentials.teamMembers(apples.tag)).toContain(candidate.tag);
+	  await candidate.adoptGroup(apples);
+	  await expectMember(candidate.tag, apples.tag, {userTitle: 'Carol', groupTitle: "Apples", isMember: true});
+	});
+	it("ejects when threshold is exceeded.", async function () {
+	  if (!apples.users.includes(candidate.tag)) { // Depending on execution order of next test.
+	    await apples.authorizeUser(candidate);
+	    await candidate.adoptGroup(apples);
+	  }
+	  await expectMember(candidate.tag, apples.tag, {userTitle: 'Carol', groupTitle: "Apples", isMember: true, groupActor: null});
+	  
+	  expect(await apples.setVote(alice, candidate.tag, true)).toBe(null); // No quorum yet. (Exactly 50% of members voted.)
+	  expect(await apples.setVote(bob, candidate.tag, false)).toBe(false); // Quorum exceed, but election failed. (Exactly 50% of vote.)
+	  expect(await Credentials.teamMembers(apples.tag)).toContain(candidate.tag);
+
+	  expect(await apples.setVote(alice, candidate.tag, true)).toBe(null); // New vote. No quorum yet.
+	  expect(await apples.setVote(bob, candidate.tag, true)).toBe(true); // Quorum exceed, and election succeeded. (More than 50% of vote.)k
+	  expect(await Credentials.teamMembers(apples.tag)).not.toContain(candidate.tag);
+	  await candidate.abandonGroup(apples);
+	  await expectMember(candidate.tag, apples.tag, {userTitle: 'Carol', groupTitle: "Apples", isMember: false, groupActor: null});
+	});
+      });
       // TODO: burn to same group
       // TODO: mint from same group
       // TODO: to member of another group

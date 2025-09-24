@@ -25,7 +25,7 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
   items = {};
   get size() { // Tracked rule that lazilly caches on demand after one or more set/delete.
     let count = 0;
-    for (const value of Object.values(this.items)) value && count++; // Thar be nulls.
+    for (const value of Object.values(this.items)) (value !== null) && count++; // Thar be nulls for deletion. Don't count them.
     return count;
   }
   // We do not currently support length/at(), as these would need to managed deleted items.
@@ -59,14 +59,15 @@ export class LiveSet { // A Rules-based cross between a Map and an Array. It is 
     const {items, size} = this;
     return size && (key in items) && items[key] !== null;
   }
-  get(key) {
+  get(key, debug) {
     const {items, size} = this;
     return size && items[key];
   }
-  set(key, item) {
-    let {items} = this;
+  set(key, item, debug) {
+    const {items} = this;
+    const has = key in items;
     this.size = undefined;
-    if (key in items) {
+    if (has) {
       items[key] = item;
     } else {
       Rule.attach(items, key, item); // If we deleted (see comment below), we would need to additionally pass {configurable: true})
@@ -732,8 +733,9 @@ export class Member extends Record { // Persists current/historical data for a u
   get votes() { return {}; }  // A serialization of liveVotes. Just for persistence.
   get user() { return null; } // Assigned, and used for debugging. (Note that author is for persisting a transaction.)
   get verifiedMain() { // Also copy liveVotes into votes dictionary for persistence.
-    const { votes } = this;
+    const votes = {}; // Start clean.
     this.liveVotes.forEach((value, key) => votes[key] = value);
+    this.votes = votes;
     return super.__verifiedMain();
   }
   get title() { return this.user.title; } // TODO: remove. Makes for easier debugging, but wasteful of space.
@@ -745,7 +747,6 @@ export class Member extends Record { // Persists current/historical data for a u
 }
 
 // TODO:
-// - vote to admit/expell member
 // - connect messages with actions, bidirectionally, based on message type
 //   examples:
 //     /pay 10 @bob (by alice)
@@ -794,10 +795,27 @@ class TokenGroup extends MessageGroup { // Operates on Members
   setReceiver(user) { // Set transaction receiver as specified, so that dependencies update.
     this.receiver = user ? this.members.get(user.tag) : null;
   }
-  setVote(user, election, vote) { // Set the given users vote as specified for the given election. A vote of undefined indicates abstention.
+  async setVote(user, election, vote) { // Set the given users vote as specified for the given election. A vote of undefined indicates abstention.
+    // FIXME: persist vote
     const live = this.members.get(user.tag).liveVotes;
-    if (vote === undefined) live.delete(election);
-    else live.set(election, vote);
+    if (vote === undefined) { live.delete(election); return null; }
+    live.set(election, vote, true);
+    if (['rate', 'stipend'].includes(election)) return true;
+    // Specific to membership elections:
+    const result = this.quorum(election);
+    if (result === null) return null; // No quorum.
+    // Send message (fixme), and (de-)authorized if appropriate.
+    if (result) {
+      const candidate = await User.fetch(election, user);
+      const isMember = this.users.includes(election);
+      // TODO: What happens if someone is admitted, and then never adopts? Could a group get scrod if they come in later? Should the authorization time out?
+      if (isMember) {
+	await this.deauthorizeUser(candidate, user);
+      } else {
+	await this.authorizeUser(candidate, user);
+      }
+    }
+    return result;
   }
 
   // To transfer, assign sender, receiver, tick, and amount -- fee, costs, senderBalance, receiverBalance will update automatically.
@@ -890,7 +908,21 @@ class TokenGroup extends MessageGroup { // Operates on Members
     if (nVotes) return sum / nVotes;
     return sum;
   }
-  voteRate(user, rate) { // FIXME
+  quorum(election, threshold = 0.5) { // Return null if total election votes is not greater than threshold, else boolean for whether election was won.
+    let count = 0, approve = 0;
+    const { members } = this;
+    const required = members.size * threshold;
+    members.forEach(member => {
+      const title = member.title,
+	    hasVote = member.liveVotes.has(election),
+	    vote = member.liveVotes.get(election);
+      if (!hasVote) return;
+      if (vote) approve++;
+      count++;
+    });
+    if (count <= required) return null;
+    members.forEach(member => member.liveVotes.delete(election)); // Clear the vote.
+    return approve > (count - approve);
   }
   static xorTagBytesToString(aBytes, bBytes) { // Return base64url of aBytes ^ bBytes
     const nBytes = 32;
