@@ -269,7 +269,7 @@ Rule.rulify(Group.prototype);
 const usersPublic   = new MutableCollection(  {name: 'social.fairshare.users.public'});
 const usersPrivate  = new MutableCollection(  {name: 'social.fairshare.users.private'});
 const groupsPublic  = new MutableCollection(  {name: 'social.fairshare.groups.public'});
-const groupsPrivate = new VersionedCollection({name: 'social.fairshare.groups.private'});
+const groupsPrivate = new MutableCollection(  {name: 'social.fairshare.groups.private'});
 const messages = new VersionedCollection({name: 'social.fairshare.messages'});
 const media         = new ImmutableCollection({name: 'social.fairshare.media'});
 
@@ -302,7 +302,7 @@ groupsPublic.onupdate = addUnknown('groupCollection');
 groupsPrivate.onupdate = addUnknown('groupCollection');
 messages.versions.onupdate = ({detail}) => FairshareChatInput.instance.onupdate(detail);
 
-const appCollections = [usersPublic, usersPrivate, groupsPublic, groupsPrivate, groupsPrivate.versions, messages, messages.versions, media];
+const appCollections = [usersPublic, usersPrivate, groupsPublic, groupsPrivate, messages, messages.versions, media];
 const collections = Object.values(Credentials.collections).concat(appCollections);
 Object.assign(globalThis, {SharedWebRTC, Credentials, MutableCollection, Collection, Synchronizer, StorageLocal,
 			   groupsPublic, groupsPrivate, usersPublic, usersPrivate, messages, media,

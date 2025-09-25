@@ -750,11 +750,11 @@ export class Member extends Record { // Persists current/historical data for a u
 // - connect messages with actions, bidirectionally, based on message type
 //   examples:
 //     /pay 10 @bob (by alice)
-//     /rate 0.1 (by bob) => New rate 0.13
-//     /admit @carol (by bob) => send /welcome Apples in carol's personal group
-//     /expel @bob  (by alice) => send /goodbye Apples in bob's personal group
+//     /vote 0.1 #rate (by bob) => New rate 0.13
+//     /vote #admit @carol  (by bob) => send /welcome Apples in carol's personal group
+//     /vote  #expel @bob (by alice) => send /goodbye Apples in bob's personal group
 //   - A message localAction is method that assigns to rules within the group, and other rules update accordingly.
-//   - When a Message update is earlier than the local latest, we set the Group and Members to the timestamp of the antecedent of the new message.
+//   - When a Message update is earlier than the local latest, we set the group' members to the timestamp of the antecedent of the new message.
 //     And then we act on all the later messages as if we were receiving them as updates.
 //   - Regardless of what came before acting on an update OR sending a message causes the message action to fire.
 //   - A message externalAction is a method that should only be fired once in a local send (after any localAction is fired), to execute any latched behavior.
